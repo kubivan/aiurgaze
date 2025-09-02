@@ -1,0 +1,10 @@
+[package]
+name = "sc2view"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+#bevy = { version = "0.14", features = ["dynamic"] }
+#bevy_egui = "0.28"
+bevy = "0.14"
+bevy_egui = "0.28"
