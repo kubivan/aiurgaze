@@ -1,3 +1,7 @@
+mod build;
+mod proxy;
+mod render;
+
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, egui};

@@ -1,10 +1,33 @@
 [package]
 name = "sc2view"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
 
 [dependencies]
-#bevy = { version = "0.14", features = ["dynamic"] }
-#bevy_egui = "0.28"
-bevy = "0.14"
-bevy_egui = "0.28"
+# --- Runtime / async / gRPC ---
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
+tonic = { version = "0.12", features = ["gzip"] }
+prost = "0.13"
+prost-types = "0.13"
+bytes = "1"
+
+
+# --- Rendering / UI ---
+bevy = { version = "0.16.1"}
+bevy_egui = "0.36.0"
+
+
+# --- Concurrency / Utils ---
+crossbeam-channel = "0.5"
+thiserror = "1"
+
+
+[build-dependencies]
+tonic-build = "0.12"
+prost-build = "0.13"
+
+
+[features]
+# Build with `--features use-wasm-view` if ever embedding to a webview later
+use-wasm-view = []
