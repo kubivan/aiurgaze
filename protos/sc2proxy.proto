@@ -1,0 +1,11 @@
+syntax = "proto2";
+
+package SC2APIProtocol;
+
+import "s2clientprotocol/sc2api.proto";
+
+// This is the proxy service between the bot and SC2.
+service Sc2Proxy {
+  rpc SendJoinRequest (SC2APIProtocol.Request) returns (SC2APIProtocol.Response);
+  rpc SendStepRequest (SC2APIProtocol.Request) returns (SC2APIProtocol.Response);
+}

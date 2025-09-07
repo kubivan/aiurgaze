@@ -1,91 +1,124 @@
+// src/render.rs
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use crossbeam_channel::Receiver;
+use bevy::ui::prelude::*;
+use bevy::sprite::*;
+//use bevy_egui::egui::Style;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-// === Messages from proxy to renderer ===
-#[derive(Debug, Clone)]
-pub enum ProxyToRenderMsg {
-    MapLayers(MapLayers),
-    Units(Vec<UnitMarker>),
-}
+use crate::proxy::ProxyEvent;
 
-
-#[derive(Debug, Clone)]
-pub struct MapLayers {
-    pub width: u32,
-    pub height: u32,
-    /// Unpacked bytes (0/1) per cell
-    pub pathing: Vec<u8>,
-    pub placement: Vec<u8>,
-}
-
-
-#[derive(Debug, Clone, Copy)]
+/// Bevy component representing a unit from SC2
+#[derive(Component)]
 pub struct UnitMarker {
-    pub x: f32,
-    pub y: f32,
-    pub owner: u32,
+    pub tag: u64, // SC2 unit tag
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GridLayerKind { Pathing, Placement }
-
-
-// === Bevy resources ===
+/// Resource wrapping a channel receiver for proxy events
 #[derive(Resource)]
-pub struct ProxyStateRx(pub Receiver<ProxyToRenderMsg>);
-
-
-#[derive(Resource)]
-struct UiState {
-    layer: GridLayerKind,
-    cell_px: f32,
+pub struct ProxyEventReceiver {
+    pub rx: UnboundedReceiver<ProxyEvent>,
 }
 
+/// Our render plugin
+pub struct RenderPlugin;
 
-#[derive(Resource)]
-struct MapGpu {
-    dims: UVec2,
-    pathing_image: Handle<Image>,
-    placement_image: Handle<Image>,
-}
-
-
-#[derive(Component)]
-struct MapQuad;
-
-
-#[derive(Component)]
-struct UnitsLayer;
-
-
-pub struct MapRenderPlugin;
-impl Plugin for MapRenderPlugin {
+impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(UiState { layer: GridLayerKind::Pathing, cell_px: 4.0 })
-            .add_systems(Startup, setup)
-            .add_systems(Update, (ui_layer_selector, pump_proxy_msgs, draw_units, pan_zoom_camera));
+        app
+            .insert_resource(ClearColor(Color::linear_rgb(0.05, 0.05, 0.1)))
+            .add_systems(Startup, setup_ui)
+            .add_systems(Main, process_proxy_events);
     }
 }
 
+/// Process incoming events from the proxy
+fn process_proxy_events(
+    mut commands: Commands,
+    mut receiver: ResMut<ProxyEventReceiver>,
+    mut query: Query<(Entity, &UnitMarker)>,
+) {
+    while let Ok(event) = receiver.rx.try_recv() {
+        match event {
+            ProxyEvent::GameState(response) => {
+                // TODO: parse response.observation
+                // Here we just fake one unit for now
+                let unit_tag = 123u64;
 
-fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    commands.spawn(Camera2dBundle::default());
+                // Check if unit already exists
+                let exists = query.iter().any(|(_, marker)| marker.tag == unit_tag);
 
+                if !exists {
+                    commands.spawn((Sprite {
+                        image: Default::default(),
+                        texture_atlas: None,
+                        color: Color::WHITE,
+                        flip_x: false,
+                        flip_y: false,
+                                custom_size: Some(Vec2::new(10.0, 10.0)),
+                        rect: None,
+                        anchor: Default::default(),
+                        image_mode: Default::default(),
+                    })
 
-    // Placeholder 1×1 textures until proxy sends real grids
-    let placeholder = || {
-        let mut img = Image::new_fill(
-            Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            TextureDimension::D2,
-            &[255, 255, 255, 255],
-            bevy::render::texture::ImageType::Extension("png".into()),
-        );
-        img.sampler_descriptor = ImageSampler::nearest();
-        images.add(img)
-    };
+                        // SpriteBundle {
+                        //     sprite: Sprite {
+                        //         color: Color::GREEN,
+                        //         custom_size: Some(Vec2::new(10.0, 10.0)),
+                        //         ..default()
+                        //     },
+                        //     transform: Transform::from_xyz(0.0, 0.0, 0.0),
+                        //     ..default()
+                        // },
+                        // UnitMarker { tag: unit_tag },
+                    );
+                }
+            }
+            ProxyEvent::BotStep(_) => {
+                // You can visualize bot actions here
+            }
+        }
+    }
+}
 
+#[derive(Component)]
+struct CreateGameButton;
 
-    let pathing_image = placeholder();
-    let placement_image = placeholde
+fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn(Camera2d::default());
+
+    // Full-screen UI root, centered content
+    commands
+        .spawn((
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            BackgroundColor(Color::NONE),
+        ))
+        .with_children(|parent| {
+            // Button with label "Create Game"
+            parent
+                .spawn((
+                    Button,
+                    CreateGameButton,
+                    BackgroundColor(Color::srgb(0.15, 0.45, 0.85)),
+                    BorderRadius::all(Val::Px(6.0)),
+                    //Padding::all(Val::Px(12.0)),
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new("Create Game"),
+                        TextColor(Color::WHITE),
+                        TextFont {
+                            // Uses default font; replace with a custom asset if desired:
+                            // font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 18.0,
+                            ..Default::default()
+                        },
+                    ));
+                });
+        });
+}
