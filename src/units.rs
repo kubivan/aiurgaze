@@ -17,6 +17,11 @@ pub struct UnitIconAssets {
     pub icons: HashMap<u32, Handle<Image>>, // unit_type → image handle
 }
 
+#[derive(Resource, Default)]
+pub struct SelectedUnit {
+    pub tag: Option<u64>,
+}
+
 /// === Components ===
 
 #[derive(Component)]
@@ -123,6 +128,39 @@ pub fn handle_observation(
         }
     }
     */
+}
+
+/// System to select unit on mouse click
+pub fn unit_selection_system(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    camera_query: Query<(&Camera, &GlobalTransform)>,
+    registry: Res<UnitRegistry>,
+    unit_query: Query<(Entity, &Transform, &UnitTag)>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
+    mut selected: ResMut<SelectedUnit>,
+) {
+    if !mouse_button_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let window = windows.single().unwrap();
+    let (camera, camera_transform) = camera_query.single().unwrap();
+    if let Some(cursor_pos) = window.cursor_position() {
+        // Convert cursor position to world coordinates
+        let world_pos = camera.viewport_to_world(camera_transform, cursor_pos);
+        if let Ok(world_pos) = world_pos {
+            let world_pos = world_pos.origin.truncate();
+            // Check for unit under cursor
+            for (entity, transform, tag) in unit_query.iter() {
+                let unit_pos = transform.translation.truncate();
+                let distance = unit_pos.distance(world_pos);
+                if distance < 16.0 { // Use unit size threshold
+                    selected.tag = Some(tag.0);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 /// System to preload all unit icons at startup

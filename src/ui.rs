@@ -2,6 +2,7 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPlugin, EguiContexts, EguiPrimaryContextPass};
 use crate::controller::response_controller_system;
+use crate::units::{SelectedUnit, UnitRegistry, UnitType, UnitHealth, UnitTag};
 
 #[derive(Resource, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AppState {
@@ -164,3 +165,31 @@ pub fn ui_system(mut contexts: EguiContexts, mut app_state: ResMut<AppState>) {
     };
 }
 
+pub fn selected_unit_panel_system(
+    mut contexts: EguiContexts,
+    selected: Res<SelectedUnit>,
+    registry: Res<UnitRegistry>,
+    unit_query: Query<(&UnitType, &UnitHealth, &Transform, &UnitTag)>,
+) {
+    if let Ok(ctx) = contexts.ctx_mut() {
+        egui::SidePanel::right("unit_info_panel").show(ctx, |ui| {
+            ui.heading("Selected Unit Info");
+            if let Some(tag) = selected.tag {
+                if let Some(&entity) = registry.map.get(&tag) {
+                    if let Ok((unit_type, health, transform, unit_tag)) = unit_query.get(entity) {
+                        ui.label(format!("Tag: {}", unit_tag.0));
+                        ui.label(format!("Type: {}", unit_type.0));
+                        ui.label(format!("Health: {:.1}", health.0));
+                        ui.label(format!("Position: ({:.1}, {:.1})", transform.translation.x, transform.translation.y));
+                    } else {
+                        ui.label("Unit data not found.");
+                    }
+                } else {
+                    ui.label("No unit selected.");
+                }
+            } else {
+                ui.label("No unit selected.");
+            }
+        });
+    }
+}

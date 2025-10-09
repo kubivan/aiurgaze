@@ -27,7 +27,8 @@ use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
 use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, AppState, CameraPanState};
-use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons};
+use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system};
+use crate::ui::selected_unit_panel_system;
 
 /// Start the server inside Docker and wait until it's reachable.
 /// Customize image/name/ports via env vars if needed.
@@ -162,17 +163,17 @@ fn main() {
 
 
     App::new()
-        //.add_plugins(DefaultPlugins)
+        .insert_resource(UnitRegistry::default())
+        .insert_resource(UnitIconAssets::default())
+        .insert_resource(SelectedUnit::default())
+        .add_systems(Startup, preload_unit_icons)
+        .add_systems(Update, unit_selection_system)
+        .add_systems(EguiPrimaryContextPass, selected_unit_panel_system)
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         .add_plugins(TilemapPlugin)
-        // .add_plugins((TilemapPlugin, helpers::tiled::TiledMapPlugin))
-
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
         .insert_resource(AppState::StartScreen)
-        .insert_resource(UnitRegistry::default())
-        .insert_resource(UnitIconAssets::default())
-        .add_systems(Startup, preload_unit_icons)
         .add_systems(Startup, setup_camera)
         .insert_resource(CameraPanState::default())
         .add_systems(Update, camera_controls)
