@@ -32,14 +32,18 @@ pub struct UnitHealth(pub f32);
 
 fn image_path(unit_type: u32) -> &'static str {
     match unit_type {
-        59 => "pngs/nexus.png",
+        59 => "png/nexus.png",
+        341 => "png/mineral.png",
+        84 => "png/probe.png",
         // Add more mappings as needed
-        _ => "pngs/probe.png",
+        // _ => "png/probe.png",
+        _ => "png/mineral.png",
     }
 }
 fn image_size(unit_type: u32) -> f32 {
     match unit_type {
         59 => 16.0 * 9.0,
+        341 => 16.0 * 1.0,
         _ => 16.0 * 2.0,
     }
 }
@@ -54,12 +58,14 @@ pub fn handle_observation(
     let obs = obs_msg.observation.as_ref().unwrap();
     let raw_data = obs.raw_data.as_ref().unwrap();
 
+    // Keep track of seen tags this frame
     let mut seen_tags = HashSet::new();
     let map_size = (200.0 , 176.0);
 
     for unit in &raw_data.units {
         let tag = unit.tag.unwrap();
         seen_tags.insert(tag);
+
         let pos = unit.pos.as_ref().unwrap();
         let (x, y, _z ) = (pos.x.unwrap(), pos.y.unwrap(), pos.z.unwrap());
         let health = unit.health.unwrap_or(0.0);
@@ -68,14 +74,16 @@ pub fn handle_observation(
         let world_x = x * tile_size;
         let world_y = y * tile_size;
 
-        let image = icon_assets.icons.get(&unit_type).cloned().unwrap_or_else(|| asset_server.load(image_path(unit_type)));
 
+        // Update or spawn
         if let Some(&entity) = registry.map.get(&tag) {
+            // Update existing unit
             commands.entity(entity).insert((
                 Transform::from_xyz(world_x - map_size.0 * tile_size / 2.0, world_y - map_size.1 * tile_size / 2.0, 1.0),
                 UnitHealth(health),
             ));
         } else {
+            let image = icon_assets.icons.get(&unit_type).cloned().unwrap_or_else(|| asset_server.load(image_path(unit_type)));
             let entity = commands
                 .spawn((
                     Sprite {
@@ -85,6 +93,13 @@ pub fn handle_observation(
                         ..default()
                     },
                     Transform::from_xyz(world_x, world_y , 1.0 ),
+                    children![(
+                    Text2d::new("text"),
+                    TextLayout::new_with_justify(JustifyText::Center),
+                    TextFont::from_font_size(15.),
+                    Transform::from_xyz(0., -0.5 * y - 10., 0.),
+                    bevy::sprite::Anchor::TopCenter,
+                )],
                     UnitTag(tag),
                     UnitType(unit_type),
                     UnitHealth(health),

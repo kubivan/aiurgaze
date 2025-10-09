@@ -172,7 +172,7 @@ fn main() {
         .insert_resource(AppState::StartScreen)
         .insert_resource(UnitRegistry::default())
         .insert_resource(UnitIconAssets::default())
-        .add_startup_system(preload_unit_icons)
+        .add_systems(Startup, preload_unit_icons)
         .add_systems(Startup, setup_camera)
         .insert_resource(CameraPanState::default())
         .add_systems(Update, camera_controls)

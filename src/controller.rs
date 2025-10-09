@@ -12,7 +12,7 @@ use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use crate::map::{spawn_tilemap};
 
 use std::collections::HashMap;
-use crate::units::{handle_observation, UnitRegistry};
+use crate::units::{handle_observation, UnitIconAssets, UnitRegistry};
 
 pub fn setup_proxy(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
     println!("======setup_proxy====");
@@ -46,6 +46,7 @@ pub fn response_controller_system(
     mut proxy_res: ResMut<ProxyWSResource>,
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
+    mut icon_assets: Res<UnitIconAssets>,
     mut registry: ResMut<UnitRegistry>,
 ) {
     while let Ok(resp) = proxy_res.rx.try_recv() {
@@ -54,7 +55,10 @@ pub fn response_controller_system(
         match resp.response.unwrap() {
             observation (obs )  => {
                 //println!("Got observation: {:?}", obs.observation.unwrap().game_loop);
-                handle_observation(&mut commands, &mut asset_server, &mut registry, &obs);
+                handle_observation(&mut commands,
+                                   &mut asset_server,
+                                   &mut icon_assets,
+                                   &mut registry, &obs);
             }
             game_info (gi) =>  {
                 let &start_raw = &gi.start_raw.as_ref().unwrap();

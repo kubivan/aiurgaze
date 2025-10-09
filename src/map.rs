@@ -109,7 +109,7 @@ pub fn spawn_tilemap(
 
             let idx = (y * layer.width + x) as usize;
             let val = layer.data[idx];
-            let texture_index = if val == 0 { 0 } else { 1 };
+            let texture_index = if val == 0 { 4 } else { 5 };
 
             let tile_entity = commands
                 .spawn(TileBundle {
