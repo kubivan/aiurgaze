@@ -1,13 +1,29 @@
+use bevy::prelude::Resource;
 use futures_util::{future, StreamExt, SinkExt};
+use protobuf::RepeatedField;
+use sc2_proto::common::Race;
+use sc2_proto::sc2api::{LocalMap, PlayerSetup, PlayerType, Request, Response};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Result};
+use tokio::sync::broadcast;
+
+use tungstenite::Message::Binary;
+use protobuf::{Message};
 
 /// ProxyWS holds:
 ///  * listener address for incoming client
 ///  * URL of the upstream server we proxy to
+///
+
+#[derive(Resource)]
+pub struct ProxyWSResource {
+    pub rx: broadcast::Receiver<Response>,
+}
 pub struct ProxyWS {
     listen_addr: String,
     upstream_url: String,
+
+    pub tx: broadcast::Sender<Response>
 }
 
 impl ProxyWS {
@@ -15,61 +31,112 @@ impl ProxyWS {
         Self {
             listen_addr: listen_addr.into(),
             upstream_url: upstream_url.into(),
+            tx: broadcast::channel(100).0,
         }
     }
 
     /// Run the proxy: wait for **one** client, then bridge traffic until closed.
     pub async fn run(&self) -> Result<()> {
-        // Bind TCP listener for the browser/client.
-        let listener = TcpListener::bind(&self.listen_addr).await?;
-        println!("Proxy listening on ws://{}", self.listen_addr);
-
-        // Accept exactly one connection.
-        let (client_stream, addr) = listener.accept().await?;
-        println!("Client connected from {}", addr);
-
-        // Upgrade client TCP -> WebSocket.
-        let ws_client = accept_async(client_stream).await?;
-        println!("Client handshake done.");
-
-        // Connect upstream to the real server.
+        let tx = self.tx.clone();
+        //1. Connect upstream to the real server.
         println!("Connecting upstream to {}", self.upstream_url);
-        let (ws_server, _) = connect_async(&self.upstream_url).await?;
+        let (mut upstream_ws, _) = connect_async(&self.upstream_url).await?;
+        let (mut upstream_write, mut upstream_read) = upstream_ws.split();
+
         println!("Connected to upstream.");
 
-        // Split into read/write halves.
-        let (mut client_write, mut client_read) = ws_client.split();
-        let (mut server_write, mut server_read) = ws_server.split();
+        // println!("Creating the game...");
+        // upstream_write.send(Binary(bytes::Bytes::from(make_create_game_request().write_to_bytes().unwrap()))).await?;
+        // let msg = upstream_read.next().await.unwrap()?;
+        //
+        // let mut res = Response::new();
+        // res.merge_from_bytes(msg.into_data().iter().as_slice());
+        //
+        // println!("Game created: {:?}", res);
 
-        // Task: client -> server
+        // 3. Wait for a single client to connect.
+        let listener = TcpListener::bind(&self.listen_addr).await?;
+        println!("Waiting for client on ws://{}", self.listen_addr);
+        let (client_stream, addr) = listener.accept().await?;
+        println!("Client connected from {}", addr);
+        let client_ws = accept_async(client_stream).await?;
+
+        // 4. Proxy messages in both directions until either side closes.
+        let (mut client_write, mut client_read) = client_ws.split();
+
         let c2s = async {
             while let Some(msg) = client_read.next().await {
+                //println!("+++++++++++++++++++++++++++++++++++++++++++++++++++");
                 let msg = msg?;
-                server_write.send(msg).await?;
+                //println!("c2s: Got message: {:?}", msg);
+
+                let mut req = Request::new();
+                req.merge_from_bytes(msg.clone().into_data().iter().as_slice()).unwrap();
+                //println!("c2s: Got request: {:?}", req);
+
+                upstream_write.send(msg).await?;
             }
-            Result::<()>::Ok(())
+            Ok::<_, tungstenite::Error>(())
         };
 
-        // Task: server -> client
         let s2c = async {
-            while let Some(msg) = server_read.next().await {
+            while let Some(msg) = upstream_read.next().await {
+                // println!("---------------------------------------------------");
                 let msg = msg?;
+                // println!("s2c: Got message: {:?}", msg);
+
+                let mut res = Response::new();
+                res.merge_from_bytes(msg.clone().into_data().iter().as_slice());
+                // println!("c2s: Got response: {:?}", res);
+                tx.send(res).unwrap();
+
                 client_write.send(msg).await?;
             }
-            Result::<()>::Ok(())
+            Ok::<_, tungstenite::Error>(())
         };
 
-        // Run until either side closes.
-        future::select(Box::pin(c2s), Box::pin(s2c)).await;
-        println!("ProxyWS: connection closed.");
-
+        //future::select(Box::pin(c2s), Box::pin(s2c)).await;
+        // Wait for either direction to finish and log if it's an error
+        match future::select(Box::pin(c2s), Box::pin(s2c)).await {
+            future::Either::Left((res, _)) => {
+                if let Err(e) = res {
+                    eprintln!("client → server forwarding ended with error: {e}");
+                } else {
+                    println!("client → server closed normally");
+                }
+            }
+            future::Either::Right((res, _)) => {
+                if let Err(e) = res {
+                    eprintln!("server → client forwarding ended with error: {e}");
+                } else {
+                    println!("server → client closed normally");
+                }
+            }
+        }
+        println!("Proxy finished.");
         Ok(())
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Example usage: proxy from local port 9001 to a public echo server
-    let proxy = ProxyWS::new("127.0.0.1:9001", "wss://echo.websocket.events");
-    proxy.run().await
+fn make_create_game_request() -> Request
+{
+    let mut req = Request::new();
+    let req_create_game = req.mut_create_game();
+
+    let map_path = "AbyssalReefAIE.SC2Map".to_string();
+    let mut local_map = LocalMap::new();
+    local_map.set_map_path(map_path);
+    req_create_game.set_local_map(local_map);
+
+    let mut comp_ai_setup = PlayerSetup::default();
+    comp_ai_setup.set_race(Race::Protoss);
+    comp_ai_setup.set_field_type(PlayerType::Computer);
+
+    let mut bot_setup = PlayerSetup::default();
+    bot_setup.set_field_type(PlayerType::Participant);
+
+    let participants = Vec::from([comp_ai_setup, bot_setup]);
+    req_create_game.set_player_setup(RepeatedField::<PlayerSetup>::from_vec(participants));
+
+    req
 }

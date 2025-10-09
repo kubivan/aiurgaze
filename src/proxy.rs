@@ -5,6 +5,8 @@ use sc2_proto::sc2api::{LocalMap, PlayerSetup, PlayerType, Request, Response};
 use crate::connection::*;
 use tokio::time::{sleep, Duration};
 
+use crate::proxy_ws::*;
+
 use std::{
     error::Error,
     fmt,
@@ -70,13 +72,8 @@ pub enum GameDelta {
 async fn game_loop(
     cmd_rx: &mut UnboundedReceiver<ProxyCommand>,
     evt_tx: &UnboundedSender<ProxyEvent>,
-    sc2_con: &mut Connection
+    sc2_con: &mut ProxyWS
 ) {
-
-
-    // //let mut sc2_server =  Sc2ProxyServer::new(channel.clone());
-    // let mut client = Sc2ProxyClient::new(channel);
-
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             ProxyCommand::CreateGame { map, players: _ } => {
@@ -111,9 +108,8 @@ async fn game_loop(
                 let participants = Vec::from([comp_ai_setup, bot_setup]);
                 req_create_game.set_player_setup(RepeatedField::<PlayerSetup>::from_vec(participants));
 
-                let res = sc2_con.send(req).await;
+                //let res = sc2_con.send(req).await;
 
-                println!("GOT RESPONSE: {:?}", res);
             }
             ProxyCommand::Step { frames: _ } => {
                 // TODO: construct step request and call client.SendStepRequest(...)
@@ -160,10 +156,12 @@ pub async fn start_proxy(
         match cmd {
             ProxyCommand::Connect { addr } => {
                 // 1. Connect to the SC2 WebSocket
-                let url = "ws://127.0.0.1:5000/sc2api";
-                let mut sc2_con = Connection::connect(url).await;
+                //let url = ;
+                //let mut sc2_con = Connection::connect(url).await;
+                //let mut proxy_channel = ProxyWS::new(, url);
 
-                game_loop(&mut cmd_rx, &evt_tx, &mut sc2_con).await;
+                //game_loop(&mut cmd_rx, &evt_tx, &mut proxy_channel).await;
+                //proxy_main("127.0.0.1:5000", url).await;
 
             }
             // Any other command before connecting -> error

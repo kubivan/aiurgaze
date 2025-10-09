@@ -11,14 +11,22 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
 #prost = "0.13"
 prost-types = "0.14.1"
 bytes = "1"
-
+log = "0.4"
 
 # --- Rendering / UI ---
-bevy = { version = "0.16.1"}
+bevy = { version = "0.16.1", features = ["default", "webp"]}
 bevy_egui = "0.36.0"
-tap = "*"
+bevy-tokio-tasks = "*"
+bevy_ecs_tilemap = "*"
 bevy_sprite = "0.16.1"
+tiled = { version = "0.14.0", default-features = false }
+
+tap = "*"
 sc2-proto = "*"
+
+#-- ecs tiled map
+serde_json = "*"
+ldtk_rust ="*"
 
 # --- Concurrency / Utils ---
 crossbeam-channel = "0.5"
@@ -43,6 +51,7 @@ futures-util = "0.3.31"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"
+tiled = { version = "0.14.0", default-features = false }
 
 
 [features]
