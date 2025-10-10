@@ -133,7 +133,6 @@ pub fn ui_system(mut contexts: EguiContexts, mut app_state: ResMut<AppState>) {
                     *app_state = AppState::GameScreen;
                 }
             });
-
         }
         AppState::GameScreen => {
             egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -142,10 +141,15 @@ pub fn ui_system(mut contexts: EguiContexts, mut app_state: ResMut<AppState>) {
 
             egui::SidePanel::left("map_panel")
                 .resizable(true)
-                .default_width(500.0)
+                .default_width(300.0)
                 .show(ctx, |ui| {
                     ui.heading("Map Panel");
-                    ui.label("(RTS map rendering goes here)");
+                    ui.separator();
+                    egui::CollapsingHeader::new("RTS map rendering")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.label("(RTS map rendering goes here)");
+                        });
                 });
         }
     };
@@ -158,33 +162,42 @@ pub fn selected_unit_panel_system(
     unit_query: Query<(&UnitProto, &UnitTag)>,
 ) {
     if let Ok(ctx) = contexts.ctx_mut() {
-        egui::SidePanel::right("unit_info_panel").show(ctx, |ui| {
-            ui.heading("Selected Unit Info");
-            let tag = match selected.tag {
-                Some(tag) => tag,
-                None => {
-                    ui.label("No unit selected.");
-                    return;
-                }
-            };
-            let entity = match registry.map.get(&tag) {
-                Some(&entity) => entity,
-                None => {
-                    ui.label("No unit selected.");
-                    return;
-                }
-            };
-            let (unit_proto, unit_tag) = match unit_query.get(entity) {
-                Ok(data) => data,
-                Err(_) => {
-                    ui.label("Unit data not found.");
-                    return;
-                }
-            };
-            ui.label(format!("Tag: {}", unit_tag.0));
-            for (field, value) in get_set_fields(&unit_proto.0) {
-                ui.label(format!("{}: {}", field, value));
-            }
-        });
+        egui::SidePanel::right("unit_info_panel")
+            .resizable(true)
+            .default_width(300.0)
+            .show(ctx, |ui| {
+                ui.heading("Selected Unit Info");
+                ui.separator();
+                let tag = match selected.tag {
+                    Some(tag) => tag,
+                    None => {
+                        ui.label("No unit selected.");
+                        return;
+                    }
+                };
+                let entity = match registry.map.get(&tag) {
+                    Some(&entity) => entity,
+                    None => {
+                        ui.label("No unit selected.");
+                        return;
+                    }
+                };
+                let (unit_proto, unit_tag) = match unit_query.get(entity) {
+                    Ok(data) => data,
+                    Err(_) => {
+                        ui.label("Unit data not found.");
+                        return;
+                    }
+                };
+                egui::CollapsingHeader::new("Unit Details")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.label(format!("Tag: {}", unit_tag.0));
+                        ui.separator();
+                        for (field, value) in get_set_fields(&unit_proto.0) {
+                            ui.label(format!("{}: {}", field, value));
+                        }
+                    });
+            });
     }
 }
