@@ -2,7 +2,7 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPlugin, EguiContexts, EguiPrimaryContextPass};
 use crate::controller::response_controller_system;
-use crate::units::{SelectedUnit, UnitRegistry, UnitType, UnitHealth, UnitTag};
+use crate::units::{SelectedUnit, UnitRegistry, UnitType, UnitHealth, UnitTag, UnitProto, get_set_fields};
 
 #[derive(Resource, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AppState {
@@ -147,20 +147,6 @@ pub fn ui_system(mut contexts: EguiContexts, mut app_state: ResMut<AppState>) {
                     ui.heading("Map Panel");
                     ui.label("(RTS map rendering goes here)");
                 });
-
-            egui::SidePanel::right("debug_panel")
-                .resizable(true)
-                .default_width(250.0)
-                .show(ctx, |ui| {
-                    ui.heading("Debug Info");
-                    ui.label("FPS, unit counts, AI state, etc.");
-                });
-
-            // egui::CentralPanel::default().show(ctx, |ui| {
-            //     ui.heading("Game Controls");
-            //     ui.label("Middle area or mini-console can go here.");
-            // });
-
         }
     };
 }
@@ -169,26 +155,35 @@ pub fn selected_unit_panel_system(
     mut contexts: EguiContexts,
     selected: Res<SelectedUnit>,
     registry: Res<UnitRegistry>,
-    unit_query: Query<(&UnitType, &UnitHealth, &Transform, &UnitTag)>,
+    unit_query: Query<(&UnitProto, &UnitTag)>,
 ) {
     if let Ok(ctx) = contexts.ctx_mut() {
         egui::SidePanel::right("unit_info_panel").show(ctx, |ui| {
             ui.heading("Selected Unit Info");
-            if let Some(tag) = selected.tag {
-                if let Some(&entity) = registry.map.get(&tag) {
-                    if let Ok((unit_type, health, transform, unit_tag)) = unit_query.get(entity) {
-                        ui.label(format!("Tag: {}", unit_tag.0));
-                        ui.label(format!("Type: {}", unit_type.0));
-                        ui.label(format!("Health: {:.1}", health.0));
-                        ui.label(format!("Position: ({:.1}, {:.1})", transform.translation.x, transform.translation.y));
-                    } else {
-                        ui.label("Unit data not found.");
-                    }
-                } else {
+            let tag = match selected.tag {
+                Some(tag) => tag,
+                None => {
                     ui.label("No unit selected.");
+                    return;
                 }
-            } else {
-                ui.label("No unit selected.");
+            };
+            let entity = match registry.map.get(&tag) {
+                Some(&entity) => entity,
+                None => {
+                    ui.label("No unit selected.");
+                    return;
+                }
+            };
+            let (unit_proto, unit_tag) = match unit_query.get(entity) {
+                Ok(data) => data,
+                Err(_) => {
+                    ui.label("Unit data not found.");
+                    return;
+                }
+            };
+            ui.label(format!("Tag: {}", unit_tag.0));
+            for (field, value) in get_set_fields(&unit_proto.0) {
+                ui.label(format!("{}: {}", field, value));
             }
         });
     }

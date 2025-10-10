@@ -4,6 +4,10 @@ use bevy::diagnostic::FrameCount;
 use bevy::sprite::Anchor;
 use sc2_proto::sc2api::{Observation, ResponseObservation};
 use tiled::HorizontalAlignment::Justify;
+use protobuf::reflect::MessageDescriptor;
+use protobuf::reflect::ReflectFieldRef;
+use protobuf::text_format;
+use protobuf::Message;
 
 /// === Resources ===
 
@@ -32,6 +36,9 @@ pub struct UnitType(pub u32);
 
 #[derive(Component)]
 pub struct UnitHealth(pub f32);
+
+#[derive(Component)]
+pub struct UnitProto(pub sc2_proto::raw::Unit);
 
 /// === Unit handling logic ===
 
@@ -86,6 +93,7 @@ pub fn handle_observation(
             commands.entity(entity).insert((
                 Transform::from_xyz(world_x - map_size.0 * tile_size / 2.0, world_y - map_size.1 * tile_size / 2.0, 1.0),
                 UnitHealth(health),
+                UnitProto(unit.clone()),
             ));
         } else {
             let image = icon_assets.icons.get(&unit_type).cloned().unwrap_or_else(|| asset_server.load(image_path(unit_type)));
@@ -108,6 +116,7 @@ pub fn handle_observation(
                     UnitTag(tag),
                     UnitType(unit_type),
                     UnitHealth(health),
+                    UnitProto(unit.clone()),
                 ))
                 .id();
             registry.map.insert(tag, entity);
@@ -128,6 +137,34 @@ pub fn handle_observation(
         }
     }
     */
+}
+
+pub fn get_set_fields(unit: &sc2_proto::raw::Unit) -> Vec<(String, String)> {
+    let descriptor = unit.descriptor();
+    let mut result = Vec::new();
+    for field in descriptor.fields() {
+        match field.get_reflect(unit) {
+            ReflectFieldRef::Optional(s) => {
+                if field.has_field(unit) {
+                    if let Some(val) = s {
+                        result.push((field.name().to_string(), format!("{:?}", val)));
+                    }
+                }
+            },
+            ReflectFieldRef::Repeated(r) => {
+                if r.len() > 0 {
+                    let mut items = Vec::new();
+                    for i in 0..r.len() {
+                        let v = r.get(i).as_ref();
+                        items.push(format!("{:?}", v));
+                    }
+                    result.push((field.name().to_string(), format!("[{}]", items.join(", "))));
+                }
+            },
+            _ => continue,
+        }
+    }
+    result
 }
 
 /// System to select unit on mouse click
