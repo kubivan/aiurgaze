@@ -2,6 +2,21 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPlugin, EguiContexts, EguiPrimaryContextPass};
 use crate::units::{SelectedUnit, UnitRegistry, UnitType, UnitHealth, UnitTag, UnitProto, get_set_fields};
+use crate::net_helpers::send_create_game_request;
+use sc2_proto::sc2api::{Request, LocalMap, PlayerSetup, PlayerType, Difficulty};
+use sc2_proto::common::Race;
+use protobuf::RepeatedField;
+use std::fs;
+use std::path::Path;
+use futures_util::SinkExt;
+
+mod game_config_panel;
+mod setup_game_config_panel;
+
+pub(crate) use game_config_panel::{GameConfigPanel, GameType, show_game_config_panel};
+use setup_game_config_panel::setup_game_config_panel;
+use crate::controller::setup_proxy;
+use crate::proxy_ws;
 
 #[derive(Resource, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AppState {
@@ -96,14 +111,19 @@ pub fn camera_controls(
 
 
 
-pub fn ui_system(mut contexts: EguiContexts, mut app_state: ResMut<AppState>) {
-    // println!("ui_system context + ");
+pub fn ui_system(
+    mut contexts: EguiContexts,
+    mut app_state: ResMut<AppState>,
+    mut game_config_panel: ResMut<GameConfigPanel>,
+    mut game_created: ResMut<GameCreated>,
+) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         _ => return,
     };
-    // println!("ui_system context -- ");
-    // let ctx = contexts.ctx_mut()?;
+
+    let mut error_msg: Option<String> = None;
+    const WS_URL: &str = "ws://127.0.0.1:5555/sc2api";
 
     match *app_state {
         AppState::StartScreen => {
@@ -111,10 +131,23 @@ pub fn ui_system(mut contexts: EguiContexts, mut app_state: ResMut<AppState>) {
                 ui.heading("SC2 Proxy");
                 ui.separator();
                 ui.label("Start Screen label");
-
                 ui.add_space(10.0);
-                if ui.button("Start Game").clicked() {
-                    *app_state = AppState::GameScreen;
+                if show_game_config_panel(ui, &mut game_config_panel) {
+                    match build_create_game_request(&game_config_panel) {
+                        Ok(req) => {
+                            match send_create_game_request(req, WS_URL, 5, 1) {
+                                Ok(()) => {
+                                    game_created.0 = true;
+                                    *app_state = AppState::GameScreen;
+                                }
+                                Err(e) => error_msg = Some(format!("Failed to send: {}", e)),
+                            }
+                        }
+                        Err(msg) => error_msg = Some(msg),
+                    }
+                }
+                if let Some(msg) = error_msg {
+                    ui.label(msg);
                 }
             });
         }
@@ -213,4 +246,53 @@ pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerSt
             };
         });
     });
+}
+
+#[derive(Resource, Default, Debug, PartialEq, Eq, Clone)]
+pub struct GameCreated(pub bool);
+
+pub fn build_create_game_request(panel: &GameConfigPanel) -> Result<Request, String> {
+    let (Some(map_name), Some(game_type)) = (panel.map_name.clone(), Some(panel.game_type.clone())) else {
+        return Err("Please select a map and fill all required fields.".to_string());
+    };
+    let mut req = Request::new();
+    let req_create_game = req.mut_create_game();
+    let mut local_map = LocalMap::new();
+    local_map.set_map_path(map_name);
+    req_create_game.set_local_map(local_map);
+
+    let mut participant_setup = PlayerSetup::default();
+    participant_setup.set_field_type(PlayerType::Participant);
+    participant_setup.set_race(Race::Random);
+    participant_setup.set_player_name(panel.player_name.clone());
+
+    let mut opponent_setup = PlayerSetup::default();
+    match game_type {
+        GameType::VsAI => {
+            opponent_setup.set_field_type(PlayerType::Computer);
+            opponent_setup.set_race(panel.ai_race.unwrap_or(Race::Random));
+            opponent_setup.set_difficulty(match panel.ai_difficulty.as_deref() {
+                Some("Easy") => Difficulty::Easy,
+                Some("Medium") => Difficulty::Medium,
+                Some("Hard") => Difficulty::Hard,
+                Some("Cheat") => Difficulty::CheatInsane,
+                _ => Difficulty::Medium,
+            });
+        }
+        GameType::VsBot => {
+            opponent_setup.set_field_type(PlayerType::Participant);
+            opponent_setup.set_race(Race::Random);
+            opponent_setup.set_player_name(panel.bot_name.clone().unwrap_or_default());
+        }
+    }
+    let participants = vec![participant_setup, opponent_setup];
+    req_create_game.set_player_setup(RepeatedField::from_vec(participants));
+
+    // Set game options from UI
+    req_create_game.set_disable_fog(panel.disable_fog);
+    req_create_game.set_realtime(panel.realtime);
+    if let Some(seed) = panel.random_seed {
+        req_create_game.set_random_seed(seed);
+    }
+    Ok(req)
 }

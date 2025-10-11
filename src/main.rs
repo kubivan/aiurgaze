@@ -6,6 +6,8 @@ mod controller;
 mod map;
 mod helpers;
 mod units;
+mod create_game_request;
+mod net_helpers;
 
 use bevy::prelude::*;
 
@@ -22,7 +24,7 @@ use protobuf::Message;
 use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
-use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system};
+use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated};
 use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system};
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
@@ -125,8 +127,8 @@ fn docker_startup_system(
 ) {
     docker_status.clone_from(&DockerStatus::Starting);
     runtime.spawn_background_task(|mut ctx| async move {
-        let result = std::thread::spawn(start_server_container).join().unwrap_or_else(|_| Err("Thread panicked".to_string()));
-        println!("4444444444444444 {:?}", result);
+        // Use spawn_blocking for blocking code
+        let result = tokio::task::spawn_blocking(start_server_container).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
         let status = match result {
             Ok(_) => DockerStatus::Running,
             Err(e) => {
@@ -157,11 +159,13 @@ fn proxy_connect_on_docker_ready(
     mut has_connected: Local<bool>,
     mut commands: Commands,
     runtime: Res<TokioTasksRuntime>,
+    mut game_created: ResMut<GameCreated>,
 ) {
-    if !*has_connected && *docker_status == DockerStatus::Running {
+    if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
         setup_proxy(commands, runtime);
         *has_connected = true;
-        println!("Proxy connection started after Docker became ready");
+        // game_created.0 = false;
+        println!("Proxy connection started after Docker became ready and game was created");
     }
 }
 
@@ -174,10 +178,12 @@ fn main() {
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
+        .insert_resource(GameCreated(false))
         .insert_resource(UnitRegistry::default())
         .insert_resource(UnitIconAssets::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(CameraPanState::default())
+        .insert_resource(GameConfigPanel::new())
         .insert_resource(DockerStatus::Starting)
         .insert_resource(AppState::StartScreen)
         .add_systems(Startup, preload_unit_icons)
