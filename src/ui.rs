@@ -1,7 +1,6 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPlugin, EguiContexts, EguiPrimaryContextPass};
-use crate::controller::response_controller_system;
 use crate::units::{SelectedUnit, UnitRegistry, UnitType, UnitHealth, UnitTag, UnitProto, get_set_fields};
 
 #[derive(Resource, PartialEq, Eq, Hash, Clone, Debug)]
@@ -10,24 +9,9 @@ pub enum AppState {
     GameScreen,
 }
 
-// pub fn setup_camera_system(mut commands: Commands) {
-//     commands.spawn(Camera2d);
-//     // commands.spawn(Camera2dBundle::default());
-//
-// }
 #[derive(Component)]
 pub struct MainCamera;
 
-// pub fn setup_camera_system(mut commands: Commands) {
-//     commands.spawn((
-//         Camera2d {
-//             //transform: Transform::from_xyz(0.0, 0.0, 999.9),
-//             //Projection::default_2d(),
-//             ..default()
-//         },
-//         MainCamera,
-//     ));
-// }
 pub fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
@@ -161,43 +145,72 @@ pub fn selected_unit_panel_system(
     registry: Res<UnitRegistry>,
     unit_query: Query<(&UnitProto, &UnitTag)>,
 ) {
-    if let Ok(ctx) = contexts.ctx_mut() {
-        egui::SidePanel::right("unit_info_panel")
-            .resizable(true)
-            .default_width(300.0)
-            .show(ctx, |ui| {
-                ui.heading("Selected Unit Info");
-                ui.separator();
-                let tag = match selected.tag {
-                    Some(tag) => tag,
-                    None => {
-                        ui.label("No unit selected.");
-                        return;
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    egui::SidePanel::right("unit_info_panel")
+        .resizable(true)
+        .default_width(300.0)
+        .show(ctx, |ui| {
+            ui.heading("Selected Unit Info");
+            ui.separator();
+            let tag = match selected.tag {
+                Some(tag) => tag,
+                None => {
+                    ui.label("No unit selected.");
+                    return;
+                }
+            };
+            let entity = match registry.map.get(&tag) {
+                Some(&entity) => entity,
+                None => {
+                    ui.label("No unit selected.");
+                    return;
+                }
+            };
+            let (unit_proto, unit_tag) = match unit_query.get(entity) {
+                Ok(data) => data,
+                Err(_) => {
+                    ui.label("Unit data not found.");
+                    return;
+                }
+            };
+            egui::CollapsingHeader::new("Unit Details")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label(format!("Tag: {}", unit_tag.0));
+                    ui.separator();
+                    for (field, value) in get_set_fields(&unit_proto.0) {
+                        ui.label(format!("{}: {}", field, value));
                     }
-                };
-                let entity = match registry.map.get(&tag) {
-                    Some(&entity) => entity,
-                    None => {
-                        ui.label("No unit selected.");
-                        return;
-                    }
-                };
-                let (unit_proto, unit_tag) = match unit_query.get(entity) {
-                    Ok(data) => data,
-                    Err(_) => {
-                        ui.label("Unit data not found.");
-                        return;
-                    }
-                };
-                egui::CollapsingHeader::new("Unit Details")
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        ui.label(format!("Tag: {}", unit_tag.0));
-                        ui.separator();
-                        for (field, value) in get_set_fields(&unit_proto.0) {
-                            ui.label(format!("{}: {}", field, value));
-                        }
-                    });
-            });
-    }
+                });
+        });
+}
+
+#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+pub enum DockerStatus {
+    NotFound,
+    Starting,
+    Running,
+    Error(String),
+}
+
+pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerStatus>) {
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    // println!("[StatusBar] DockerStatus: {:?}", *docker_status);
+    egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Docker status:");
+            match &*docker_status {
+                DockerStatus::Running => ui.colored_label(egui::Color32::GREEN, "Running"),
+                DockerStatus::Starting => ui.colored_label(egui::Color32::YELLOW, "Starting"),
+                DockerStatus::NotFound => ui.colored_label(egui::Color32::RED, "Not Found"),
+                DockerStatus::Error(e) => ui.colored_label(egui::Color32::RED, format!("Error: {}", e)),
+            };
+        });
+    });
 }

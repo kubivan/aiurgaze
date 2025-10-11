@@ -16,9 +16,7 @@ use crate::units::{handle_observation, UnitIconAssets, UnitRegistry};
 
 pub fn setup_proxy(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
     println!("======setup_proxy====");
-    // create proxy + channnel
-
-    // TODO: add params
+    // create proxy + channel
     let proxy = ProxyWS::new("127.0.0.1:5000", "ws://127.0.0.1:5555/sc2api");
     let rx = proxy.tx.subscribe();
     commands.insert_resource( ProxyWSResource { rx });
@@ -43,12 +41,17 @@ fn recolor_tile(
 }
 
 pub fn response_controller_system(
-    mut proxy_res: ResMut<ProxyWSResource>,
+    proxy_res: Option<ResMut<ProxyWSResource>>,
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
     mut icon_assets: Res<UnitIconAssets>,
     mut registry: ResMut<UnitRegistry>,
 ) {
+    let mut proxy_res = match proxy_res {
+        Some(res) => res,
+        None => return, // Resource not available yet, skip system
+    };
+
     while let Ok(resp) = proxy_res.rx.try_recv() {
         //println!("Got response: {:?}", resp);
 

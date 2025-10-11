@@ -9,6 +9,7 @@ use tokio::sync::broadcast;
 
 use tungstenite::Message::Binary;
 use protobuf::{Message};
+use tungstenite::http;
 
 /// ProxyWS holds:
 ///  * listener address for incoming client
@@ -38,12 +39,29 @@ impl ProxyWS {
     /// Run the proxy: wait for **one** client, then bridge traffic until closed.
     pub async fn run(&self) -> Result<()> {
         let tx = self.tx.clone();
+        let mut retries = 5;
+        let delay_secs = 2;
+        let mut last_err = None;
         //1. Connect upstream to the real server.
         println!("Connecting upstream to {}", self.upstream_url);
-        let (mut upstream_ws, _) = connect_async(&self.upstream_url).await?;
+        let upstream_ws = loop {
+            match connect_async(&self.upstream_url).await {
+                Ok((ws, _)) => {
+                    println!("Connected to upstream.");
+                    break ws;
+                }
+                Err(e) => {
+                    println!("Failed to connect upstream: {}. Retries left: {}", e, retries);
+                    last_err = Some(e);
+                    if retries == 0 {
+                        return Err(last_err.unwrap());
+                    }
+                    retries -= 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                }
+            }
+        };
         let (mut upstream_write, mut upstream_read) = upstream_ws.split();
-
-        println!("Connected to upstream.");
 
         // println!("Creating the game...");
         // upstream_write.send(Binary(bytes::Bytes::from(make_create_game_request().write_to_bytes().unwrap()))).await?;

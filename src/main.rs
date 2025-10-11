@@ -1,6 +1,4 @@
 // src/main.rs
-mod proxy;
-mod render;
 mod connection;
 mod proxy_ws;
 mod ui;
@@ -10,8 +8,6 @@ mod helpers;
 mod units;
 
 use bevy::prelude::*;
-use proxy::{start_proxy, ProxyEvent, ProxyCommand};
-use render::{RenderPlugin, ProxyEventReceiver, ProxyCommandSender};
 
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -21,44 +17,41 @@ use std::time::{Duration, Instant};
 use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_ecs_tilemap::prelude::TilemapRenderSettings;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
-use bevy_tokio_tasks::TokioTasksPlugin;
+use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use protobuf::Message;
 use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
-use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, AppState, CameraPanState};
+use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system};
 use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system};
 use crate::ui::selected_unit_panel_system;
+use futures_util::StreamExt;
 
 /// Start the server inside Docker and wait until it's reachable.
-/// Customize image/name/ports via env vars if needed.
 fn start_server_container() -> Result<(), String> {
-    let image = std::env::var("SC2_SERVER_IMAGE").unwrap_or_else(|_| "stephanzlatarev/starcraft:latest".into());
-    let container_name = std::env::var("SC2_SERVER_CONTAINER").unwrap_or_else(|_| "starcraft".into());
-    let host = std::env::var("SC2_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-    let port: u16 = std::env::var("SC2_SERVER_PORT").ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(5000);
+    let image = std::env::var("SC2_SERVER_IMAGE").unwrap_or_else(|_| "sc2:latest".into());
+    let container_name = std::env::var("SC2_SERVER_CONTAINER").unwrap_or_else(|_| "sc2-tweak".into());
+    let port: u16 = 5555;
+    let host = "127.0.0.1";
 
-    // Best-effort cleanup of any stale container with same name
+    // Remove any existing container with the same name
     let _ = Command::new("docker")
         .args(["rm", "-f", &container_name])
-        .tap(|run| println!("Running: {:?}", run)).status().ok();
+        .status();
 
-    let _ = Command::new("docker")
-        .args(["pull", &image])
-        .tap(|run| println!("Running: {:?}", run)).status().ok();
+    // // Pull image
+    // let _ = Command::new("docker")
+    //     .args(["pull", &image])
+    //     .status();
 
     // Run container detached, auto-remove on stop, bind to localhost
     let status = Command::new("docker")
         .args([
-            "run", "-d", "--rm",
+            "run", "-d", "--rm", "-it",
             "--name", &container_name,
-            //"-p", &format!("{host}:{port}:{port}"),
-            "-p", "5000:5000", "-p", "5001:5001",
+            "-p", "5555:5555",
             &image,
         ])
-        .tap(|run| println!("Running: {:?}", run))
         .status()
         .map_err(|e| format!("Failed to execute docker run: {e}"))?;
 
@@ -66,17 +59,8 @@ fn start_server_container() -> Result<(), String> {
         return Err(format!("docker run failed with status: {status}"));
     }
 
-    // Wait for port to become available
-    let addr = format!("{host}:{port}");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        if TcpStream::connect((&*host, port)).is_ok() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    std::thread::sleep(Duration::from_millis(10000));
-    Err(format!("Timed out waiting for server at {addr}"))
+    // Mark as running immediately, skip port check
+    Ok(())
 }
 
 fn test()
@@ -133,54 +117,78 @@ pub fn spawn_test_entities(mut commands: Commands, asset_server: Res<AssetServer
     info!("✅ Spawned test sprites to verify rendering.");
 }
 
+/// System to check/start Docker and update status
+fn docker_startup_system(
+    mut commands: Commands,
+    runtime: Res<TokioTasksRuntime>,
+    mut docker_status: ResMut<DockerStatus>,
+) {
+    docker_status.clone_from(&DockerStatus::Starting);
+    runtime.spawn_background_task(|mut ctx| async move {
+        let result = std::thread::spawn(start_server_container).join().unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        println!("4444444444444444 {:?}", result);
+        let status = match result {
+            Ok(_) => DockerStatus::Running,
+            Err(e) => {
+                if e.contains("docker run failed") || e.contains("Failed to execute docker run") {
+                    DockerStatus::NotFound
+                } else {
+                    DockerStatus::Error(e)
+                }
+            }
+        };
+        ctx.run_on_main_thread(move |world| {
+            if let Some(mut status_res) = world.world.get_resource_mut::<DockerStatus>() {
+                status_res.clone_from(&status);
+                println!("[docker_startup_system] Updated DockerStatus to: {:?}", status);
+                if status == DockerStatus::Running {
+                    println!("Docker running, should start proxy connection now");
+                }
+            } else {
+                println!("[docker_startup_system] DockerStatus resource not found!");
+            }
+        }).await;
+    });
+}
+
+/// System to start proxy connection when Docker is running
+fn proxy_connect_on_docker_ready(
+    docker_status: Res<DockerStatus>,
+    mut has_connected: Local<bool>,
+    mut commands: Commands,
+    runtime: Res<TokioTasksRuntime>,
+) {
+    if !*has_connected && *docker_status == DockerStatus::Running {
+        setup_proxy(commands, runtime);
+        *has_connected = true;
+        println!("Proxy connection started after Docker became ready");
+    }
+}
+
 /// Entry point
 fn main() {
-    test();
-    // Start dockerized server first so it's ready for Connect
-    // if let Err(e) = start_server_container() {
-    //     eprintln!("Failed to start server container: {e}");
-    //     // You can choose to exit or continue; exiting is safer:
-    //     std::process::exit(1);
-    // }
-
-
-    // // Create channels:
-    // // - commands: UI/View -> Control
-    // // - events:   Control   -> Bevy/View/Model
-    // let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<ProxyCommand>();
-    // let (evt_tx, evt_rx) = mpsc::unbounded_channel::<ProxyEvent>();
-    //
-    // // Spawn tokio runtime
-    // let rt = Runtime::new().expect("Failed to create tokio runtime");
-    //
-    // // Spawn the proxy task on the runtime
-    // rt.spawn(start_proxy(cmd_rx, evt_tx, 5000, 50051));
-    // // Kick off connection on startup (after proxy is spawned)
-    // let server_addr = std::env::var("SC2_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".into());
-    // let _ = cmd_tx.send(ProxyCommand::Connect { addr: server_addr });
-
     let rt = Runtime::new().unwrap();
 
-
     App::new()
-        .insert_resource(UnitRegistry::default())
-        .insert_resource(UnitIconAssets::default())
-        .insert_resource(SelectedUnit::default())
-        .add_systems(Startup, preload_unit_icons)
-        .add_systems(Update, unit_selection_system)
-        .add_systems(EguiPrimaryContextPass, selected_unit_panel_system)
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
-        .insert_resource(AppState::StartScreen)
-        .add_systems(Startup, setup_camera)
+        .insert_resource(UnitRegistry::default())
+        .insert_resource(UnitIconAssets::default())
+        .insert_resource(SelectedUnit::default())
         .insert_resource(CameraPanState::default())
+        .insert_resource(DockerStatus::Starting)
+        .insert_resource(AppState::StartScreen)
+        .add_systems(Startup, preload_unit_icons)
+        .add_systems(Startup, setup_camera)
+        .add_systems(Update, unit_selection_system)
+        .add_systems(EguiPrimaryContextPass, selected_unit_panel_system)
         .add_systems(Update, camera_controls)
-        // .add_systems(Startup, spawn_test_entities)
-        // .add_systems(Update, camera_pan_system)
-        .add_systems(Startup, setup_proxy)
+        .add_systems(Startup, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
+        .add_systems(EguiPrimaryContextPass, status_bar_system)
         .add_systems(Update, response_controller_system)
+        .add_systems(Update, proxy_connect_on_docker_ready)
         .run();
 }

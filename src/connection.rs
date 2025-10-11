@@ -2,7 +2,6 @@ use std::time::Duration;
 use sc2_proto::sc2api::{LocalMap, PlayerSetup, PlayerType, Request, Response};
 use tokio::time::sleep;
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use std::{
     error::Error,
