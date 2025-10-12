@@ -28,6 +28,45 @@ use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, App
 use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system};
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
+use clap::{Parser, Subcommand};
+use std::process::exit;
+use sc2_proto::common::Race;
+use crate::ui::GameType;
+
+fn parse_game_type(mode: &str) -> Option<GameType> {
+    match mode.to_lowercase().as_str() {
+        "vsai" => Some(GameType::VsAI),
+        "vsbot" => Some(GameType::VsBot),
+        _ => None,
+    }
+}
+
+fn parse_race(race: &str) -> Option<Race> {
+    match race.to_lowercase().as_str() {
+        "terran" => Some(Race::Terran),
+        "zerg" => Some(Race::Zerg),
+        "protoss" => Some(Race::Protoss),
+        "random" => Some(Race::Random),
+        _ => None,
+    }
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<CliCommands>,
+}
+
+#[derive(Subcommand)]
+enum CliCommands {
+    CreateGame {
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        race: Option<String>,
+    },
+}
 
 /// Start the server inside Docker and wait until it's reachable.
 fn start_server_container() -> Result<(), String> {
@@ -157,9 +196,9 @@ fn docker_startup_system(
 fn proxy_connect_on_docker_ready(
     docker_status: Res<DockerStatus>,
     mut has_connected: Local<bool>,
-    mut commands: Commands,
+    commands: Commands,
     runtime: Res<TokioTasksRuntime>,
-    mut game_created: ResMut<GameCreated>,
+    game_created: ResMut<GameCreated>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
         setup_proxy(commands, runtime);
@@ -171,6 +210,36 @@ fn proxy_connect_on_docker_ready(
 
 /// Entry point
 fn main() {
+    let cli = Cli::parse();
+
+    // Default values for resources
+    let mut game_created = false;
+    let mut app_state = AppState::StartScreen;
+    let mut game_config_panel = GameConfigPanel::new();
+
+    if let Some(CliCommands::CreateGame { mode, race }) = cli.command {
+        // Check required params
+        if mode.is_none() || race.is_none() {
+            eprintln!("Error: --mode and --race are required for create_game\n");
+            eprintln!("Usage: sc2view create_game --mode=<MODE> --race=<RACE>");
+            exit(1);
+        }
+        let mode_val = mode.unwrap();
+        let race_val = race.unwrap();
+        let game_type = parse_game_type(&mode_val);
+        let race_enum = parse_race(&race_val);
+        if game_type.is_none() || race_enum.is_none() {
+            eprintln!("Error: Invalid mode or race value\n");
+            eprintln!("Allowed modes: vsAI, vsBot\nAllowed races: terran, zerg, protoss, random");
+            exit(1);
+        }
+        // Set up resources to skip start screen
+        game_created = true;
+        app_state = AppState::GameScreen;
+        game_config_panel.game_type = game_type.unwrap();
+        game_config_panel.ai_race = Some(race_enum.unwrap());
+    }
+
     let rt = Runtime::new().unwrap();
 
     App::new()
@@ -178,14 +247,14 @@ fn main() {
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
-        .insert_resource(GameCreated(false))
+        .insert_resource(GameCreated(game_created))
         .insert_resource(UnitRegistry::default())
         .insert_resource(UnitIconAssets::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(CameraPanState::default())
-        .insert_resource(GameConfigPanel::new())
+        .insert_resource(game_config_panel)
         .insert_resource(DockerStatus::Starting)
-        .insert_resource(AppState::StartScreen)
+        .insert_resource(app_state)
         .add_systems(Startup, preload_unit_icons)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)

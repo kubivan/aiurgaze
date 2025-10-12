@@ -35,6 +35,9 @@ futures-util = "0.3.31"
 serde = "1.0.228"
 url = "2.5.7"
 
+# --- Command-line Argument Parsing ---
+clap = { version = "4.5", features = ["derive"] }
+
 [build-dependencies]
 tiled = { version = "0.14.0", default-features = false }
 

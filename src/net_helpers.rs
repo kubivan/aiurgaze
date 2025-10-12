@@ -53,4 +53,3 @@ pub fn send_create_game_request(request: Request, ws_url: &str, max_retries: u32
         }
     })
 }
-
