@@ -13,21 +13,16 @@ mod entity_system;
 
 use bevy::prelude::*;
 
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
 use std::process::Command;
-use std::net::TcpStream;
-use std::time::{Duration, Instant};
 use bevy_ecs_tilemap::{ TilemapPlugin};
-use bevy_ecs_tilemap::prelude::TilemapRenderSettings;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use protobuf::Message;
 use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
-use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated};
-use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system, UnitTypeIndex, UnitType};
+use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
+use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitTypeIndex, UnitType};
 use crate::units::CurrentOrderAbility;
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
@@ -112,6 +107,17 @@ fn start_server_container() -> Result<(), String> {
     Ok(())
 }
 
+/// Blocking Docker startup for CLI mode
+fn startup_docker_blocking() -> Result<(), String> {
+    println!("[startup_docker_blocking] Starting Docker container...");
+    let result = start_server_container();
+    match &result {
+        Ok(_) => println!("[startup_docker_blocking] Docker container started successfully."),
+        Err(e) => eprintln!("[startup_docker_blocking] Failed to start Docker: {e}"),
+    }
+    result
+}
+
 #[allow(dead_code)]
 fn test()
 {
@@ -131,7 +137,6 @@ fn test()
 
 /// System to check/start Docker and update status
 fn docker_startup_system(
-    mut commands: Commands,
     runtime: Res<TokioTasksRuntime>,
     mut docker_status: ResMut<DockerStatus>,
 ) {
@@ -203,12 +208,16 @@ fn order_label_update_system(
 
 /// Entry point
 fn main() {
+    let app_settings = load_settings();
+    let available_maps = list_maps_folder();
+    let mut game_config_panel = GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
+
     let cli = Cli::parse();
 
     // Default values for resources
     let mut game_created = false;
     let mut app_state = AppState::StartScreen;
-    let mut game_config_panel = GameConfigPanel::new();
+    let mut pending_request = PendingCreateGameRequest::default();
 
     if let Some(CliCommands::CreateGame { mode, race }) = cli.command {
         // Check required params
@@ -226,16 +235,29 @@ fn main() {
             eprintln!("Allowed modes: vsAI, vsBot\nAllowed races: terran, zerg, protoss, random");
             exit(1);
         }
+        // Start Docker synchronously in CLI mode
+        if let Err(e) = startup_docker_blocking() {
+            eprintln!("Error: Could not start Docker container: {e}");
+            exit(1);
+        }
         // Set up resources to skip start screen
-        game_created = true;
         app_state = AppState::GameScreen;
         game_config_panel.game_type = game_type.unwrap();
         game_config_panel.ai_race = Some(race_enum.unwrap());
+
+        // Build the request and store it in the resource to be sent by ui_system
+        match build_create_game_request(&game_config_panel) {
+            Ok(req) => {
+                println!("[CLI] CreateGame request built, will be sent by ui_system within Bevy");
+                pending_request.0 = Some(req);
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to build create game request: {}", e);
+                exit(1);
+            }
+        }
     }
 
-    let app_settings = load_settings();
-    let available_maps = list_maps_folder();
-    let mut game_config_panel = GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
 
     App::new()
         .add_plugins(
@@ -262,6 +284,7 @@ fn main() {
         .insert_resource(CameraPanState::default())
         .insert_resource(game_config_panel)
         .insert_resource(DockerStatus::Starting)
+        .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
         .add_systems(Startup, setup_entity_system)

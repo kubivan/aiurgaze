@@ -15,6 +15,10 @@ pub(crate) use game_config_panel::{GameConfigPanel, GameType, show_game_config_p
 #[derive(Resource, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AppState { StartScreen, GameScreen }
 
+/// Resource to hold a pending CreateGame request from CLI
+#[derive(Resource, Default)]
+pub struct PendingCreateGameRequest(pub Option<Request>);
+
 #[derive(Component)]
 pub struct MainCamera;
 
@@ -100,10 +104,29 @@ pub fn ui_system(
     mut app_state: ResMut<AppState>,
     mut game_config_panel: ResMut<GameConfigPanel>,
     mut game_created: ResMut<GameCreated>,
+    mut pending_request: ResMut<PendingCreateGameRequest>,
     app_settings: Res<AppSettings>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
     let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.ws_url, app_settings.starcraft.ws_port);
+    
+    // Check if there's a pending request from CLI to send
+    if let Some(req) = pending_request.0.take() {
+        println!("[ui_system] Sending pending create game request from CLI");
+        let res = send_create_game_request(req, &ws_url, 5, 1);
+        match res {
+            Err(e) => {
+                eprintln!("[ui_system] Failed to send create game request: {}", e);
+            },
+            Ok(_) => {
+                println!("[ui_system] Create game request sent successfully");
+                game_created.0 = true;
+                *app_state = AppState::GameScreen;
+            }
+        }
+        return;
+    }
+    
     match *app_state {
         AppState::StartScreen => {
             egui::CentralPanel::default().show(ctx, |ui| {

@@ -35,11 +35,11 @@ pub fn send_create_game_request(request: Request, ws_url: &str, max_retries: u32
         }
         let mut ws_stream = ws_stream_opt.ok_or_else(|| "WebSocket connect failed".to_string())?;
         let bytes = request.write_to_bytes().map_err(|e| format!("Protobuf serialization error: {}", e))?;
-        ws_stream.send(tokio_tungstenite::tungstenite::Message::Binary(Bytes::from(bytes))).await.map_err(|e| format!("WebSocket send error: {}", e))?;
+        ws_stream.send(tungstenite::Message::Binary(Bytes::from(bytes))).await.map_err(|e| format!("WebSocket send error: {}", e))?;
         // Wait for a response
         if let Some(msg) = ws_stream.next().await {
             match msg {
-                Ok(tokio_tungstenite::tungstenite::Message::Binary(resp_bytes)) => {
+                Ok(tungstenite::Message::Binary(resp_bytes)) => {
                     let sc2_resp = Response::parse_from_bytes(resp_bytes.iter().as_slice());
                     println!("got response {:?}", sc2_resp);
                     // You can parse the response here if needed

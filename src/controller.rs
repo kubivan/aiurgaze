@@ -24,6 +24,7 @@ pub struct MapResource {
 pub fn setup_proxy(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
     println!("======setup_proxy====");
     // create proxy + channel
+    //TODO: move to config
     let proxy = ProxyWS::new("127.0.0.1:5000", "ws://127.0.0.1:5555/sc2api");
     let rx = proxy.tx.subscribe();
     commands.insert_resource( ProxyWSResource { rx });
