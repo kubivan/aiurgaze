@@ -50,6 +50,6 @@ player_name = "Player1"
 ai_difficulty = "Medium"
 ai_race = "Random"
 bot_name = "BotOpponent"
-disable_fog = false
+disable_fog = true
 random_seed = 42
 realtime = false

@@ -24,6 +24,7 @@ use crate::controller::{response_controller_system, setup_proxy};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
 use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitTypeIndex, UnitType};
 use crate::units::CurrentOrderAbility;
+use crate::units::update_unit_visuals;
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
@@ -298,5 +299,6 @@ fn main() {
         .add_systems(Update, response_controller_system)
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(Update, order_label_update_system)
+        .add_systems(Update, update_unit_visuals)
         .run();
 }

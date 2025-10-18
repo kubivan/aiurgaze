@@ -37,13 +37,37 @@ pub struct UnitTag(pub u64);
 pub struct UnitType(pub u32);
 
 #[derive(Component)]
-pub struct UnitHealth(pub f32);
+pub struct UnitHealth {
+    pub current: f32,
+    pub max: f32,
+}
+
+#[derive(Component)]
+pub struct UnitShield {
+    pub current: f32,
+    pub max: f32,
+}
+
+#[derive(Component)]
+pub struct UnitBuildProgress(pub f32);
+
+#[derive(Component)]
+pub struct UnitAlliance(pub i32); // 1=Self, 2=Ally, 3=Neutral, 4=Enemy
 
 #[derive(Component)]
 pub struct UnitProto(pub sc2_proto::raw::Unit);
 
 #[derive(Component, Default)]
 pub struct CurrentOrderAbility(pub Option<u32>);
+
+#[derive(Component)]
+pub struct HealthBar;
+
+#[derive(Component)]
+pub struct ShieldBar;
+
+#[derive(Component)]
+pub struct BuildProgressBar;
 
 /// === Unit handling logic ===
 
@@ -67,6 +91,10 @@ pub fn handle_observation(
         let pos = unit.pos.as_ref().unwrap();
         let (x, y, _z ) = (pos.x.unwrap(), pos.y.unwrap(), pos.z.unwrap());
         let health = unit.health.unwrap_or(0.0);
+        let max_health = unit.health_max.unwrap_or(0.0);
+        let shield = unit.shield.unwrap_or(0.0);
+        let max_shield = unit.shield_max.unwrap_or(0.0);
+        let build_progress = unit.build_progress.unwrap_or(0.0);
         let unit_type = unit.unit_type.unwrap();
         let tile_size = entity_system.tile_size;
         let world_x = x * tile_size - map_size.0 * tile_size / 2.0;
@@ -83,17 +111,14 @@ pub fn handle_observation(
             // Update existing unit components
             commands.entity(entity).insert((
                 Transform::from_xyz(world_x, world_y, 1.0),
-                UnitHealth(health),
+                UnitHealth { current: health, max: max_health },
+                UnitShield { current: shield, max: max_shield },
+                UnitBuildProgress(build_progress),
                 UnitProto(unit.clone()),
                 CurrentOrderAbility(first_order_ability),
             ));
         } else {
-            // Spawn new sprite based on config
-            let text_label = if let Some(aid) = first_order_ability {
-                entity_system.ability_name(aid).unwrap_or("")
-            } else {
-                display.label.as_deref().unwrap_or("")
-            };
+            // Spawn new sprite based on config (without text label)
             let entity = commands
                 .spawn((
                     Sprite {
@@ -103,16 +128,11 @@ pub fn handle_observation(
                         ..default()
                     },
                     Transform::from_xyz(world_x, world_y, 1.0),
-                    children![(
-                        Text2d::new(text_label.to_string()),
-                        TextLayout::new_with_justify(JustifyText::Center),
-                        TextFont::from_font_size(14.),
-                        Transform::from_xyz(0., -(size / 2.0) - 6.0, 0.),
-                        bevy::sprite::Anchor::TopCenter,
-                    )],
                     UnitTag(tag),
                     UnitType(unit_type),
-                    UnitHealth(health),
+                    UnitHealth { current: health, max: max_health },
+                    UnitShield { current: shield, max: max_shield },
+                    UnitBuildProgress(build_progress),
                     UnitProto(unit.clone()),
                     CurrentOrderAbility(first_order_ability),
                 ))
@@ -199,7 +219,155 @@ pub fn unit_selection_system(
 }
 
 /// System to preload all unit icons at startup
+#[allow(unused_variables)]
 pub fn preload_unit_icons(asset_server: Res<AssetServer>, mut icons: ResMut<UnitIconAssets>) {
     // This function is now deprecated in favor of EntitySystem
     // Icons are pre-loaded in EntitySystem::load()
+}
+
+/// System to update unit visuals: alliance tint, health/shield/build progress bars
+pub fn update_unit_visuals(
+    mut commands: Commands,
+    mut unit_query: Query<(
+        Entity,
+        &UnitProto,
+        &UnitType,
+        &UnitHealth,
+        &UnitShield,
+        &UnitBuildProgress,
+        &mut Sprite,
+        Option<&Children>,
+    )>,
+    entity_system: Res<EntitySystem>,
+    child_query: Query<Entity>,
+) {
+    for (entity, proto, unit_type, health, shield, build_progress, mut sprite, children) in unit_query.iter_mut() {
+        use sc2_proto::raw::Alliance;
+        let alliance = proto.0.alliance.unwrap_or(Alliance::Neutral); // Default to neutral
+        let size = entity_system.unit_size(unit_type.0);
+
+        // 1. Apply reddish tint for enemy units
+        if alliance == Alliance::Enemy {
+            sprite.color = Color::srgb(1.5, 0.7, 0.7); // Reddish tint
+        } else {
+            sprite.color = Color::WHITE;
+        }
+
+        // 2. Remove old children (bars and labels)
+        if let Some(children) = children {
+            for child in children.iter() {
+                if child_query.contains(child) {
+                    commands.entity(child).despawn();
+                }
+            }
+        }
+
+        let bar_width = size;
+        let bar_height = 3.0;
+        let bar_y_offset = -(size / 2.0) - 2.0; // Directly below icon (2px gap)
+
+        // 3. Show build progress bar if building is not complete
+        if build_progress.0 < 1.0 && build_progress.0 > 0.0 {
+            let progress_width = bar_width * build_progress.0;
+
+            // Background for build progress
+            let bg_entity = commands.spawn((
+                Sprite {
+                    color: Color::srgb(0.2, 0.2, 0.2), // Dark background
+                    custom_size: Some(Vec2::new(bar_width, bar_height)),
+                    ..default()
+                },
+                Transform::from_xyz(0.0, bar_y_offset, 0.0),
+            )).id();
+            commands.entity(entity).add_child(bg_entity);
+
+            // Progress bar
+            let progress_entity = commands.spawn((
+                Sprite {
+                    color: Color::srgb(1.0, 1.0, 0.0), // Yellow for build progress
+                    custom_size: Some(Vec2::new(progress_width, bar_height)),
+                    ..default()
+                },
+                Transform::from_xyz(-(bar_width - progress_width) / 2.0, bar_y_offset, 0.1),
+                BuildProgressBar,
+            )).id();
+            commands.entity(entity).add_child(progress_entity);
+        } else {
+            // 4. Show health bar (green)
+            if health.max > 0.0 {
+                let health_percent = (health.current / health.max).clamp(0.0, 1.0);
+                let health_width = bar_width * health_percent;
+
+                // Health bar background
+                let health_bg = commands.spawn((
+                    Sprite {
+                        color: Color::srgb(0.2, 0.2, 0.2), // Dark background
+                        custom_size: Some(Vec2::new(bar_width, bar_height)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, bar_y_offset, 0.0),
+                )).id();
+                commands.entity(entity).add_child(health_bg);
+
+                // Health bar foreground
+                let health_fg = commands.spawn((
+                    Sprite {
+                        color: Color::srgb(0.0, 1.0, 0.0), // Green
+                        custom_size: Some(Vec2::new(health_width, bar_height)),
+                        ..default()
+                    },
+                    Transform::from_xyz(-(bar_width - health_width) / 2.0, bar_y_offset, 0.1),
+                    HealthBar,
+                )).id();
+                commands.entity(entity).add_child(health_fg);
+            }
+
+            // 5. Show shield bar (blue) if present
+            if shield.max > 0.0 {
+                let shield_y_offset = bar_y_offset - bar_height - 1.0; // Below health bar
+                let shield_percent = (shield.current / shield.max).clamp(0.0, 1.0);
+                let shield_width = bar_width * shield_percent;
+
+                // Shield bar background
+                let shield_bg = commands.spawn((
+                    Sprite {
+                        color: Color::srgb(0.2, 0.2, 0.2), // Dark background
+                        custom_size: Some(Vec2::new(bar_width, bar_height)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, shield_y_offset, 0.0),
+                )).id();
+                commands.entity(entity).add_child(shield_bg);
+
+                // Shield bar foreground
+                let shield_fg = commands.spawn((
+                    Sprite {
+                        color: Color::srgb(0.0, 0.5, 1.0), // Blue
+                        custom_size: Some(Vec2::new(shield_width, bar_height)),
+                        ..default()
+                    },
+                    Transform::from_xyz(-(bar_width - shield_width) / 2.0, shield_y_offset, 0.1),
+                    ShieldBar,
+                )).id();
+                commands.entity(entity).add_child(shield_fg);
+            }
+        }
+
+        // // Re-add text label
+        // let text_label = if let Some(aid) = proto.0.orders.get(0).and_then(|o| o.ability_id) {
+        //     entity_system.ability_name(aid).unwrap_or("").to_string()
+        // } else {
+        //     let display = entity_system.get_display_info(unit_type.0);
+        //     display.label.unwrap_or_default()
+        // };
+        //
+        // let label_entity = commands.spawn((
+        //     Text2d::new(text_label),
+        //     TextLayout::new_with_justify(JustifyText::Center),
+        //     TextFont::from_font_size(14.),
+        //     Transform::from_xyz(0., -(size / 2.0) - 6.0, 0.),
+        //     bevy::sprite::Anchor::TopCenter,
+        // )).id();
+        // commands.entity(entity).add_child(label_entity);
+    }
 }
