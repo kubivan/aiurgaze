@@ -1,13 +1,10 @@
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
-use bevy::diagnostic::FrameCount;
 use bevy::sprite::Anchor;
-use sc2_proto::sc2api::{Observation, ResponseObservation};
-use tiled::HorizontalAlignment::Justify;
-use protobuf::reflect::MessageDescriptor;
+use sc2_proto::sc2api::ResponseObservation;
 use protobuf::reflect::ReflectFieldRef;
-use protobuf::text_format;
 use protobuf::Message;
+use crate::entity_system::EntitySystem;
 
 /// === Resources ===
 
@@ -26,6 +23,11 @@ pub struct SelectedUnit {
     pub tag: Option<u64>,
 }
 
+#[derive(Resource, Default)]
+pub struct UnitTypeIndex {
+    pub by_type: HashMap<u32, Vec<Entity>>, // unit_type id -> spawned bevy entities
+}
+
 /// === Components ===
 
 #[derive(Component)]
@@ -40,86 +42,83 @@ pub struct UnitHealth(pub f32);
 #[derive(Component)]
 pub struct UnitProto(pub sc2_proto::raw::Unit);
 
-/// === Unit handling logic ===
+#[derive(Component, Default)]
+pub struct CurrentOrderAbility(pub Option<u32>);
 
-fn image_path(unit_type: u32) -> &'static str {
-    match unit_type {
-        59 => "png/nexus.png",
-        341 => "png/mineral.png",
-        84 => "png/probe.png",
-        // Add more mappings as needed
-        // _ => "png/probe.png",
-        _ => "png/mineral.png",
-    }
-}
-fn image_size(unit_type: u32) -> f32 {
-    match unit_type {
-        59 => 16.0 * 9.0,
-        341 => 16.0 * 1.0,
-        _ => 16.0 * 2.0,
-    }
-}
+/// === Unit handling logic ===
 
 pub fn handle_observation(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
-    icon_assets: &Res<UnitIconAssets>,
+    _icon_assets: &Res<UnitIconAssets>,
     registry: &mut ResMut<UnitRegistry>,
+    type_index: &mut ResMut<UnitTypeIndex>,
+    entity_system: &Res<EntitySystem>,
     obs_msg: &ResponseObservation,
 ) {
     let obs = obs_msg.observation.as_ref().unwrap();
     let raw_data = obs.raw_data.as_ref().unwrap();
-
-    // Keep track of seen tags this frame
     let mut seen_tags = HashSet::new();
     let map_size = (200.0 , 176.0);
 
     for unit in &raw_data.units {
         let tag = unit.tag.unwrap();
         seen_tags.insert(tag);
-
         let pos = unit.pos.as_ref().unwrap();
         let (x, y, _z ) = (pos.x.unwrap(), pos.y.unwrap(), pos.z.unwrap());
         let health = unit.health.unwrap_or(0.0);
         let unit_type = unit.unit_type.unwrap();
-        let tile_size = 16.0;
-        let world_x = x * tile_size;
-        let world_y = y * tile_size;
+        let tile_size = entity_system.tile_size;
+        let world_x = x * tile_size - map_size.0 * tile_size / 2.0;
+        let world_y = y * tile_size - map_size.1 * tile_size / 2.0;
 
+        let first_order_ability = unit.orders.get(0).and_then(|o| o.ability_id);
 
-        // Update or spawn
+        // Get display info from entity system
+        let display = entity_system.get_display_info(unit_type);
+        let size = entity_system.unit_size(unit_type);
+        let image_handle = entity_system.get_icon_handle(unit_type, asset_server);
+
         if let Some(&entity) = registry.map.get(&tag) {
-            // Update existing unit
+            // Update existing unit components
             commands.entity(entity).insert((
-                Transform::from_xyz(world_x - map_size.0 * tile_size / 2.0, world_y - map_size.1 * tile_size / 2.0, 1.0),
+                Transform::from_xyz(world_x, world_y, 1.0),
                 UnitHealth(health),
                 UnitProto(unit.clone()),
+                CurrentOrderAbility(first_order_ability),
             ));
         } else {
-            let image = icon_assets.icons.get(&unit_type).cloned().unwrap_or_else(|| asset_server.load(image_path(unit_type)));
+            // Spawn new sprite based on config
+            let text_label = if let Some(aid) = first_order_ability {
+                entity_system.ability_name(aid).unwrap_or("")
+            } else {
+                display.label.as_deref().unwrap_or("")
+            };
             let entity = commands
                 .spawn((
                     Sprite {
-                        image,
-                        custom_size: Some(Vec2::splat(image_size(unit_type))),
+                        image: image_handle,
+                        custom_size: Some(Vec2::splat(size)),
                         anchor: Anchor::Center,
                         ..default()
                     },
-                    Transform::from_xyz(world_x, world_y , 1.0 ),
+                    Transform::from_xyz(world_x, world_y, 1.0),
                     children![(
-                    Text2d::new("text"),
-                    TextLayout::new_with_justify(JustifyText::Center),
-                    TextFont::from_font_size(15.),
-                    Transform::from_xyz(0., -0.5 * y - 10., 0.),
-                    bevy::sprite::Anchor::TopCenter,
-                )],
+                        Text2d::new(text_label.to_string()),
+                        TextLayout::new_with_justify(JustifyText::Center),
+                        TextFont::from_font_size(14.),
+                        Transform::from_xyz(0., -(size / 2.0) - 6.0, 0.),
+                        bevy::sprite::Anchor::TopCenter,
+                    )],
                     UnitTag(tag),
                     UnitType(unit_type),
                     UnitHealth(health),
                     UnitProto(unit.clone()),
+                    CurrentOrderAbility(first_order_ability),
                 ))
                 .id();
             registry.map.insert(tag, entity);
+            type_index.by_type.entry(unit_type).or_default().push(entity);
         }
     }
     // Optional: Despawn units not seen anymore
@@ -169,10 +168,9 @@ pub fn get_set_fields(unit: &sc2_proto::raw::Unit) -> Vec<(String, String)> {
 
 /// System to select unit on mouse click
 pub fn unit_selection_system(
-    mut commands: Commands,
     windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
-    registry: Res<UnitRegistry>,
+    _registry: Res<UnitRegistry>,
     unit_query: Query<(Entity, &Transform, &UnitTag)>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut selected: ResMut<SelectedUnit>,
@@ -188,7 +186,7 @@ pub fn unit_selection_system(
         if let Ok(world_pos) = world_pos {
             let world_pos = world_pos.origin.truncate();
             // Check for unit under cursor
-            for (entity, transform, tag) in unit_query.iter() {
+            for (_entity, transform, tag) in unit_query.iter() {
                 let unit_pos = transform.translation.truncate();
                 let distance = unit_pos.distance(world_pos);
                 if distance < 16.0 { // Use unit size threshold
@@ -202,10 +200,6 @@ pub fn unit_selection_system(
 
 /// System to preload all unit icons at startup
 pub fn preload_unit_icons(asset_server: Res<AssetServer>, mut icons: ResMut<UnitIconAssets>) {
-    let unit_types = vec![59, /* add more unit types here */];
-    for unit_type in unit_types {
-        let path = image_path(unit_type);
-        let handle = asset_server.load(path);
-        icons.icons.insert(unit_type, handle);
-    }
+    // This function is now deprecated in favor of EntitySystem
+    // Icons are pre-loaded in EntitySystem::load()
 }

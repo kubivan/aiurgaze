@@ -8,6 +8,8 @@ mod helpers;
 mod units;
 mod create_game_request;
 mod net_helpers;
+mod app_settings;
+mod entity_system;
 
 use bevy::prelude::*;
 
@@ -24,14 +26,17 @@ use protobuf::Message;
 use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
-use crate::ui::{camera_controls, camera_pan_system, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated};
-use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system};
+use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated};
+use crate::units::{UnitRegistry, UnitIconAssets, preload_unit_icons, SelectedUnit, unit_selection_system, UnitTypeIndex, UnitType};
+use crate::units::CurrentOrderAbility;
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
 use std::process::exit;
 use sc2_proto::common::Race;
 use crate::ui::GameType;
+use crate::app_settings::{AppSettings, load_settings};
+use crate::entity_system::setup_entity_system;
 
 fn parse_game_type(mode: &str) -> Option<GameType> {
     match mode.to_lowercase().as_str() {
@@ -60,11 +65,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CliCommands {
+    /// Create a new game directly from the command line
     CreateGame {
         #[arg(long)]
         mode: Option<String>,
         #[arg(long)]
         race: Option<String>,
+        // Add more options as needed
     },
 }
 
@@ -72,8 +79,8 @@ enum CliCommands {
 fn start_server_container() -> Result<(), String> {
     let image = std::env::var("SC2_SERVER_IMAGE").unwrap_or_else(|_| "sc2:latest".into());
     let container_name = std::env::var("SC2_SERVER_CONTAINER").unwrap_or_else(|_| "sc2-tweak".into());
-    let port: u16 = 5555;
-    let host = "127.0.0.1";
+    let _port: u16 = 5555; // unused
+    let _host = "127.0.0.1"; // unused
 
     // Remove any existing container with the same name
     let _ = Command::new("docker")
@@ -104,6 +111,7 @@ fn start_server_container() -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn test()
 {
     // let s = "\u{12}\r\u{10}\u{74}\u{6C}\u{81}\u{C0}\u{FC}\u{FF}\u{FF}\u{FF}\u{FF}\u{01}\u{1A}\0\u{88}\u{06}\0\u{98}\u{06}\u{02}";
@@ -122,7 +130,8 @@ fn test()
 
 
 /// Spawns a few colored shapes so you can verify the renderer works.
-pub fn spawn_test_entities(mut commands: Commands, asset_server: Res<AssetServer>) {
+#[allow(dead_code)]
+pub fn spawn_test_entities(mut commands: Commands, _asset_server: Res<AssetServer>) {
     // 🟥 Red square
     commands.spawn((
         Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::splat(100.0)),
@@ -208,6 +217,28 @@ fn proxy_connect_on_docker_ready(
     }
 }
 
+/// System to update order ability labels on units
+#[allow(unused_variables)]
+fn order_label_update_system(
+    mut query: Query<(&CurrentOrderAbility, &UnitType, &Children)>,
+    mut text_query: Query<&mut Text2d>,
+    app_settings: Res<AppSettings>,
+) {
+    //TODO: check if this is still needed
+    // for (order, unit_type, children) in &mut query {
+    //     let desired: String = if let Some(aid) = order.0 {
+    //         app_settings.ability_name_by_id(aid).unwrap_or("").to_string()
+    //     } else {
+    //         app_settings.get_unit_display_by_id(unit_type.0).label.unwrap_or_default()
+    //     };
+    //     for child in children.iter() {
+    //         if let Ok(mut text) = text_query.get_mut(*child) {
+    //             if text.0 != desired { text.0 = desired.clone(); }
+    //         }
+    //     }
+    // }
+}
+
 /// Entry point
 fn main() {
     let cli = Cli::parse();
@@ -240,7 +271,8 @@ fn main() {
         game_config_panel.ai_race = Some(race_enum.unwrap());
     }
 
-    let rt = Runtime::new().unwrap();
+    let app_settings = load_settings();
+    // let rt = Runtime::new().unwrap();
 
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
@@ -250,12 +282,14 @@ fn main() {
         .insert_resource(GameCreated(game_created))
         .insert_resource(UnitRegistry::default())
         .insert_resource(UnitIconAssets::default())
+        .insert_resource(UnitTypeIndex::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(CameraPanState::default())
         .insert_resource(game_config_panel)
         .insert_resource(DockerStatus::Starting)
+        .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
-        .add_systems(Startup, preload_unit_icons)
+        .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
         .add_systems(EguiPrimaryContextPass, selected_unit_panel_system)
@@ -265,5 +299,6 @@ fn main() {
         .add_systems(EguiPrimaryContextPass, status_bar_system)
         .add_systems(Update, response_controller_system)
         .add_systems(Update, proxy_connect_on_docker_ready)
+        .add_systems(Update, order_label_update_system)
         .run();
 }

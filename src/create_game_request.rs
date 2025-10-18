@@ -1,13 +1,12 @@
-use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum GameType {
     #[default]
     VsAI,
     VsBot,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct CreateGameRequest {
     pub game_type: GameType,
     pub map_name: String,

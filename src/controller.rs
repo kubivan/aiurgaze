@@ -1,18 +1,14 @@
 use bevy::asset::AssetServer;
 use bevy::color::Color;
 use sc2_proto::sc2api::Response_oneof_response::{game_info, observation};
-use bevy::prelude::{Assets, Commands, Entity, Image, Local, Query, Res, ResMut, Resource};
+use bevy::prelude::{Commands, Res, ResMut};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
-use sc2_proto::sc2api::{Response, ResponseGameInfo, ResponseObservation};
-use tokio::sync::broadcast;
-use tokio::task;
+use bevy_tokio_tasks::TokioTasksRuntime;
 use crate::proxy_ws::{ProxyWS, ProxyWSResource};
-use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
-use crate::map::{spawn_tilemap};
-
-use std::collections::HashMap;
-use crate::units::{handle_observation, UnitIconAssets, UnitRegistry};
+use crate::map::spawn_tilemap;
+use crate::entity_system::EntitySystem;
+use crate::units::{handle_observation, UnitIconAssets, UnitRegistry, UnitTypeIndex};
 
 pub fn setup_proxy(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
     println!("======setup_proxy====");
@@ -46,6 +42,8 @@ pub fn response_controller_system(
     mut asset_server: Res<AssetServer>,
     mut icon_assets: Res<UnitIconAssets>,
     mut registry: ResMut<UnitRegistry>,
+    mut type_index: ResMut<UnitTypeIndex>,
+    entity_system: Res<EntitySystem>,
 ) {
     let mut proxy_res = match proxy_res {
         Some(res) => res,
@@ -59,9 +57,12 @@ pub fn response_controller_system(
             observation (obs )  => {
                 //println!("Got observation: {:?}", obs.observation.unwrap().game_loop);
                 handle_observation(&mut commands,
-                                   &mut asset_server,
-                                   &mut icon_assets,
-                                   &mut registry, &obs);
+                                   &asset_server,
+                                   &icon_assets,
+                                   &mut registry,
+                                   &mut type_index,
+                                   &entity_system,
+                                   &obs);
             }
             game_info (gi) =>  {
                 let &start_raw = &gi.start_raw.as_ref().unwrap();
