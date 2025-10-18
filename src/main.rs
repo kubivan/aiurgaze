@@ -37,6 +37,7 @@ use sc2_proto::common::Race;
 use crate::ui::GameType;
 use crate::app_settings::{AppSettings, load_settings};
 use crate::entity_system::setup_entity_system;
+use crate::ui::game_config_panel::list_maps_folder;
 
 fn parse_game_type(mode: &str) -> Option<GameType> {
     match mode.to_lowercase().as_str() {
@@ -126,45 +127,6 @@ fn test()
     let resp = Response::parse_from_bytes(&*bytes);
     println!("{:?}", resp);
 
-}
-
-
-/// Spawns a few colored shapes so you can verify the renderer works.
-#[allow(dead_code)]
-pub fn spawn_test_entities(mut commands: Commands, _asset_server: Res<AssetServer>) {
-    // 🟥 Red square
-    commands.spawn((
-        Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::splat(100.0)),
-        Transform::from_xyz(-200.0, 0.0, 0.0),
-    ));
-
-    // 🟩 Green square
-    commands.spawn((
-        Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::splat(100.0)),
-        Transform::from_xyz(0.0, 0.0, 0.0),
-    ));
-
-    // 🟦 Blue square
-    commands.spawn((
-        Sprite::from_color(Color::srgb(0.0, 0.0, 1.0), Vec2::splat(100.0)),
-        Transform::from_xyz(200.0, 0.0, 0.0),
-    ));
-
-    // Use your own helpers::tiled module
-    // let map_handle = helpers::tiled::TiledMapHandle(asset_server.load("iso_map.tmx"));
-
-    // Note: You'll need to verify that TiledMapBundle exists in your helpers::tiled module
-    // If it doesn't, you may need to implement it or remove this code
-    // commands.spawn(helpers::tiled::TiledMapBundle {
-    //     tiled_map: map_handle,
-    //     render_settings: TilemapRenderSettings {
-    //         render_chunk_size: UVec2::new(3, 1),
-    //         y_sort: true,
-    //     },
-    //     ..Default::default()
-    // });
-
-    info!("✅ Spawned test sprites to verify rendering.");
 }
 
 /// System to check/start Docker and update status
@@ -272,10 +234,23 @@ fn main() {
     }
 
     let app_settings = load_settings();
-    // let rt = Runtime::new().unwrap();
+    let available_maps = list_maps_folder();
+    let mut game_config_panel = GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
 
     App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
+        .add_plugins(
+            DefaultPlugins
+                .set(ImagePlugin::default_nearest())
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: app_settings.window.title.clone(),
+                        resolution: (app_settings.window.width, app_settings.window.height).into(),
+                        resizable: app_settings.window.resizable,
+                        ..default()
+                    }),
+                    ..default()
+                })
+        )
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())

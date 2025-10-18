@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::sc2api::RequestCreateGame;
 use sc2_proto::common::Race;
+use crate::app_settings::GameConfigPanelDefaults;
 
 #[derive(Resource, Default)]
 pub struct GameConfigPanel {
@@ -26,6 +27,38 @@ impl GameConfigPanel {
             available_maps,
             ai_race: Some(Race::Random),
             ..Default::default()
+        }
+    }
+
+    pub fn from_defaults(defaults: &GameConfigPanelDefaults, available_maps: Vec<String>) -> Self {
+        let game_type = match defaults.game_type.as_deref() {
+            Some("VsBot") => GameType::VsBot,
+            _ => GameType::VsAI,
+        };
+        let map_name = defaults.map_name.clone().or_else(|| available_maps.get(0).cloned());
+        let player_name = defaults.player_name.clone().unwrap_or_else(|| "Player1".to_string());
+        let ai_difficulty = defaults.ai_difficulty.clone();
+        let ai_race = match defaults.ai_race.as_deref() {
+            Some("Terran") => Some(Race::Terran),
+            Some("Protoss") => Some(Race::Protoss),
+            Some("Zerg") => Some(Race::Zerg),
+            Some("Random") | _ => Some(Race::Random),
+        };
+        let bot_name = defaults.bot_name.clone();
+        let disable_fog = defaults.disable_fog.unwrap_or(false);
+        let random_seed = defaults.random_seed;
+        let realtime = defaults.realtime.unwrap_or(false);
+        Self {
+            game_type,
+            map_name,
+            available_maps,
+            player_name,
+            ai_difficulty,
+            ai_race,
+            bot_name,
+            disable_fog,
+            random_seed,
+            realtime,
         }
     }
 }

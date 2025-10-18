@@ -3,6 +3,7 @@ use bevy::image::Image;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 use sc2_proto::common::ImageData;
+use crate::app_settings::StyleConfig;
 #[derive(PartialEq)]
 pub enum TerrainLayerKind {
     Pathing,
@@ -79,7 +80,7 @@ impl TerrainLayer {
         }
     }
 }
-/// Get tile color based on terrain properties - Dark IDE theme
+/// Get tile color based on terrain properties - uses StyleConfig from app settings
 /// Creep overrides all other colors with purple
 pub fn blend_tile_color(
     pathing: u8,
@@ -87,31 +88,21 @@ pub fn blend_tile_color(
     creep: u8,
     energy: u8,
     height: u8,
+    style: &StyleConfig,
 ) -> Color {
-    let intensity = 0.5 + (height as f32 / 255.0) * 0.5;
-    // Creep overrides everything with purple (like error highlighting in IDE)
+    // Creep overrides everything with purple
     if creep > 0 {
-        return Color::srgb(0.4 * intensity, 0.1 * intensity, 0.5 * intensity);
+        let color = style.get_creep_color();
+        return style.apply_height_intensity(color, height);
     }
-    // Energy overrides with cyan/blue (like info highlighting)
+    // Energy overrides with cyan/blue
     if energy > 0 {
-        let intensity = 0.5 + (height as f32 / 255.0) * 0.5;
-        return Color::srgb(0.1 * intensity, 0.3 * intensity, 0.6 * intensity);
+        let color = style.get_energy_color();
+        return style.apply_height_intensity(color, height);
     }
-    // Discrete colors for pathable/placeable combinations (dark IDE theme)
-    let base_color = match (pathing > 0, placement > 0) {
-        (false, false) => Color::srgb(0.05, 0.05, 0.05),  // Non-pathable, non-placeable: Almost black #0D0D0D
-        (true, false)  => Color::srgb(0.12, 0.12, 0.13),  // Pathable only: Dark grey #1E1E21 (like IDE background)
-        (false, true)  => Color::srgb(0.18, 0.18, 0.20),  // Placeable only (rare): Medium-dark grey #2E2E33
-        (true, true)   => Color::srgb(0.22, 0.22, 0.24),  // Both pathable & placeable: Light grey #383840 (like selected line)
-    };
-    // Apply height as brightness multiplier
-    let intensity = 0.6 + (height as f32 / 255.0) * 0.4;
-    Color::srgb(
-        base_color.to_srgba().red * intensity,
-        base_color.to_srgba().green * intensity,
-        base_color.to_srgba().blue * intensity,
-    )
+    // Get discrete color for pathable/placeable combination
+    let base_color = style.get_terrain_color(pathing > 0, placement > 0);
+    style.apply_height_intensity(base_color, height)
 }
 pub struct TerrainLayers {
     pub pathing: Option<TerrainLayer>,
@@ -163,6 +154,7 @@ pub fn spawn_tilemap(
     commands: &mut Commands,
     layers: &TerrainLayers,
     asset_server: &mut Res<AssetServer>,
+    style: &StyleConfig,
     #[cfg(all(not(feature = "atlas"), feature = "render"))] array_texture_loader: Res<
         ArrayTextureLoader,
     >,
@@ -175,7 +167,7 @@ pub fn spawn_tilemap(
     };
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(map_size);
-    // Fill map tiles with blended colors
+    // Fill map tiles with colors from style config
     for y in 0..height {
         for x in 0..width {
             let tile_pos = TilePos { x, y };
@@ -185,12 +177,11 @@ pub fn spawn_tilemap(
             let height_val = layers.height.as_ref().map_or(128, |l| l.get_value(x, y));
             let creep = layers.creep.as_ref().map_or(0, |l| l.get_value(x, y));
             let energy = layers.energy.as_ref().map_or(0, |l| l.get_value(x, y));
-            // Get color based on all layers
-            let color = blend_tile_color(pathing, placement, creep, energy, height_val);
+            // Get color based on all layers using style config
+            let color = blend_tile_color(pathing, placement, creep, energy, height_val, style);
             let tile_entity = commands
                 .spawn(TileBundle {
                     position: tile_pos,
-                    visible: TileVisible(true),
                     tilemap_id: TilemapId(tilemap_entity),
                     color: TileColor(color),
                     texture_index: TileTextureIndex(5), // Use a single white tile for coloring

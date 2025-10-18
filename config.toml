@@ -1,0 +1,55 @@
+# SC2View Configuration
+
+# Window settings
+[window]
+title = "SC2 View"
+width = 1920.0
+height = 1080.0
+resizable = true
+
+# StarCraft II settings
+[starcraft]
+ws_url = "ws://127.0.0.1"
+ws_port = 5555
+image = "sc2:latest"
+container_name = "sc2-tweak"
+
+[style]
+# Map terrain colors - Dark IDE theme
+# Colors in RGB format [r, g, b] with values 0.0-1.0
+
+# Tile size for rendering
+tile_size = 32.0
+
+# Non-pathable, non-placeable areas (almost black, like IDE gutter)
+terrain_blocked = [0.05, 0.05, 0.05]
+
+# Pathable only (dark grey, like code editor background)
+terrain_pathable = [0.12, 0.12, 0.13]
+
+# Placeable only - rare case (medium-dark grey)
+terrain_placeable = [0.18, 0.18, 0.20]
+
+# Both pathable and placeable (light grey, like selected line in IDE)
+terrain_both = [0.22, 0.22, 0.24]
+
+# Creep overlay color (purple, like error highlighting)
+creep = [0.4, 0.1, 0.5]
+
+# Energy overlay color (cyan/blue, like info highlighting)
+energy = [0.1, 0.3, 0.6]
+
+# Height intensity multipliers [min, max]
+height_intensity = [0.6, 1.0]
+
+# Game config panel defaults
+[game_config_panel]
+game_type = "VsAI"           # "VsAI" or "VsBot"
+map_name = "AbyssalReefAIE.SC2Map"
+player_name = "Player1"
+ai_difficulty = "Medium"
+ai_race = "Random"
+bot_name = "BotOpponent"
+disable_fog = false
+random_seed = 42
+realtime = false

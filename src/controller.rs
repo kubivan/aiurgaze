@@ -1,5 +1,4 @@
 use bevy::asset::AssetServer;
-use bevy::color::Color;
 use sc2_proto::sc2api::Response_oneof_response::{game_info, observation};
 use bevy::prelude::{Commands, Res, ResMut, Resource, Query};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
@@ -9,6 +8,7 @@ use crate::proxy_ws::{ProxyWS, ProxyWSResource};
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
 use crate::units::{handle_observation, UnitIconAssets, UnitRegistry, UnitTypeIndex};
+use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -51,6 +51,7 @@ fn update_tilemap_colors(
     creep_layer: Option<&TerrainLayer>,
     energy_layer: Option<&TerrainLayer>,
     tile_color_query: &mut Query<&mut TileColor>,
+    app_settings: &AppSettings,
 ) {
     let (width, height) = static_layers.get_dimensions();
 
@@ -69,8 +70,8 @@ fn update_tilemap_colors(
                     let creep = creep_layer.map_or(0, |l| l.get_value(x, y));
                     let energy = energy_layer.map_or(0, |l| l.get_value(x, y));
 
-                    // Blend colors
-                    let color = blend_tile_color(pathing, placement, creep, energy, height_val);
+                    // Blend colors using style config
+                    let color = blend_tile_color(pathing, placement, creep, energy, height_val, &app_settings.style);
 
                     // Directly mutate the color component
                     tile_color.0 = color;
@@ -90,6 +91,7 @@ pub fn response_controller_system(
     mut type_index: ResMut<UnitTypeIndex>,
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
+    app_settings: Res<AppSettings>,
 ) {
     let mut proxy_res = match proxy_res {
         Some(res) => res,
@@ -133,6 +135,7 @@ pub fn response_controller_system(
                             creep_layer.as_ref(),
                             None, // energy_layer
                             &mut tile_color_query,
+                            &app_settings,
                         );
 
                         // Update hashes
@@ -169,6 +172,7 @@ pub fn response_controller_system(
                     &mut commands,
                     &static_layers,
                     &mut asset_server,
+                    &app_settings.style,
                 );
 
                 // Store the static layers and tile storage as a resource

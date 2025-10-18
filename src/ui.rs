@@ -8,7 +8,7 @@ use sc2_proto::common::Race;
 use protobuf::RepeatedField;
 use crate::app_settings::AppSettings;
 
-mod game_config_panel;
+pub(crate) mod game_config_panel;
 mod setup_game_config_panel; // kept for now if referenced elsewhere
 pub(crate) use game_config_panel::{GameConfigPanel, GameType, show_game_config_panel};
 
@@ -103,7 +103,7 @@ pub fn ui_system(
     app_settings: Res<AppSettings>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
-    let ws_url = format!("{}:{}/sc2api", app_settings.ws_url, app_settings.ws_port);
+    let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.ws_url, app_settings.starcraft.ws_port);
     match *app_state {
         AppState::StartScreen => {
             egui::CentralPanel::default().show(ctx, |ui| {
