@@ -25,6 +25,7 @@ use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanSta
 use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitTypeIndex, UnitType};
 use crate::units::CurrentOrderAbility;
 use crate::units::update_unit_visuals;
+use crate::units::draw_unit_orders;
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
@@ -300,5 +301,6 @@ fn main() {
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(Update, order_label_update_system)
         .add_systems(Update, update_unit_visuals)
+        .add_systems(Update, draw_unit_orders)
         .run();
 }

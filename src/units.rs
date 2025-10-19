@@ -371,3 +371,98 @@ pub fn update_unit_visuals(
         // commands.entity(entity).add_child(label_entity);
     }
 }
+
+/// System to draw lines from units to their order targets
+pub fn draw_unit_orders(
+    mut gizmos: Gizmos,
+    unit_query: Query<(&Transform, &UnitProto, &UnitTag)>,
+    registry: Res<UnitRegistry>,
+    entity_system: Res<EntitySystem>,
+) {
+    let map_size = (200.0, 176.0);
+    let tile_size = entity_system.tile_size;
+
+    for (transform, proto, _tag) in unit_query.iter() {
+        // Get the first order if it exists
+        if let Some(order) = proto.0.orders.get(0) {
+            let start_pos = Vec2::new(transform.translation.x, transform.translation.y);
+
+            // Check if order has a target using the oneof enum
+            if let Some(target) = &order.target {
+                use sc2_proto::raw::UnitOrder_oneof_target;
+
+                match target {
+                    UnitOrder_oneof_target::target_world_space_pos(point) => {
+                        // Target is a position
+                        let target_x = point.x.unwrap_or(0.0);
+                        let target_y = point.y.unwrap_or(0.0);
+
+                        // Convert SC2 coordinates to world coordinates
+                        let world_x = target_x * tile_size - map_size.0 * tile_size / 2.0;
+                        let world_y = target_y * tile_size - map_size.1 * tile_size / 2.0;
+                        let end_pos = Vec2::new(world_x, world_y);
+
+                        // Draw dashed line to position target
+                        draw_dashed_line(&mut gizmos, start_pos, end_pos, Color::srgba(0.8, 0.8, 0.2, 0.6));
+
+                        // Draw small circle at target position
+                        gizmos.circle_2d(end_pos, 4.0, Color::srgba(1.0, 1.0, 0.3, 0.7));
+                    }
+                    UnitOrder_oneof_target::target_unit_tag(target_tag) => {
+                        // Target is another unit
+                        if let Some(&target_entity) = registry.map.get(target_tag) {
+                            if let Ok((target_transform, _, _)) = unit_query.get(target_entity) {
+                                let end_pos = Vec2::new(target_transform.translation.x, target_transform.translation.y);
+
+                                // Draw solid line to unit target
+                                gizmos.line_2d(start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
+
+                                // Draw small arrow head
+                                draw_arrow_head(&mut gizmos, start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Helper function to draw a dashed line
+fn draw_dashed_line(gizmos: &mut Gizmos, start: Vec2, end: Vec2, color: Color) {
+    let direction = end - start;
+    let distance = direction.length();
+    let normalized = direction.normalize_or_zero();
+
+    let dash_length = 8.0;
+    let gap_length = 4.0;
+    let segment_length = dash_length + gap_length;
+
+    let mut current_distance = 0.0;
+
+    while current_distance < distance {
+        let segment_start = start + normalized * current_distance;
+        let segment_end_distance = (current_distance + dash_length).min(distance);
+        let segment_end = start + normalized * segment_end_distance;
+
+        gizmos.line_2d(segment_start, segment_end, color);
+
+        current_distance += segment_length;
+    }
+}
+
+/// Helper function to draw an arrow head at the end of a line
+fn draw_arrow_head(gizmos: &mut Gizmos, start: Vec2, end: Vec2, color: Color) {
+    let direction = (end - start).normalize_or_zero();
+    let arrow_size = 8.0;
+    let arrow_angle = std::f32::consts::PI / 6.0; // 30 degrees
+
+    // Calculate arrow head points
+    let perpendicular = Vec2::new(-direction.y, direction.x);
+
+    let left_point = end - direction * arrow_size + perpendicular * arrow_size * arrow_angle.sin();
+    let right_point = end - direction * arrow_size - perpendicular * arrow_size * arrow_angle.sin();
+
+    gizmos.line_2d(end, left_point, color);
+    gizmos.line_2d(end, right_point, color);
+}
