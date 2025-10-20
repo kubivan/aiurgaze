@@ -12,6 +12,7 @@ mod app_settings;
 mod entity_system;
 
 use bevy::prelude::*;
+use bevy_health_bar3d::prelude::*;
 
 use std::process::Command;
 use bevy_ecs_tilemap::{ TilemapPlugin};
@@ -22,14 +23,14 @@ use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
-use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitTypeIndex, UnitType};
+use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress};
 use crate::units::CurrentOrderAbility;
-use crate::units::update_unit_visuals;
 use crate::units::draw_unit_orders;
 use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
 use std::process::exit;
+use bevy::color::palettes::basic::{GREEN, RED};
 use sc2_proto::common::Race;
 use crate::ui::GameType;
 use crate::app_settings::{AppSettings, load_settings};
@@ -186,28 +187,6 @@ fn proxy_connect_on_docker_ready(
     }
 }
 
-/// System to update order ability labels on units
-#[allow(unused_variables)]
-fn order_label_update_system(
-    mut query: Query<(&CurrentOrderAbility, &UnitType, &Children)>,
-    mut text_query: Query<&mut Text2d>,
-    app_settings: Res<AppSettings>,
-) {
-    //TODO: check if this is still needed
-    // for (order, unit_type, children) in &mut query {
-    //     let desired: String = if let Some(aid) = order.0 {
-    //         app_settings.ability_name_by_id(aid).unwrap_or("").to_string()
-    //     } else {
-    //         app_settings.get_unit_display_by_id(unit_type.0).label.unwrap_or_default()
-    //     };
-    //     for child in children.iter() {
-    //         if let Ok(mut text) = text_query.get_mut(*child) {
-    //             if text.0 != desired { text.0 = desired.clone(); }
-    //         }
-    //     }
-    // }
-}
-
 /// Entry point
 fn main() {
     let app_settings = load_settings();
@@ -242,7 +221,7 @@ fn main() {
             eprintln!("Error: Could not start Docker container: {e}");
             exit(1);
         }
-        // Set up resources to skip start screen
+        // Set up resources to skip the start screen
         app_state = AppState::GameScreen;
         game_config_panel.game_type = game_type.unwrap();
         game_config_panel.ai_race = Some(race_enum.unwrap());
@@ -262,6 +241,9 @@ fn main() {
 
 
     App::new()
+        .register_type::<UnitHealth>()
+        .register_type::<UnitShield>()
+        .register_type::<UnitBuildProgress>()
         .add_plugins(
             DefaultPlugins
                 .set(ImagePlugin::default_nearest())
@@ -278,10 +260,27 @@ fn main() {
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
+        .add_plugins(HealthBarPlugin::<UnitHealth>::default())
+        .add_plugins(HealthBarPlugin::<UnitShield>::default())
+        .add_plugins(HealthBarPlugin::<UnitBuildProgress>::default())
+        .insert_resource(
+            ColorScheme::<UnitHealth>::new()
+                .foreground_color(ForegroundColor::Static(GREEN.into()))
+                .background_color(RED.into()),
+        )
+        .insert_resource(
+            ColorScheme::<UnitShield>::new()
+                .foreground_color(ForegroundColor::Static(Color::srgb(0.3, 0.6, 1.0)))
+                .background_color(Color::srgb(0.1, 0.1, 0.3)),
+        )
+        .insert_resource(
+            ColorScheme::<UnitBuildProgress>::new()
+                .foreground_color(ForegroundColor::Static(Color::srgb(1.0, 0.9, 0.2)))
+                .background_color(Color::srgb(0.3, 0.3, 0.1)),
+        )
         .insert_resource(GameCreated(game_created))
         .insert_resource(UnitRegistry::default())
         .insert_resource(UnitIconAssets::default())
-        .insert_resource(UnitTypeIndex::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(CameraPanState::default())
         .insert_resource(game_config_panel)
@@ -299,8 +298,6 @@ fn main() {
         .add_systems(EguiPrimaryContextPass, status_bar_system)
         .add_systems(Update, response_controller_system)
         .add_systems(Update, proxy_connect_on_docker_ready)
-        .add_systems(Update, order_label_update_system)
-        .add_systems(Update, update_unit_visuals)
         .add_systems(Update, draw_unit_orders)
         .run();
 }

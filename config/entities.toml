@@ -1,1063 +1,886 @@
 [[entity]]
 id = 4
 name = "Colossus"
-radius = 1.0
 icon = "icons/Colossus.webp"
 
 [[entity]]
 id = 5
 name = "TechLab"
-radius = 1.125
 icon = "icons/TechLab.webp"
 
 [[entity]]
 id = 6
 name = "Reactor"
-radius = 1.125
 icon = "icons/Reactor.webp"
 
 [[entity]]
 id = 7
 name = "InfestorTerran"
-radius = 0.375
 icon = "icons/InfestedTerran.webp"
 
 [[entity]]
 id = 8
 name = "BanelingCocoon"
-radius = 0.375
 icon = "icons/Baneling.webp"
 
 [[entity]]
 id = 9
 name = "Baneling"
-radius = 0.375
 icon = "icons/Baneling.webp"
 
 [[entity]]
 id = 10
 name = "Mothership"
-radius = 1.375
 icon = "icons/Mothership.webp"
 
 [[entity]]
 id = 11
 name = "PointDefenseDrone"
-radius = 0.625
 icon = "icons/PointDefenseDrone.webp"
 
 [[entity]]
 id = 12
 name = "Changeling"
-radius = 0.375
 icon = "icons/Changeling.webp"
 
 [[entity]]
 id = 13
 name = "ChangelingZealot"
-radius = 0.5
 icon = "icons/ChangelingZealot.webp"
 
 [[entity]]
 id = 14
 name = "ChangelingMarineShield"
-radius = 0.375
 icon = "icons/ChangelingMarineShield.webp"
 
 [[entity]]
 id = 15
 name = "ChangelingMarine"
-radius = 0.375
 icon = "icons/ChangelingMarine.webp"
 
 [[entity]]
 id = 16
 name = "ChangelingZerglingWings"
-radius = 0.375
 icon = "icons/ChangelingZerglingWings.webp"
 
 [[entity]]
 id = 17
 name = "ChangelingZergling"
-radius = 0.375
 icon = "icons/ChangelingZergling.webp"
 
 [[entity]]
 id = 18
 name = "CommandCenter"
-radius = 2.75
 icon = "icons/CommandCenter.webp"
 
 [[entity]]
 id = 19
 name = "SupplyDepot"
-radius = 1.25
 icon = "icons/SupplyDepot.webp"
 
 [[entity]]
 id = 20
 name = "Refinery"
-radius = 1.6875
 icon = "icons/Refinery.webp"
 
 [[entity]]
 id = 21
 name = "Barracks"
-radius = 1.8125
 icon = "icons/Barracks.webp"
 
 [[entity]]
 id = 22
 name = "EngineeringBay"
-radius = 1.8125
 icon = "icons/EngineeringBay.webp"
 
 [[entity]]
 id = 23
 name = "MissileTurret"
-radius = 1.125
 icon = "icons/MissileTurret.webp"
 
 [[entity]]
 id = 24
 name = "Bunker"
-radius = 1.8125
 icon = "icons/Bunker.webp"
 
 [[entity]]
 id = 25
 name = "SensorTower"
-radius = 0.75
 icon = "icons/SensorTower.webp"
 
 [[entity]]
 id = 26
 name = "GhostAcademy"
-radius = 1.8125
 icon = "icons/GhostAcademy.webp"
 
 [[entity]]
 id = 27
 name = "Factory"
-radius = 1.8125
 icon = "icons/Factory.webp"
 
 [[entity]]
 id = 28
 name = "Starport"
-radius = 1.8125
 icon = "icons/Starport.webp"
 
 [[entity]]
 id = 29
 name = "Armory"
-radius = 1.8125
 icon = "icons/Armory.webp"
 
 [[entity]]
 id = 30
 name = "FusionCore"
-radius = 1.8125
 icon = "icons/FusionCore.webp"
 
 [[entity]]
 id = 31
 name = "AutoTurret"
-radius = 1.0
 icon = "icons/AutoTurret.webp"
 
 [[entity]]
 id = 32
 name = "SiegeTankSieged"
-radius = 0.875
 icon = "icons/SiegeTankSieged.webp"
 
 [[entity]]
 id = 33
 name = "SiegeTank"
-radius = 0.875
 icon = "icons/SiegeTank.webp"
 
 [[entity]]
 id = 34
 name = "VikingAssault"
-radius = 0.75
 icon = "icons/VikingAssault.webp"
 
 [[entity]]
 id = 35
 name = "VikingFighter"
-radius = 0.75
 icon = "icons/VikingFighter.webp"
 
 [[entity]]
 id = 36
 name = "CommandCenterFlying"
-radius = 2.5
 icon = "icons/CommandCenterFlying.webp"
 
 [[entity]]
 id = 37
 name = "BarracksTechLab"
-radius = 1.125
 icon = "icons/BarracksTechLab.webp"
 
 [[entity]]
 id = 38
 name = "BarracksReactor"
-radius = 1.125
 icon = "icons/BarracksReactor.webp"
 
 [[entity]]
 id = 39
 name = "FactoryTechLab"
-radius = 1.125
 icon = "icons/FactoryTechLab.webp"
 
 [[entity]]
 id = 40
 name = "FactoryReactor"
-radius = 1.125
 icon = "icons/FactoryReactor.webp"
 
 [[entity]]
 id = 41
 name = "StarportTechLab"
-radius = 1.125
 icon = "icons/StarportTechLab.webp"
 
 [[entity]]
 id = 42
 name = "StarportReactor"
-radius = 1.125
 icon = "icons/StarportReactor.webp"
 
 [[entity]]
 id = 43
 name = "FactoryFlying"
-radius = 1.625
 icon = "icons/FactoryFlying.webp"
 
 [[entity]]
 id = 44
 name = "StarportFlying"
-radius = 1.625
 icon = "icons/StarportFlying.webp"
 
 [[entity]]
 id = 45
 name = "SCV"
-radius = 0.375
 icon = "icons/SCV.webp"
 
 [[entity]]
 id = 46
 name = "BarracksFlying"
-radius = 1.75
 icon = "icons/BarracksFlying.webp"
 
 [[entity]]
 id = 47
 name = "SupplyDepotLowered"
-radius = 1.25
 icon = "icons/SupplyDepotLowered.webp"
 
 [[entity]]
 id = 48
 name = "Marine"
-radius = 0.375
 icon = "icons/Marine.webp"
 
 [[entity]]
 id = 49
 name = "Reaper"
-radius = 0.375
 icon = "icons/Reaper.webp"
 
 [[entity]]
 id = 50
 name = "Ghost"
-radius = 0.375
 icon = "icons/Ghost.webp"
 
 [[entity]]
 id = 51
 name = "Marauder"
-radius = 0.5625
 icon = "icons/Marauder.webp"
 
 [[entity]]
 id = 52
 name = "Thor"
-radius = 1.0
 icon = "icons/Thor.webp"
 
 [[entity]]
 id = 53
 name = "Hellion"
-radius = 0.625
 icon = "icons/Hellion.webp"
 
 [[entity]]
 id = 54
 name = "Medivac"
-radius = 0.75
 icon = "icons/Medivac.webp"
 
 [[entity]]
 id = 55
 name = "Banshee"
-radius = 0.75
 icon = "icons/Banshee.webp"
 
 [[entity]]
 id = 56
 name = "Raven"
-radius = 0.625
 icon = "icons/Raven.webp"
 
 [[entity]]
 id = 57
 name = "Battlecruiser"
-radius = 1.25
 icon = "icons/Battlecruiser.webp"
 
 [[entity]]
 id = 58
 name = "Nuke"
-radius = 0.5
 icon = "icons/Nuke.webp"
 
 [[entity]]
 id = 59
 name = "Nexus"
-radius = 2.75
 icon = "icons/Nexus.webp"
 
 [[entity]]
 id = 60
 name = "Pylon"
-radius = 1.125
 icon = "icons/Pylon.webp"
 
 [[entity]]
 id = 61
 name = "Assimilator"
-radius = 1.6875
 icon = "icons/Assimilator.webp"
 
 [[entity]]
 id = 62
 name = "Gateway"
-radius = 1.8125
 icon = "icons/Gateway.webp"
 
 [[entity]]
 id = 63
 name = "Forge"
-radius = 1.8125
 icon = "icons/Forge.webp"
 
 [[entity]]
 id = 64
 name = "FleetBeacon"
-radius = 1.8125
 icon = "icons/FleetBeacon.webp"
 
 [[entity]]
 id = 65
 name = "TwilightCouncil"
-radius = 1.8125
 icon = "icons/TwilightCouncil.webp"
 
 [[entity]]
 id = 66
 name = "PhotonCannon"
-radius = 1.125
 icon = "icons/PhotonCannon.webp"
 
 [[entity]]
 id = 67
 name = "Stargate"
-radius = 1.8125
 icon = "icons/Stargate.webp"
 
 [[entity]]
 id = 68
 name = "TemplarArchive"
-radius = 1.8125
 icon = "icons/TemplarArchive.webp"
 
 [[entity]]
 id = 69
 name = "DarkShrine"
-radius = 1.5
 icon = "icons/DarkShrine.webp"
 
 [[entity]]
 id = 70
 name = "RoboticsBay"
-radius = 1.8125
 icon = "icons/RoboticsBay.webp"
 
 [[entity]]
 id = 71
 name = "RoboticsFacility"
-radius = 1.8125
 icon = "icons/RoboticsFacility.webp"
 
 [[entity]]
 id = 72
 name = "CyberneticsCore"
-radius = 1.8125
 icon = "icons/CyberneticsCore.webp"
 
 [[entity]]
 id = 73
 name = "Zealot"
-radius = 0.5
 icon = "icons/Zealot.webp"
 
 [[entity]]
 id = 74
 name = "Stalker"
-radius = 0.625
 icon = "icons/Stalker.webp"
 
 [[entity]]
 id = 75
 name = "HighTemplar"
-radius = 0.375
 icon = "icons/HighTemplar.webp"
 
 [[entity]]
 id = 76
 name = "DarkTemplar"
-radius = 0.375
 icon = "icons/DarkTemplar.webp"
 
 [[entity]]
 id = 77
 name = "Sentry"
-radius = 0.5
 icon = "icons/Sentry.webp"
 
 [[entity]]
 id = 78
 name = "Phoenix"
-radius = 0.75
 icon = "icons/Phoenix.webp"
 
 [[entity]]
 id = 79
 name = "Carrier"
-radius = 1.25
 icon = "icons/Carrier.webp"
 
 [[entity]]
 id = 80
 name = "VoidRay"
-radius = 1.0
 icon = "icons/VoidRay.webp"
 
 [[entity]]
 id = 81
 name = "WarpPrism"
-radius = 0.875
 icon = "icons/WarpPrism.webp"
 
 [[entity]]
 id = 82
 name = "Observer"
-radius = 0.5
 icon = "icons/Observer.webp"
 
 [[entity]]
 id = 83
 name = "Immortal"
-radius = 0.75
 icon = "icons/Immortal.webp"
 
 [[entity]]
 id = 84
 name = "Probe"
-radius = 0.375
 icon = "icons/Probe.webp"
 
 [[entity]]
 id = 85
 name = "Interceptor"
-radius = 0.25
 icon = "icons/Interceptor.webp"
 
 [[entity]]
 id = 86
 name = "Hatchery"
-radius = 2.75
 icon = "icons/Hatchery.webp"
 
 [[entity]]
 id = 87
 name = "CreepTumor"
-radius = 1.0
 icon = "icons/CreepTumor.webp"
 
 [[entity]]
 id = 88
 name = "Extractor"
-radius = 1.6875
 icon = "icons/Extractor.webp"
 
 [[entity]]
 id = 89
 name = "SpawningPool"
-radius = 1.8125
 icon = "icons/SpawningPool.webp"
 
 [[entity]]
 id = 90
 name = "EvolutionChamber"
-radius = 1.8125
 icon = "icons/EvolutionChamber.webp"
 
 [[entity]]
 id = 91
 name = "HydraliskDen"
-radius = 1.8125
 icon = "icons/HydraliskDen.webp"
 
 [[entity]]
 id = 92
 name = "Spire"
-radius = 1.125
 icon = "icons/Spire.webp"
 
 [[entity]]
 id = 93
 name = "UltraliskCavern"
-radius = 1.8125
 icon = "icons/UltraliskCavern.webp"
 
 [[entity]]
 id = 94
 name = "InfestationPit"
-radius = 1.8125
 icon = "icons/InfestationPit.webp"
 
 [[entity]]
 id = 95
 name = "NydusNetwork"
-radius = 1.8125
 icon = "icons/NydusNetwork.webp"
 
 [[entity]]
 id = 96
 name = "BanelingNest"
-radius = 1.8125
 icon = "icons/BanelingNest.webp"
 
 [[entity]]
 id = 97
 name = "RoachWarren"
-radius = 1.8125
 icon = "icons/RoachWarren.webp"
 
 [[entity]]
 id = 98
 name = "SpineCrawler"
-radius = 1.125
 icon = "icons/SpineCrawler.webp"
 
 [[entity]]
 id = 99
 name = "SporeCrawler"
-radius = 0.875
 icon = "icons/SporeCrawler.webp"
 
 [[entity]]
 id = 100
 name = "Lair"
-radius = 2.75
 icon = "icons/Lair.webp"
 
 [[entity]]
 id = 101
 name = "Hive"
-radius = 2.75
 icon = "icons/Hive.webp"
 
 [[entity]]
 id = 102
 name = "GreaterSpire"
-radius = 1.125
 icon = "icons/GreaterSpire.webp"
 
 [[entity]]
 id = 103
 name = "Egg"
-radius = 0.125
 icon = "icons/Egg.webp"
 
 [[entity]]
 id = 104
 name = "Drone"
-radius = 0.375
 icon = "icons/Drone.webp"
 
 [[entity]]
 id = 105
 name = "Zergling"
-radius = 0.375
 icon = "icons/Zergling.webp"
 
 [[entity]]
 id = 106
 name = "Overlord"
-radius = 1.0
 icon = "icons/Overlord.webp"
 
 [[entity]]
 id = 107
 name = "Hydralisk"
-radius = 0.625
 icon = "icons/Hydralisk.webp"
 
 [[entity]]
 id = 108
 name = "Mutalisk"
-radius = 0.5
 icon = "icons/Mutalisk.webp"
 
 [[entity]]
 id = 109
 name = "Ultralisk"
-radius = 1.0
 icon = "icons/Ultralisk.webp"
 
 [[entity]]
 id = 110
 name = "Roach"
-radius = 0.5
 icon = "icons/Roach.webp"
 
 [[entity]]
 id = 111
 name = "Infestor"
-radius = 0.625
 icon = "icons/Infestor.webp"
 
 [[entity]]
 id = 112
 name = "Corruptor"
-radius = 0.625
 icon = "icons/Corruptor.webp"
 
 [[entity]]
 id = 113
 name = "BroodLordCocoon"
-radius = 0.625
 icon = "icons/BroodLord.webp"
 
 [[entity]]
 id = 114
 name = "BroodLord"
-radius = 1.0
 icon = "icons/BroodLord.webp"
 
 [[entity]]
 id = 115
 name = "BanelingBurrowed"
-radius = 0.375
 icon = "icons/BanelingBurrowed.webp"
 
 [[entity]]
 id = 116
 name = "DroneBurrowed"
-radius = 0.375
 icon = "icons/DroneBurrowed.webp"
 
 [[entity]]
 id = 117
 name = "HydraliskBurrowed"
-radius = 0.625
 icon = "icons/HydraliskBurrowed.webp"
 
 [[entity]]
 id = 118
 name = "RoachBurrowed"
-radius = 0.5
 icon = "icons/RoachBurrowed.webp"
 
 [[entity]]
 id = 119
 name = "ZerglingBurrowed"
-radius = 0.375
 icon = "icons/ZerglingBurrowed.webp"
 
 [[entity]]
 id = 120
 name = "InfestorTerranBurrowed"
-radius = 0.375
 icon = "icons/InfestorTerranBurrowed.webp"
 
 [[entity]]
 id = 125
 name = "QueenBurrowed"
-radius = 0.875
 icon = "icons/QueenBurrowed.webp"
 
 [[entity]]
 id = 126
 name = "Queen"
-radius = 0.875
 icon = "icons/Queen.webp"
 
 [[entity]]
 id = 127
 name = "InfestorBurrowed"
-radius = 0.625
 icon = "icons/InfestorBurrowed.webp"
 
 [[entity]]
 id = 128
 name = "OverlordCocoon"
-radius = 0.625
 icon = "icons/Overlord.webp"
 
 [[entity]]
 id = 129
 name = "Overseer"
-radius = 1.0
 icon = "icons/Overseer.webp"
 
 [[entity]]
 id = 130
 name = "PlanetaryFortress"
-radius = 2.75
 icon = "icons/PlanetaryFortress.webp"
 
 [[entity]]
 id = 131
 name = "UltraliskBurrowed"
-radius = 1.0
 icon = "icons/UltraliskBurrowed.webp"
 
 [[entity]]
 id = 132
 name = "OrbitalCommand"
-radius = 2.75
 icon = "icons/OrbitalCommand.webp"
 
 [[entity]]
 id = 133
 name = "WarpGate"
-radius = 1.8125
 icon = "icons/WarpGate.webp"
 
 [[entity]]
 id = 134
 name = "OrbitalCommandFlying"
-radius = 2.5
 icon = "icons/OrbitalCommandFlying.webp"
 
 [[entity]]
 id = 136
 name = "WarpPrismPhasing"
-radius = 0.875
 icon = "icons/WarpPrismPhasing.webp"
 
 [[entity]]
 id = 137
 name = "CreepTumorBurrowed"
-radius = 1.0
 icon = "icons/CreepTumorBurrowed.webp"
 
 [[entity]]
 id = 138
 name = "CreepTumorQueen"
-radius = 1.0
 icon = "icons/CreepTumorQueen.webp"
 
 [[entity]]
 id = 139
 name = "SpineCrawlerUprooted"
-radius = 0.5
 icon = "icons/SpineCrawlerUprooted.webp"
 
 [[entity]]
 id = 140
 name = "SporeCrawlerUprooted"
-radius = 0.5
 icon = "icons/SporeCrawlerUprooted.webp"
 
 [[entity]]
 id = 141
 name = "Archon"
-radius = 1.0
 icon = "icons/Archon.webp"
 
 [[entity]]
 id = 142
 name = "NydusCanal"
-radius = 1.125
 icon = "icons/NydusCanal.webp"
 
 [[entity]]
 id = 145
 name = "GhostNova"
-radius = 0.375
 icon = "icons/GhostNova.webp"
 
 [[entity]]
 id = 150
 name = "InfestedTerransEgg"
-radius = 0.375
 icon = "icons/InfestedTerransEgg.webp"
 
 [[entity]]
 id = 151
 name = "Larva"
-radius = 0.125
 icon = "icons/Larva.webp"
 
 [[entity]]
 id = 268
 name = "MULE"
-radius = 0.375
 icon = "icons/MULE.webp"
 
 [[entity]]
 id = 289
 name = "Broodling"
-radius = 0.375
 icon = "icons/Broodling.webp"
 
 [[entity]]
 id = 311
 name = "Adept"
-radius = 0.5
 icon = "icons/Adept.webp"
 
 [[entity]]
 id = 339
 name = "InfestedTerransEggPlacement"
-radius = 0.375
 icon = "icons/InfestedTerransEggPlacement.webp"
 
 [[entity]]
 id = 484
 name = "HellionTank"
-radius = 0.625
 icon = "icons/Hellbat.webp"
 
 [[entity]]
 id = 488
 name = "MothershipCore"
-radius = 1.0
 icon = "icons/MothershipCore.webp"
 
 [[entity]]
 id = 489
 name = "LocustMP"
-radius = 0.375
 icon = "icons/LocustMP.webp"
 
 [[entity]]
 id = 491
 name = "NydusCanalAttacker"
-radius = 1.125
 icon = "icons/NydusCanalAttacker.webp"
 
 [[entity]]
 id = 492
 name = "NydusCanalCreeper"
-radius = 1.125
 icon = "icons/NydusCanalCreeper.webp"
 
 [[entity]]
 id = 493
 name = "SwarmHostBurrowedMP"
-radius = 0.8125
 icon = "icons/SwarmHostBurrowedMP.webp"
 
 [[entity]]
 id = 494
 name = "SwarmHostMP"
-radius = 0.8125
 icon = "icons/SwarmHostMP.webp"
 
 [[entity]]
 id = 495
 name = "Oracle"
-radius = 0.75
 icon = "icons/Oracle.webp"
 
 [[entity]]
 id = 496
 name = "Tempest"
-radius = 1.125
 icon = "icons/Tempest.webp"
 
 [[entity]]
 id = 497
 name = "WarHound"
-radius = 0.8125
 icon = "icons/WarHound.webp"
 
 [[entity]]
 id = 498
 name = "WidowMine"
-radius = 0.5
 icon = "icons/WidowMine.webp"
 
 [[entity]]
 id = 499
 name = "Viper"
-radius = 1.0
 icon = "icons/Viper.webp"
 
 [[entity]]
 id = 500
 name = "WidowMineBurrowed"
-radius = 0.5
 icon = "icons/WidowMineBurrowed.webp"
 
 [[entity]]
 id = 501
 name = "LurkerMPEgg"
-radius = 0.5
 icon = "icons/LurkerMPEgg.webp"
 
 [[entity]]
 id = 502
 name = "LurkerMP"
-radius = 0.9375
 icon = "icons/LurkerMP.webp"
 
 [[entity]]
 id = 503
 name = "LurkerMPBurrowed"
-radius = 0.75
 icon = "icons/LurkerMPBurrowed.webp"
 
 [[entity]]
 id = 504
 name = "LurkerDenMP"
-radius = 1.8125
 icon = "icons/LurkerDenMP.webp"
 
 [[entity]]
 id = 569
 name = "ResourceBlocker"
-radius = 1.0
 icon = "icons/ResourceBlocker.webp"
 
 [[entity]]
 id = 593
 name = "IceProtossCrates"
-radius = 0.75
 icon = "icons/IceProtossCrates.webp"
 
 [[entity]]
 id = 594
 name = "ProtossCrates"
-radius = 0.75
 icon = "icons/ProtossCrates.webp"
 
 [[entity]]
 id = 595
 name = "TowerMine"
-radius = 0.5
 icon = "icons/TowerMine.webp"
 
 [[entity]]
 id = 687
 name = "RavagerCocoon"
-radius = 0.75
 icon = "icons/RavagerCocoon.webp"
 
 [[entity]]
 id = 688
 name = "Ravager"
-radius = 0.75
 icon = "icons/Ravager.webp"
 
 [[entity]]
 id = 689
 name = "Liberator"
-radius = 0.75
 icon = "icons/Liberator.webp"
 
 [[entity]]
 id = 690
 name = "RavagerBurrowed"
-radius = 0.75
 icon = "icons/RavagerBurrowed.webp"
 
 [[entity]]
 id = 691
 name = "ThorAP"
-radius = 1.0
 icon = "icons/ThorAP.webp"
 
 [[entity]]
 id = 692
 name = "Cyclone"
-radius = 0.75
 icon = "icons/Cyclone.webp"
 
 [[entity]]
 id = 693
 name = "LocustMPFlying"
-radius = 0.375
 icon = "icons/LocustMPFlying.webp"
 
 [[entity]]
 id = 694
 name = "Disruptor"
-radius = 0.625
 icon = "icons/Disruptor.webp"
 
 [[entity]]
 id = 725
 name = "VoidMPImmortalReviveCorpse"
-radius = 0.75
 icon = "icons/VoidMPImmortalReviveCorpse.webp"
 
 [[entity]]
 id = 726
 name = "GuardianCocoonMP"
-radius = 0.625
 icon = "icons/GuardianCocoonMP.webp"
 
 [[entity]]
 id = 727
 name = "GuardianMP"
-radius = 1.0
 icon = "icons/GuardianMP.webp"
 
 [[entity]]
 id = 728
 name = "DevourerCocoonMP"
-radius = 0.625
 icon = "icons/DevourerCocoonMP.webp"
 
 [[entity]]
 id = 729
 name = "DevourerMP"
-radius = 0.875
 icon = "icons/DevourerMP.webp"
 
 [[entity]]
 id = 730
 name = "DefilerMPBurrowed"
-radius = 0.75
 icon = "icons/DefilerMPBurrowed.webp"
 
 [[entity]]
 id = 731
 name = "DefilerMP"
-radius = 0.75
 icon = "icons/DefilerMP.webp"
 
 [[entity]]
@@ -1069,7 +892,6 @@ icon = "icons/StasisWard.webp"
 [[entity]]
 id = 733
 name = "DisruptorPhased"
-radius = 0.5
 icon = "icons/DisruptorPhased.webp"
 
 [[entity]]
@@ -1087,7 +909,6 @@ icon = "icons/ReleaseInterceptorsBeacon.webp"
 [[entity]]
 id = 801
 name = "AdeptPhaseShift"
-radius = 0.5
 icon = "icons/AdeptPhaseShift.webp"
 
 [[entity]]
@@ -1099,103 +920,86 @@ icon = "icons/HERCPlacement.webp"
 [[entity]]
 id = 838
 name = "HERC"
-radius = 0.6875
 icon = "icons/HERC.webp"
 
 [[entity]]
 id = 840
 name = "Replicant"
-radius = 0.5
 icon = "icons/Replicant.webp"
 
 [[entity]]
 id = 855
 name = "CorsairMP"
-radius = 0.75
 icon = "icons/CorsairMP.webp"
 
 [[entity]]
 id = 856
 name = "ScoutMP"
-radius = 0.75
 icon = "icons/ScoutMP.webp"
 
 [[entity]]
 id = 857
 name = "ArbiterMP"
-radius = 1.0
 icon = "icons/ArbiterMP.webp"
 
 [[entity]]
 id = 858
 name = "ScourgeMP"
-radius = 0.5
 icon = "icons/ScourgeMP.webp"
 
 [[entity]]
 id = 860
 name = "QueenMP"
-radius = 0.75
 icon = "icons/QueenMP.webp"
 
 [[entity]]
 id = 891
 name = "Elsecaro_Colonist_Hut"
-radius = 2.125
 icon = "icons/Elsecaro_Colonist_Hut.webp"
 
 [[entity]]
 id = 892
 name = "TransportOverlordCocoon"
-radius = 0.625
 icon = "icons/Overlord.webp"
 
 [[entity]]
 id = 893
 name = "OverlordTransport"
-radius = 1.0
 icon = "icons/OverlordTransport.webp"
 
 [[entity]]
 id = 894
 name = "PylonOvercharged"
-radius = 1.125
 icon = "icons/Pylon.webp"
 
 [[entity]]
 id = 895
 name = "BypassArmorDrone"
-radius = 0.625
 icon = "icons/BypassArmorDrone.webp"
 
 [[entity]]
 id = 1910
 name = "ShieldBattery"
-radius = 1.125
 icon = "icons/ShieldBattery.webp"
 
 [[entity]]
 id = 1911
 name = "ObserverSiegeMode"
-radius = 0.5
 icon = "icons/Observer.webp"
 
 [[entity]]
 id = 1912
 name = "OverseerSiegeMode"
-radius = 1.0
 icon = "icons/Overseer.webp"
 
 [[entity]]
 id = 1913
 name = "RavenRepairDrone"
-radius = 0.625
 icon = "icons/RavenRepairDrone.webp"
 
 [[entity]]
 id = 1940
 name = "Viking"
-radius = 0.5
 icon = "icons/Viking.webp"
 
 [[entity]]
@@ -1207,11 +1011,19 @@ icon = "icons/RefineryRich.webp"
 [[entity]]
 id = 1994
 name = "AssimilatorRich"
-radius = 1.6875
 icon = "icons/AssimilatorRich.webp"
 
 [[entity]]
 id = 1995
 name = "ExtractorRich"
-radius = 1.6875
 icon = "icons/ExtractorRich.webp"
+
+[[entity]]
+id = 342
+name = "VespeneGeyser"
+icon = "icons/VespeneGeyser.webp"
+
+[[entity]]
+id = 344
+name = "RichVespeneGeyser"
+icon = "icons/VespeneGeyser.webp"

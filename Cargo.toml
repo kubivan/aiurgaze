@@ -15,6 +15,7 @@ bevy_egui = "0.36.0"
 bevy-tokio-tasks = "*"
 bevy_ecs_tilemap = "*"
 bevy_sprite = "0.16.1"
+bevy_health_bar3d = { git = "https://github.com/kubivan/bevy_health_bar" }
 tiled = { version = "0.14.0", default-features = false }
 
 tap = "*"

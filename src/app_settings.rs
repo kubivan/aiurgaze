@@ -117,34 +117,34 @@ pub fn load_settings() -> AppSettings {
     }
 
     // Augment / create entries
-    for u in &data_source.unit {
-        units_map.entry(u.id).and_modify(|info| {
-            if info.radius.is_none() { info.radius = u.radius; }
-            if info.size.is_none() { if let Some(r) = info.radius.or(u.radius) { info.size = Some(r * 2.0 * tile_size); } }
-            if info.name.is_none() { info.name = Some(u.name.clone()); }
-            // Fill missing radius/size/icon/label
-            if info.label.is_none() { info.label = Some(u.name.clone()); }
-            if info.icon.is_none() {
-                let base = &u.name;
-                if icon_name_set.contains(base) { info.icon = Some(format!("icons/{}.webp", base)); }
-            }
-        }).or_insert_with(|| {
-            let mut info = DisplayInfo::default();
-            info.name = Some(u.name.clone());
-            info.label = Some(u.name.clone());
-            info.radius = u.radius;
-            if let Some(r) = u.radius { info.size = Some(r * 2.0 * tile_size); }
-            let base = &u.name;
-            if icon_name_set.contains(base) { info.icon = Some(format!("icons/{}.webp", base)); }
-            info
-        });
-    }
+    // for u in &data_source.unit {
+    //     units_map.entry(u.id).and_modify(|info| {
+    //         if info.radius.is_none() { info.radius = u.radius; }
+    //         if info.size.is_none() { if let Some(r) = info.radius.or(u.radius) { info.size = Some(r * 2.0 * 16.0); } }
+    //         if info.name.is_none() { info.name = Some(u.name.clone()); }
+    //         // Fill missing radius/size/icon/label
+    //         if info.label.is_none() { info.label = Some(u.name.clone()); }
+    //         if info.icon.is_none() {
+    //             let base = &u.name;
+    //             if icon_name_set.contains(base) { info.icon = Some(format!("icons/{}.webp", base)); }
+    //         }
+    //     }).or_insert_with(|| {
+    //         let mut info = DisplayInfo::default();
+    //         info.name = Some(u.name.clone());
+    //         info.label = Some(u.name.clone());
+    //         info.radius = u.radius;
+    //         if let Some(r) = u.radius { info.size = Some(r * 2.0 * tile_size); }
+    //         let base = &u.name;
+    //         if icon_name_set.contains(base) { info.icon = Some(format!("icons/{}.webp", base)); }
+    //         info
+    //     });
+    // }
 
-    let entities_json = EntitiesJson { units: units_map.clone() };
-    if let Ok(serialized) = serde_json::to_string_pretty(&entities_json) {
-        let _ = std::fs::create_dir_all("config");
-        let _ = std::fs::write(entities_json_path, serialized);
-    }
+    // let entities_json = EntitiesJson { units: units_map.clone() };
+    // if let Ok(serialized) = serde_json::to_string_pretty(&entities_json) {
+    //     let _ = std::fs::create_dir_all("config");
+    //     let _ = std::fs::write(entities_json_path, serialized);
+    // }
 
     // Build unit_by_id (override legacy TOML) from units_map
     let unit_by_id = units_map;

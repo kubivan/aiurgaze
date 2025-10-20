@@ -7,7 +7,7 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use crate::proxy_ws::{ProxyWS, ProxyWSResource};
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
-use crate::units::{handle_observation, UnitIconAssets, UnitRegistry, UnitTypeIndex};
+use crate::units::{handle_observation, UnitBuildProgress, UnitIconAssets, UnitRegistry};
 use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -87,12 +87,11 @@ pub fn response_controller_system(
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
-    mut icon_assets: Res<UnitIconAssets>,
     mut registry: ResMut<UnitRegistry>,
-    mut type_index: ResMut<UnitTypeIndex>,
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
     app_settings: Res<AppSettings>,
+    unit_query: Query<&UnitBuildProgress>,
 ) {
     let mut proxy_res = match proxy_res {
         Some(res) => res,
@@ -102,13 +101,14 @@ pub fn response_controller_system(
     while let Ok(resp) = proxy_res.rx.try_recv() {
         match resp.response.unwrap() {
             observation (obs)  => {
-                handle_observation(&mut commands,
-                                   &asset_server,
-                                   &icon_assets,
-                                   &mut registry,
-                                   &mut type_index,
-                                   &entity_system,
-                                   &obs);
+                handle_observation(
+                    &mut commands,
+                    &asset_server,
+                    &mut registry,
+                    &entity_system,
+                    &obs,
+                    unit_query,
+                );
 
                 // Update dynamic layers (creep, energy, visibility) only if changed
                 if let Some(ref mut map_res) = map_res {
