@@ -26,7 +26,6 @@ use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanSta
 use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress};
 use crate::units::CurrentOrderAbility;
 use crate::units::draw_unit_orders;
-use crate::ui::selected_unit_panel_system;
 use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
 use std::process::exit;
@@ -291,7 +290,6 @@ fn main() {
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
-        .add_systems(EguiPrimaryContextPass, selected_unit_panel_system)
         .add_systems(Update, camera_controls)
         .add_systems(Startup, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)

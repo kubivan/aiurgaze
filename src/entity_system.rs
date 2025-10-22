@@ -107,7 +107,7 @@ impl EntitySystem {
                     if let Some(size) = config.tile_size {
                         tile_size = size;
                     }
-
+                    
                     for entity in config.entity {
                         let mut info = EntityDisplayInfo::default();
                         info.name = Some(entity.name.clone());

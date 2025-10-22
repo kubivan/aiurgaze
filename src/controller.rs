@@ -91,7 +91,7 @@ pub fn response_controller_system(
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
     app_settings: Res<AppSettings>,
-    unit_query: Query<&UnitBuildProgress>,
+    mut unit_query: Query<(&mut crate::units::UnitHealth, Option<&mut crate::units::UnitShield>, &mut crate::units::UnitProto, &mut crate::units::CurrentOrderAbility, &mut bevy::prelude::Transform, Option<&mut UnitBuildProgress>)>,
 ) {
     let mut proxy_res = match proxy_res {
         Some(res) => res,
@@ -107,7 +107,7 @@ pub fn response_controller_system(
                     &mut registry,
                     &entity_system,
                     &obs,
-                    unit_query,
+                    &mut unit_query,
                 );
 
                 // Update dynamic layers (creep, energy, visibility) only if changed
