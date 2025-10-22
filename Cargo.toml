@@ -12,11 +12,10 @@ log = "0.4"
 # --- Rendering / UI ---
 bevy = { version = "0.16.1", features = ["default", "webp"]}
 bevy_egui = "0.36.0"
-bevy-tokio-tasks = "*"
-bevy_ecs_tilemap = "*"
-bevy_sprite = "0.16.1"
+bevy-tokio-tasks = "0.16.0"
+bevy_ecs_tilemap = "0.16.0"
 bevy_health_bar3d = { git = "https://github.com/kubivan/bevy_health_bar" }
-tiled = { version = "0.14.0", default-features = false }
+tiled = { version = "0.15.0", default-features = false }
 
 tap = "*"
 sc2-proto = "*"
@@ -28,21 +27,20 @@ ldtk_rust ="*"
 # --- Concurrency / Utils ---
 thiserror = "2.0.17"
 futures = "0.3.31"
-tokio-tungstenite = "0.27.0"
-tungstenite = "0.27.0"
+tokio-tungstenite = "0.28.0"
+tungstenite = "0.28.0"
 
-protobuf = "^2.17.0"
+protobuf = "2.17.0"
 futures-util = "0.3.31"
 config = "0.15"
-serde = "*"
-toml = "0.8"
-url = "2.5.7"
+serde = "1.0.228"
+toml = "0.9.8"
 
 # --- Command-line Argument Parsing ---
 clap = { version = "4.5", features = ["derive"] }
 
 [build-dependencies]
-tiled = { version = "0.14.0", default-features = false }
+tiled = { version = "0.15.0", default-features = false }
 
 
 [features]
