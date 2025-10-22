@@ -25,11 +25,6 @@ pub struct SelectedUnit {
     pub tag: Option<u64>,
 }
 
-#[derive(Resource, Default)]
-pub struct UnitTypeIndex {
-    pub by_type: HashMap<u32, Vec<Entity>>, // unit_type id -> spawned bevy entities
-}
-
 /// === Components ===
 
 #[derive(Component)]
@@ -100,7 +95,6 @@ pub fn handle_observation(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
     registry: &mut ResMut<UnitRegistry>,
-    type_index: &mut ResMut<UnitTypeIndex>,
     entity_system: &Res<EntitySystem>,
     obs_msg: &ResponseObservation,
     unit_query: Query<&UnitBuildProgress>,
@@ -135,8 +129,8 @@ pub fn handle_observation(
             _ =>  Color::WHITE
         };
 
-        // Get display info from entity system
-        let size = unit_radius * 2.0 * tile_size; // entity_system.unit_size(unit.tag.unwrap() as u32);
+        // Get display info from an entity system
+        let size = unit_radius * 2.0 * tile_size;
         let image_handle = entity_system.get_icon_handle(unit_type, asset_server);
 
         if let Some(&entity) = registry.map.get(&tag) {
@@ -209,7 +203,6 @@ pub fn handle_observation(
 
             let entity = entity_commands.id();
             registry.map.insert(tag, entity);
-            type_index.by_type.entry(unit_type).or_default().push(entity);
         }
     }
     let to_remove: Vec<u64> = registry
@@ -277,7 +270,7 @@ pub fn unit_selection_system(
             for (_entity, transform, tag) in unit_query.iter() {
                 let unit_pos = transform.translation.truncate();
                 let distance = unit_pos.distance(world_pos);
-                if distance < 16.0 { // Use unit size threshold
+                if distance < 16.0 { // Use unit size threshold //TODO: Make configurable: tile_size
                     selected.tag = Some(tag.0);
                     break;
                 }
