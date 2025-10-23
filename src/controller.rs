@@ -158,6 +158,10 @@ pub fn response_controller_system(
                     &obs,
                     unit_query,
                     &mut seen_tags,
+                    map_res.as_ref().map(|m| {
+                        let (w, h) = m.static_layers.get_dimensions();
+                        (w as f32, h as f32)
+                    }).unwrap(),
                 );
 
             }
