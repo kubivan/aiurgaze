@@ -90,12 +90,19 @@ fn start_server_container() -> Result<(), String> {
     //     .args(["pull", &image])
     //     .status();
 
+    // Get absolute path to maps directory
+    let maps_dir = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current directory: {e}"))?
+        .join("maps");
+    let maps_mount = format!("{}:/StarCraftII/Maps", maps_dir.display());
+
     // Run container detached, auto-remove on stop, bind to localhost
     let status = Command::new("docker")
         .args([
             "run", "-d", "--rm", "-it",
             "--name", &container_name,
             "-p", "5555:5555",
+            "-v", &maps_mount,
             &image,
         ])
         .status()
@@ -118,23 +125,6 @@ fn startup_docker_blocking() -> Result<(), String> {
         Err(e) => eprintln!("[startup_docker_blocking] Failed to start Docker: {e}"),
     }
     result
-}
-
-#[allow(dead_code)]
-fn test()
-{
-    // let s = "\u{12}\r\u{10}\u{74}\u{6C}\u{81}\u{C0}\u{FC}\u{FF}\u{FF}\u{FF}\u{FF}\u{01}\u{1A}\0\u{88}\u{06}\0\u{98}\u{06}\u{02}";
-    // let bytes = s.as_bytes();
-    // let resp = Response::parse_from_bytes(bytes);
-
-    let bytes: Vec<u8> = vec![
-        18, 13, 16, 116, 108, 129, 192, 252,
-        255, 255, 255, 255, 1, 26, 0,
-        136, 6, 0, 152, 6, 2,
-    ];
-    let resp = Response::parse_from_bytes(&*bytes);
-    println!("{:?}", resp);
-
 }
 
 /// System to check/start Docker and update status

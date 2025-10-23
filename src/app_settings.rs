@@ -94,10 +94,6 @@ pub struct DisplayInfo {
     pub radius: Option<f32>,
 }
 
-// JSON entities structure
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-struct EntitiesJson { pub units: std::collections::HashMap<u32, DisplayInfo> }
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
