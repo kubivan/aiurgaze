@@ -136,6 +136,10 @@ impl EntitySystem {
             if let Some(icon_path) = &info.icon {
                 let handle = asset_server.load(icon_path.clone());
                 icon_handles.insert(*id, handle);
+            }else {
+                let handle = asset_server.load("icons/default.png");
+                info!("No icon for unit {}. Using default icon.", id);
+                icon_handles.insert(*id, handle);
             }
         }
         info!("Pre-loaded {} icon handles", icon_handles.len());
@@ -170,11 +174,11 @@ impl EntitySystem {
             handle.clone()
         } else {
             //TODO: another default icon?
-            asset_server.load("png/mineral.png")
+            asset_server.load("icons/default.png")
         }
     }
 
-    /// Get custom tile size for a unit type [width, height], if specified in config
+    /// Get a custom tile size for a unit type [width, height], if specified in config
     pub fn get_custom_tile_size(&self, unit_id: u32) -> Option<[f32; 2]> {
         self.display_config.get(&unit_id).and_then(|info| info.tile_size)
     }

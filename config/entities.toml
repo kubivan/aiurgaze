@@ -1056,13 +1056,197 @@ icon = "icons/VespeneGeyser.webp"
 id = 344
 name = "RichVespeneGeyser"
 icon = "icons/VespeneGeyser.webp"
+
 [[entity]]
 id = 341
 name = "MineralField"
-icon = "png/mineral.png"
+icon = "icons/mineral.webp"
 tile_size = [2.0, 1.0]
+
 [[entity]]
 id = 483
 name = "MineralField750"
-icon = "png/mineral.png"
+#TODO : custotm yellow color
+icon = "icons/mineral.webp"
 tile_size = [2.0, 1.0]
+
+[[entity]]
+id = 624
+name = "DestructibleCityDebris2x4Vertical"
+#icon = "icons/mineral.webp"
+tile_size = [2.0, 4.0]
+
+[[entity]]
+id = 625
+name = "DestructibleCityDebris2x4Horizontal"
+#icon = "icons/mineral.webp"
+tile_size = [4.0, 2.0]
+
+[[entity]]
+id = 626
+name = "DestructibleCityDebris2x6Vertical"
+#icon = "icons/mineral.webp"
+tile_size = [2.0, 6.0]
+
+[[entity]]
+id = 627
+name = "DestructibleCityDebris2x6Horizontal"
+#icon = "icons/mineral.webp"
+tile_size = [6.0, 2.0]
+
+[[entity]]
+id = 628
+name = "DestructibleCityDebris4x4"
+#icon = "icons/mineral.webp"
+#tile_size = [4.0, 4.0]
+
+[[entity]]
+id = 629
+name = "DestructibleCityDebris6x6"
+#icon = "icons/mineral.webp"
+#tile_size = [6.0, 6.0]
+
+[[entity]]
+id = 630
+name = "DestructibleCityDebrisHugeDiagonalBLUR"
+#icon = "icons/mineral.webp"
+tile_size = [8.0, 8.0]
+
+[[entity]]
+id = 631
+name = "DestructibleCityDebrisHugeDiagonalULBR"
+#icon = "icons/mineral.webp"
+tile_size = [8.0, 8.0]
+
+[[entity]]
+id = 633
+name = "PathingBlockerRadius1"
+#icon = "icons/mineral.webp"
+
+[[entity]]
+id = 634
+name = "DestructibleRockEx12x4Vertical"
+#icon = "icons/mineral.webp"
+tile_size = [4.0, 12.0]
+
+[[entity]]
+id = 635
+name = "DestructibleRockEx12x4Horizontal"
+#icon = "icons/mineral.webp"
+tile_size = [12.0, 4.0]
+
+[[entity]]
+id = 636
+name = "DestructibleRockEx12x6Vertical"
+#icon = "icons/mineral.webp"
+tile_size = [6, 12]
+
+[[entity]]
+id = 637
+name = "DestructibleRockEx12x6Horizontal"
+icon = "icons/mineral.webp"
+tile_size = [12, 6.0]
+
+[[entity]]
+id = 638
+name = "DestructibleRockEx14x4"
+#icon = "icons/mineral.webp"
+
+[[entity]]
+id = 639
+name = "DestructibleRockEx16x6"
+#icon = "icons/mineral.webp"
+
+[[entity]]
+id = 640
+name = "DestructibleRockEx1DiagonalHugeULBR"
+#icon = "icons/mineral.webp"
+tile_size = [8.0, 8.0]
+
+[[entity]]
+id = 641
+name = "DestructibleRockEx1DiagonalHugeBLUR"
+#icon = "icons/mineral.webp"
+tile_size = [8.0, 3.0]
+
+[[entity]]
+id = 642
+name = "DestructibleRockEx1VerticalHuge"
+#icon = "icons/mineral.webp"
+tile_size = [2.0, 8.0]
+
+[[entity]]
+name = "DestructibleRockEx1HorizontalHuge"
+#icon = "icons/mineral.webp"
+tile_size = [8.0, 2.0]
+id = 643
+
+[[entity]]
+id = 644
+name = "DestructibleIce2x4Vertical"
+icon = "icons/destructable.webp"
+tile_size = [2.0, 4.0]
+
+[[entity]]
+id = 645
+name = "DestructibleIce2x4Horizontal"
+icon = "icons/destructable.webp"
+tile_size = [4.0, 2.0]
+
+[[entity]]
+id = 646
+name = "DestructibleIce2x6Vertical"
+icon = "icons/destructable.webp"
+tile_size = [2.0, 6.0]
+
+[[entity]]
+id = 647
+name = "DestructibleIce2x6Horizontal"
+icon = "icons/destructable.webp"
+tile_size = [6.0, 2.0]
+
+[[entity]]
+id = 648
+name = "DestructibleIce4x4"
+icon = "icons/destructable.webp"
+tile_size = [4.0, 4.0]
+
+[[entity]]
+id = 649
+name = "DestructibleIce6x6"
+icon = "icons/destructable.webp"
+tile_size = [6.0, 6.0]
+
+[[entity]]
+id = 650
+name = "DestructibleIceDiagonalHugeULBR"
+icon = "icons/destructable.webp"
+tile_size = [8.0, 8.0]
+
+[[entity]]
+id = 651
+name = "DestructibleIceDiagonalHugeBLUR"
+icon = "icons/destructable.webp"
+tile_size = [8.0, 8.0]
+
+[[entity]]
+id = 652
+name = "DestructibleIceVerticalHuge"
+icon = "icons/destructable.webp"
+tile_size = [2.0, 8.0]
+
+[[entity]]
+id = 653
+name = "DestructibleIceHorizontalHuge"
+icon = "icons/destructable.webp"
+tile_size = [8.0, 2.0]
+
+[[entity]]
+id = 472
+name = "UnbuildableRocksDestructible"
+icon = "icons/destructable.webp"
+
+[[entity]]
+id = 473
+name = "UnbuildableBricksDestructible"
+icon = "icons/destructable.webp"

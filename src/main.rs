@@ -23,7 +23,7 @@ use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy, ProxyResponseEvent};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
-use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
+use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::CurrentOrderAbility;
 use crate::units::draw_unit_orders;
 use futures_util::StreamExt;
@@ -280,7 +280,6 @@ fn main() {
         )
         .insert_resource(GameCreated(game_created))
         .insert_resource(UnitRegistry::default())
-        .insert_resource(UnitIconAssets::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(ObservationUnitTags::default())
         .insert_resource(CameraPanState::default())

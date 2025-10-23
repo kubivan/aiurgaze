@@ -16,11 +16,6 @@ pub struct UnitRegistry {
 }
 
 #[derive(Resource, Default)]
-pub struct UnitIconAssets {
-    pub icons: HashMap<u32, Handle<Image>>, // unit_type → image handle
-}
-
-#[derive(Resource, Default)]
 pub struct SelectedUnit {
     pub tag: Option<u64>,
 }
