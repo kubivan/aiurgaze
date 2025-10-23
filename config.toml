@@ -16,6 +16,7 @@ listen_port = 5000
 image = "sc2:latest"
 container_name = "sc2-tweak"
 
+
 # Game config panel defaults
 [game_config_panel]
 game_type = "VsAI"           # "VsAI" or "VsBot"

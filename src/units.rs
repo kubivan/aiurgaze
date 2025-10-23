@@ -165,7 +165,12 @@ pub fn handle_observation(
         };
 
         // Get display info from an entity system
-        let size = unit_radius * 2.0 * tile_size;
+        // Use custom tile size if specified in config, otherwise use unit radius
+        let size = if let Some(custom_size) = entity_system.get_custom_tile_size(unit_type) {
+            Vec2::new(custom_size[0] * tile_size, custom_size[1] * tile_size)
+        } else {
+            Vec2::splat(unit_radius * 2.0 * tile_size)
+        };
         let image_handle = entity_system.get_icon_handle(unit_type, asset_server);
 
         if let Some(&entity) = registry.map.get(&tag) {
@@ -191,7 +196,7 @@ pub fn handle_observation(
             let mut entity_commands = commands.spawn((
                 Sprite {
                     image: image_handle,
-                    custom_size: Some(Vec2::splat(size)),
+                    custom_size: Some(size),
                     color: sprite_color,
                     anchor: Anchor::Center,
                     ..default()
@@ -201,9 +206,9 @@ pub fn handle_observation(
                 UnitType(unit_type),
                 UnitHealth { current: health, max: max_health },
                 BarSettings::<UnitHealth> {
-                    offset: -size / 2.,
+                    offset: -size.y / 2.,
                     height: BarHeight::Static(1.),
-                    width: size,
+                    width: size.x,
                     ..default()
                 },
                 UnitProto(unit.clone()),
@@ -215,9 +220,9 @@ pub fn handle_observation(
                 entity_commands.insert((
                     UnitShield { current: shield, max: max_shield },
                     BarSettings::<UnitShield> {
-                        offset: -size / 2. - 2.0,
+                        offset: -size.y / 2. - 2.0,
                         height: BarHeight::Static(1.),
-                        width: size,
+                        width: size.x,
                         ..default()
                     },
                 ));
@@ -228,9 +233,9 @@ pub fn handle_observation(
                 entity_commands.insert((
                     UnitBuildProgress(build_progress),
                     BarSettings::<UnitBuildProgress> {
-                        offset: -size / 2. - 4.0,
+                        offset: -size.y / 2. - 4.0,
                         height: BarHeight::Static(1.),
-                        width: size,
+                        width: size.x,
                         ..default()
                     },
                 ));

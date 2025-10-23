@@ -1056,3 +1056,13 @@ icon = "icons/VespeneGeyser.webp"
 id = 344
 name = "RichVespeneGeyser"
 icon = "icons/VespeneGeyser.webp"
+[[entity]]
+id = 341
+name = "MineralField"
+icon = "png/mineral.png"
+tile_size = [2.0, 1.0]
+[[entity]]
+id = 483
+name = "MineralField750"
+icon = "png/mineral.png"
+tile_size = [2.0, 1.0]

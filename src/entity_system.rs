@@ -15,6 +15,8 @@ pub struct EntitySystem {
     pub abilities: HashMap<u32, AbilityData>,
     /// Pre-loaded icon handles by unit type
     pub icon_handles: HashMap<u32, Handle<Image>>,
+    /// Display configuration by unit ID (from entities.toml)
+    pub display_config: HashMap<u32, EntityDisplayInfo>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,6 +49,8 @@ pub struct AbilityData {
 pub struct EntityDisplayInfo {
     pub name: Option<String>,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub tile_size: Option<[f32; 2]>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -61,6 +65,8 @@ struct DataJson {
 struct TomlEntity {
     pub id: u32,
     pub name: String,
+    #[serde(default)]
+    pub tile_size: Option<[f32; 2]>,
     #[serde(default)]
     pub icon: Option<String>,
 }
@@ -116,6 +122,7 @@ impl EntitySystem {
                         let mut info = EntityDisplayInfo::default();
                         info.name = Some(entity.name.clone());
                         info.icon = entity.icon;
+                        info.tile_size = entity.tile_size;
                         display_config.insert(entity.id, info);
                     }
                     info!("Loaded {} entities from entities.toml", display_config.len());
@@ -138,6 +145,7 @@ impl EntitySystem {
             unit_traits: units,
             abilities,
             icon_handles,
+            display_config,
         }
     }
 
@@ -166,7 +174,10 @@ impl EntitySystem {
         }
     }
 
-    /// Get unit name by ID
+    /// Get custom tile size for a unit type [width, height], if specified in config
+    pub fn get_custom_tile_size(&self, unit_id: u32) -> Option<[f32; 2]> {
+        self.display_config.get(&unit_id).and_then(|info| info.tile_size)
+    }
     pub fn unit_name(&self, unit_id: u32) -> Option<&str> {
         self.unit_traits.get(&unit_id).map(|u| u.name.as_str())
     }
