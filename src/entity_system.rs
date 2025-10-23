@@ -2,11 +2,13 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use crate::app_settings::MapConfig;
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
 pub struct EntitySystem {
-    pub tile_size: f32,
+    /// Map configuration (style, colors, etc.) from entities.toml [map] section
+    pub map_config: MapConfig,
     /// Unit data by ID (from data.json)
     pub unit_traits: HashMap<u32, UnitData>,
     /// Ability data by ID (from data.json)
@@ -66,7 +68,8 @@ struct TomlEntity {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct EntitiesConfig {
     #[serde(default)]
-    pub tile_size: Option<f32>,
+    pub map: Option<MapConfig>,
+    #[serde(default)]
     pub entity: Vec<TomlEntity>,
 }
 
@@ -99,15 +102,16 @@ impl EntitySystem {
         }
 
         /// Display configuration by unit ID (from entities.toml)
-        let mut tile_size = 32.0;
+        let mut map_config = MapConfig::default();
         let mut display_config: HashMap<u32, EntityDisplayInfo> = HashMap::new();
         if Path::new("config/entities.toml").exists() {
             if let Ok(toml_content) = std::fs::read_to_string("config/entities.toml") {
                 if let Ok(config) = toml::de::from_str::<EntitiesConfig>(&toml_content) {
-                    if let Some(size) = config.tile_size {
-                        tile_size = size;
+                    // Load map config from [map] section
+                    if let Some(map) = config.map {
+                        map_config = map;
                     }
-                    
+
                     for entity in config.entity {
                         let mut info = EntityDisplayInfo::default();
                         info.name = Some(entity.name.clone());
@@ -130,7 +134,7 @@ impl EntitySystem {
         info!("Pre-loaded {} icon handles", icon_handles.len());
 
         Self {
-            tile_size,
+            map_config,
             unit_traits: units,
             abilities,
             icon_handles,

@@ -10,9 +10,7 @@ use crate::entity_system::EntitySystem;
 use crate::units::{handle_observation, UnitBuildProgress, UnitRegistry, ObservationUnitTags};
 use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
-use std::fmt::format;
 use std::hash::{Hash, Hasher};
-use bevy_egui::egui::util::undoer::Settings;
 
 // Event for proxy responses
 #[derive(Event)]
@@ -73,7 +71,7 @@ fn update_tilemap_colors(
     creep_layer: Option<&TerrainLayer>,
     energy_layer: Option<&TerrainLayer>,
     tile_color_query: &mut Query<&mut TileColor>,
-    app_settings: &AppSettings,
+    entity_system: &EntitySystem,
 ) {
     let (width, height) = static_layers.get_dimensions();
 
@@ -92,8 +90,8 @@ fn update_tilemap_colors(
                     let creep = creep_layer.map_or(0, |l| l.get_value(x, y));
                     let energy = energy_layer.map_or(0, |l| l.get_value(x, y));
 
-                    // Blend colors using style config
-                    let color = blend_tile_color(pathing, placement, creep, energy, height_val, &app_settings.style);
+                    // Blend colors using map config from entity system
+                    let color = blend_tile_color(pathing, placement, creep, energy, height_val, &entity_system.map_config);
 
                     // Directly mutate the color component
                     tile_color.0 = color;
@@ -111,7 +109,6 @@ pub fn response_controller_system(
     mut registry: ResMut<UnitRegistry>,
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
-    app_settings: Res<AppSettings>,
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
@@ -144,7 +141,7 @@ pub fn response_controller_system(
                             creep_layer.as_ref(),
                             None, // energy_layer
                             &mut tile_color_query,
-                            &app_settings,
+                            &entity_system,
                         );
 
                         // Update hashes
@@ -192,7 +189,7 @@ pub fn response_controller_system(
                     &mut commands,
                     &static_layers,
                     &mut asset_server,
-                    &app_settings.style,
+                    &entity_system.map_config,
                 );
 
                 // Store the static layers and tile storage as a resource

@@ -3,7 +3,7 @@ use bevy::image::Image;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 use sc2_proto::common::ImageData;
-use crate::app_settings::StyleConfig;
+use crate::app_settings::MapConfig;
 #[derive(PartialEq)]
 pub enum TerrainLayerKind {
     Pathing,
@@ -80,7 +80,7 @@ impl TerrainLayer {
         }
     }
 }
-/// Get tile color based on terrain properties - uses StyleConfig from app settings
+/// Get tile color based on terrain properties - uses MapConfig from entity system
 /// Creep overrides all other colors with purple
 pub fn blend_tile_color(
     pathing: u8,
@@ -88,21 +88,21 @@ pub fn blend_tile_color(
     creep: u8,
     energy: u8,
     height: u8,
-    style: &StyleConfig,
+    map_config: &MapConfig,
 ) -> Color {
     // Creep overrides everything with purple
     if creep > 0 {
-        let color = style.get_creep_color();
-        return style.apply_height_intensity(color, height);
+        let color = map_config.get_creep_color();
+        return map_config.apply_height_intensity(color, height);
     }
     // Energy overrides with cyan/blue
     if energy > 0 {
-        let color = style.get_energy_color();
-        return style.apply_height_intensity(color, height);
+        let color = map_config.get_energy_color();
+        return map_config.apply_height_intensity(color, height);
     }
     // Get discrete color for pathable/placeable combination
-    let base_color = style.get_terrain_color(pathing > 0, placement > 0);
-    style.apply_height_intensity(base_color, height)
+    let base_color = map_config.get_terrain_color(pathing > 0, placement > 0);
+    map_config.apply_height_intensity(base_color, height)
 }
 pub struct TerrainLayers {
     pub pathing: Option<TerrainLayer>,
@@ -154,7 +154,7 @@ pub fn spawn_tilemap(
     commands: &mut Commands,
     layers: &TerrainLayers,
     asset_server: &mut Res<AssetServer>,
-    style: &StyleConfig,
+    map_config: &MapConfig,
     #[cfg(all(not(feature = "atlas"), feature = "render"))] array_texture_loader: Res<
         ArrayTextureLoader,
     >,
@@ -177,8 +177,8 @@ pub fn spawn_tilemap(
             let height_val = layers.height.as_ref().map_or(128, |l| l.get_value(x, y));
             let creep = layers.creep.as_ref().map_or(0, |l| l.get_value(x, y));
             let energy = layers.energy.as_ref().map_or(0, |l| l.get_value(x, y));
-            // Get color based on all layers using style config
-            let color = blend_tile_color(pathing, placement, creep, energy, height_val, style);
+            // Get color based on all layers using map config
+            let color = blend_tile_color(pathing, placement, creep, energy, height_val, map_config);
             let tile_entity = commands
                 .spawn(TileBundle {
                     position: tile_pos,
@@ -191,7 +191,7 @@ pub fn spawn_tilemap(
             tile_storage.set(&tile_pos, tile_entity);
         }
     }
-    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
+    let tile_size = TilemapTileSize { x: map_config.tile_size, y: map_config.tile_size };
     let grid_size = tile_size.into();
     let map_type = TilemapType::default();
     commands.entity(tilemap_entity).insert(TilemapBundle {

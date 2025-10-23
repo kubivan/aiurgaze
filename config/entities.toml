@@ -1,4 +1,31 @@
+# Map styling configuration
+[map]
+# Tile size for rendering TODO: only 16.0 supported currently
 tile_size = 16.0
+
+# Map terrain colors - Dark IDE theme
+# Colors in RGB format [r, g, b] with values 0.0-1.0
+
+# Non-pathable, non-placeable areas (almost black, like IDE gutter)
+terrain_blocked = [0.05, 0.05, 0.05]
+
+# Pathable only (dark grey, like code editor background)
+terrain_pathable = [0.12, 0.12, 0.13]
+
+# Placeable only - rare case (medium-dark grey)
+terrain_placeable = [0.18, 0.18, 0.20]
+
+# Both pathable and placeable (light grey, like selected line in IDE)
+terrain_both = [0.22, 0.22, 0.24]
+
+# Creep overlay color (purple, like error highlighting)
+creep = [0.4, 0.1, 0.5]
+
+# Energy overlay color (cyan/blue, like info highlighting)
+energy = [0.1, 0.3, 0.6]
+
+# Height intensity multipliers [min, max]
+height_intensity = [0.6, 1.0]
 
 [[entity]]
 id = 4

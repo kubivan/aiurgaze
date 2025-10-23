@@ -150,7 +150,7 @@ pub fn handle_observation(
         let max_shield = unit.shield_max.unwrap_or(0.0);
         let build_progress = unit.build_progress.unwrap_or(0.0);
         let unit_type = unit.unit_type.unwrap();
-        let tile_size = entity_system.tile_size;
+        let tile_size = entity_system.map_config.tile_size;
         let world_x = x * tile_size - map_size.0 * tile_size / 2.0;
         let world_y = y * tile_size - map_size.1 * tile_size / 2.0;
 
@@ -278,6 +278,7 @@ pub fn unit_selection_system(
     unit_query: Query<(Entity, &Transform, &UnitTag)>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut selected: ResMut<SelectedUnit>,
+    entity_system: Res<EntitySystem>
 ) {
     if !mouse_button_input.just_pressed(MouseButton::Left) {
         return;
@@ -293,7 +294,7 @@ pub fn unit_selection_system(
             for (_entity, transform, tag) in unit_query.iter() {
                 let unit_pos = transform.translation.truncate();
                 let distance = unit_pos.distance(world_pos);
-                if distance < 16.0 { // Use unit size threshold //TODO: Make configurable: tile_size
+                if distance < entity_system.map_config.tile_size {
                     selected.tag = Some(tag.0);
                     break;
                 }
@@ -311,7 +312,7 @@ pub fn draw_unit_orders(
 ) {
     //TODO: remove hardcode
     let map_size = (200.0, 176.0);
-    let tile_size = entity_system.tile_size;
+    let tile_size = entity_system.map_config.tile_size;
 
     for (transform, proto) in unit_query.iter().filter(|(_ , proto)| { proto.0.orders.len() > 0}) {
         // Get the first order if it exists
