@@ -21,7 +21,7 @@ use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use protobuf::Message;
 use sc2_proto::sc2api::Response;
 use tap::prelude::*;
-use crate::controller::{response_controller_system, setup_proxy};
+use crate::controller::{response_controller_system, setup_proxy, ProxyResponseEvent};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
 use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::CurrentOrderAbility;
@@ -179,7 +179,7 @@ fn proxy_connect_on_docker_ready(
     game_created: ResMut<GameCreated>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_proxy(commands, runtime);
+        setup_proxy(runtime);
         *has_connected = true;
         // game_created.0 = false;
         println!("Proxy connection started after Docker became ready and game was created");
@@ -240,6 +240,7 @@ fn main() {
 
 
     App::new()
+        .add_event::<ProxyResponseEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()

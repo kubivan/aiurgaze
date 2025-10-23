@@ -1,16 +1,20 @@
 use bevy::asset::AssetServer;
-use sc2_proto::sc2api::Response_oneof_response::{game_info, observation};
-use bevy::prelude::{Commands, Res, ResMut, Resource, Query};
+use sc2_proto::sc2api::{Response, Response_oneof_response::{game_info, observation}};
+use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Event, EventReader};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use crate::proxy_ws::{ProxyWS, ProxyWSResource};
+use crate::proxy_ws::ProxyWS;
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
-use crate::units::{handle_observation, UnitBuildProgress, UnitIconAssets, UnitRegistry, ObservationUnitTags};
+use crate::units::{handle_observation, UnitBuildProgress, UnitRegistry, ObservationUnitTags};
 use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+
+// Event for proxy responses
+#[derive(Event)]
+pub struct ProxyResponseEvent(pub Response);
 
 // Resource to store static terrain layers and tile storage
 #[derive(Resource)]
@@ -21,20 +25,32 @@ pub struct MapResource {
     pub last_energy_hash: u64,
 }
 
-pub fn setup_proxy(mut commands: Commands, runtime: Res<TokioTasksRuntime>) {
+pub fn setup_proxy(runtime: Res<TokioTasksRuntime>) {
     println!("======setup_proxy====");
-    // create proxy + channel
-    //TODO: move to config
-    let proxy = ProxyWS::new("127.0.0.1:5000", "ws://127.0.0.1:5555/sc2api");
-    let rx = proxy.tx.subscribe();
-    commands.insert_resource( ProxyWSResource { rx });
-    println!("======Proxy resource inserted====");
 
-    runtime.spawn_background_task(|_ctx| async move {
+    // Create proxy with callback that emits Bevy events directly
+    runtime.spawn_background_task(|mut ctx| async move {
+        let proxy = ProxyWS::new(
+            "127.0.0.1:5000",
+            "ws://127.0.0.1:5555/sc2api",
+            move |resp| {
+                // This callback runs in the async task, so we need to queue the event
+                // to be sent on the main thread
+                let mut ctx_clone = ctx.clone();
+                tokio::spawn(async move {
+                    ctx_clone.run_on_main_thread(move |ctx| {
+                        ctx.world.send_event(ProxyResponseEvent(resp));
+                    }).await;
+                });
+            }
+        );
+
         if let Err(e) = proxy.run().await {
             eprintln!("Proxy task failed: {e}");
         }
     });
+
+    println!("======Proxy task spawned====");
 }
 
 
@@ -83,7 +99,7 @@ fn update_tilemap_colors(
 }
 
 pub fn response_controller_system(
-    proxy_res: Option<ResMut<ProxyWSResource>>,
+    mut events: EventReader<ProxyResponseEvent>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
@@ -94,13 +110,8 @@ pub fn response_controller_system(
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
-    let mut proxy_res = match proxy_res {
-        Some(res) => res,
-        None => return,
-    };
-
-    while let Ok(resp) = proxy_res.rx.try_recv() {
-        match resp.response.unwrap() {
+    for event in events.read() {
+        match event.0.response.as_ref().unwrap() {
             observation (obs)  => {
                 // Update dynamic layers (creep, energy, visibility) only if changed
                 if let Some(ref mut map_res) = map_res {
@@ -190,6 +201,6 @@ pub fn response_controller_system(
                 println!("Spawned tilemap, start pos: {:?}", start_pos);
             }
             _ => ()
-        };
+        }
     }
 }

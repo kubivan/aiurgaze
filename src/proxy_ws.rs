@@ -1,40 +1,44 @@
-use bevy::prelude::Resource;
 use futures_util::{future, StreamExt, SinkExt};
 use sc2_proto::sc2api::{Request, Response};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Result};
-use tokio::sync::broadcast;
 
-use protobuf::{Message};
-
-#[derive(Resource)]
-pub struct ProxyWSResource {
-    pub rx: broadcast::Receiver<Response>,
-}
+use protobuf::Message;
+use std::sync::Arc;
 
 /// ProxyWS holds:
 ///  * listener address for incoming client
 ///  * URL of the upstream server we proxy to
+///  * callback for emitting responses
 ///
-pub struct ProxyWS {
+pub struct ProxyWS<F>
+where
+    F: Fn(Response) + Send + Sync + 'static,
+{
     listen_addr: String,
     upstream_url: String,
-
-    pub tx: broadcast::Sender<Response>
+    on_response: Arc<F>,
 }
 
-impl ProxyWS {
-    pub fn new(listen_addr: impl Into<String>, upstream_url: impl Into<String>) -> Self {
+impl<F> ProxyWS<F>
+where
+    F: Fn(Response) + Send + Sync + 'static,
+{
+    pub fn new(
+        listen_addr: impl Into<String>,
+        upstream_url: impl Into<String>,
+        on_response: F,
+    ) -> Self {
         Self {
             listen_addr: listen_addr.into(),
             upstream_url: upstream_url.into(),
-            tx: broadcast::channel(100).0,
+            on_response: Arc::new(on_response),
         }
     }
 
     /// Run the proxy: wait for **one** client, then bridge traffic until closed.
-    pub async fn run(&self) -> Result<()> {
-        let tx = self.tx.clone();
+    pub async fn run(self) -> Result<()> {
+        let on_response = self.on_response.clone();
         let mut retries = 5;
         let delay_secs = 2;
         let mut last_err = None;
@@ -71,13 +75,10 @@ impl ProxyWS {
 
         let c2s = async {
             while let Some(msg) = client_read.next().await {
-                //println!("+++++++++++++++++++++++++++++++++++++++++++++++++++");
                 let msg = msg?;
-                //println!("c2s: Got message: {:?}", msg);
 
                 let mut req = Request::new();
                 req.merge_from_bytes(msg.clone().into_data().iter().as_slice()).unwrap();
-                //println!("c2s: Got request: {:?}", req);
 
                 upstream_write.send(msg).await?;
             }
@@ -86,21 +87,19 @@ impl ProxyWS {
 
         let s2c = async {
             while let Some(msg) = upstream_read.next().await {
-                // println!("---------------------------------------------------");
                 let msg = msg?;
-                // println!("s2c: Got message: {:?}", msg);
 
                 let mut res = Response::new();
-                res.merge_from_bytes(msg.clone().into_data().iter().as_slice());
-                // println!("c2s: Got response: {:?}", res);
-                tx.send(res).unwrap();
+                res.merge_from_bytes(msg.clone().into_data().iter().as_slice()).ok();
+                
+                // Call the callback with the response
+                (on_response)(res);
 
                 client_write.send(msg).await?;
             }
             Ok::<_, tungstenite::Error>(())
         };
 
-        //future::select(Box::pin(c2s), Box::pin(s2c)).await;
         // Wait for either direction to finish and log if it's an error
         match future::select(Box::pin(c2s), Box::pin(s2c)).await {
             future::Either::Left((res, _)) => {
