@@ -174,12 +174,12 @@ fn docker_startup_system(
 fn proxy_connect_on_docker_ready(
     docker_status: Res<DockerStatus>,
     mut has_connected: Local<bool>,
-    commands: Commands,
     runtime: Res<TokioTasksRuntime>,
     game_created: ResMut<GameCreated>,
+    settings: Res<AppSettings>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_proxy(runtime);
+        setup_proxy(runtime, settings);
         *has_connected = true;
         // game_created.0 = false;
         println!("Proxy connection started after Docker became ready and game was created");

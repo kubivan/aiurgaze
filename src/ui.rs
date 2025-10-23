@@ -73,7 +73,7 @@ pub fn ui_system(
     app_settings: Res<AppSettings>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
-    let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.ws_url, app_settings.starcraft.ws_port);
+    let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.upstream_url, app_settings.starcraft.upstream_port);
     
     // Check if there's a pending request from CLI to send
     if let Some(req) = pending_request.0.take() {

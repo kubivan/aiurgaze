@@ -2,15 +2,17 @@
 
 # Window settings
 [window]
-title = "SC2 View"
+title = "AiurGaze"
 width = 1920.0
 height = 1080.0
 resizable = true
 
 # StarCraft II settings
 [starcraft]
-ws_url = "ws://127.0.0.1"
-ws_port = 5555
+upstream_url = "ws://127.0.0.1"
+upstream_port = 5555
+listen_url = "127.0.0.1"
+listen_port = 5000
 image = "sc2:latest"
 container_name = "sc2-tweak"
 

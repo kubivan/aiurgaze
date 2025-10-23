@@ -10,7 +10,9 @@ use crate::entity_system::EntitySystem;
 use crate::units::{handle_observation, UnitBuildProgress, UnitRegistry, ObservationUnitTags};
 use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::format;
 use std::hash::{Hash, Hasher};
+use bevy_egui::egui::util::undoer::Settings;
 
 // Event for proxy responses
 #[derive(Event)]
@@ -25,14 +27,17 @@ pub struct MapResource {
     pub last_energy_hash: u64,
 }
 
-pub fn setup_proxy(runtime: Res<TokioTasksRuntime>) {
+pub fn setup_proxy(runtime: Res<TokioTasksRuntime>, settings: Res<AppSettings>) {
     println!("======setup_proxy====");
 
+    let listen_addr = format!("{}:{}", settings.starcraft.listen_url, settings.starcraft.listen_port);
+    let upstream_addr = format!("{}:{}/sc2api", settings.starcraft.upstream_url, settings.starcraft.upstream_port);
+
     // Create proxy with callback that emits Bevy events directly
-    runtime.spawn_background_task(|mut ctx| async move {
+    runtime.spawn_background_task(|ctx| async move {
         let proxy = ProxyWS::new(
-            "127.0.0.1:5000",
-            "ws://127.0.0.1:5555/sc2api",
+            &listen_addr,
+            &upstream_addr,
             move |resp| {
                 // This callback runs in the async task, so we need to queue the event
                 // to be sent on the main thread

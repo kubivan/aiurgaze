@@ -253,8 +253,10 @@ impl Default for WindowConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StarcraftConfig {
-    pub ws_url: String,
-    pub ws_port: u16,
+    pub upstream_url: String,
+    pub upstream_port: u16,
+    pub listen_url: String,
+    pub listen_port: u16,
     pub image: String,
     pub container_name: String,
 }
@@ -262,8 +264,10 @@ pub struct StarcraftConfig {
 impl Default for StarcraftConfig {
     fn default() -> Self {
         Self {
-            ws_url: "ws://127.0.0.1".to_string(),
-            ws_port: 5555,
+            upstream_url: "ws://127.0.0.1".to_string(),
+            upstream_port: 5555,
+            listen_url: "127.0.0.1".to_string(),
+            listen_port: 5000,
             image: "sc2:latest".to_string(),
             container_name: "sc2-tweak".to_string(),
         }
