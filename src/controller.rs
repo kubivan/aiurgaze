@@ -7,7 +7,7 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use crate::proxy_ws::{ProxyWS, ProxyWSResource};
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
-use crate::units::{handle_observation, UnitBuildProgress, UnitIconAssets, UnitRegistry};
+use crate::units::{handle_observation, UnitBuildProgress, UnitIconAssets, UnitRegistry, ObservationUnitTags};
 use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -91,7 +91,8 @@ pub fn response_controller_system(
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
     app_settings: Res<AppSettings>,
-    mut unit_query: Query<(&mut crate::units::UnitHealth, Option<&mut crate::units::UnitShield>, &mut crate::units::UnitProto, &mut crate::units::CurrentOrderAbility, &mut bevy::prelude::Transform, Option<&mut UnitBuildProgress>)>,
+    unit_query: Query<&UnitBuildProgress>,
+    mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
     let mut proxy_res = match proxy_res {
         Some(res) => res,
@@ -101,15 +102,6 @@ pub fn response_controller_system(
     while let Ok(resp) = proxy_res.rx.try_recv() {
         match resp.response.unwrap() {
             observation (obs)  => {
-                handle_observation(
-                    &mut commands,
-                    &asset_server,
-                    &mut registry,
-                    &entity_system,
-                    &obs,
-                    &mut unit_query,
-                );
-
                 // Update dynamic layers (creep, energy, visibility) only if changed
                 if let Some(ref mut map_res) = map_res {
                     let obs_data = obs.observation.as_ref().unwrap();
@@ -144,6 +136,17 @@ pub fn response_controller_system(
                         map_res.last_energy_hash = new_energy_hash;
                     }
                 }
+
+                handle_observation(
+                    &mut commands,
+                    &asset_server,
+                    &mut registry,
+                    &entity_system,
+                    &obs,
+                    unit_query,
+                    &mut seen_tags,
+                );
+
             }
             game_info (gi) =>  {
                 let start_raw = gi.start_raw.as_ref().unwrap();

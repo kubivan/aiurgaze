@@ -23,7 +23,7 @@ use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
-use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress};
+use crate::units::{UnitRegistry, UnitIconAssets, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::CurrentOrderAbility;
 use crate::units::draw_unit_orders;
 use futures_util::StreamExt;
@@ -281,6 +281,7 @@ fn main() {
         .insert_resource(UnitRegistry::default())
         .insert_resource(UnitIconAssets::default())
         .insert_resource(SelectedUnit::default())
+        .insert_resource(ObservationUnitTags::default())
         .insert_resource(CameraPanState::default())
         .insert_resource(game_config_panel)
         .insert_resource(DockerStatus::Starting)
@@ -294,6 +295,7 @@ fn main() {
         .add_systems(Startup, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
+        .add_systems(Update, cleanup_dead_units.before(response_controller_system))
         .add_systems(Update, response_controller_system)
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(Update, draw_unit_orders)

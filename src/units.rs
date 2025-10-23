@@ -91,26 +91,61 @@ pub struct BuildProgressBar;
 
 /// === Unit handling logic ===
 
+/// Resource to store unit tags seen in the current observation for cleanup phase
+#[derive(Resource, Default)]
+pub struct ObservationUnitTags {
+    pub seen_tags: HashSet<u64>,
+}
+
+/// First phase: Clean up units that are no longer present
+/// This runs BEFORE handle_observation to avoid race conditions
+pub fn cleanup_dead_units(
+    mut commands: Commands,
+    mut registry: ResMut<UnitRegistry>,
+    seen_tags: Res<ObservationUnitTags>,
+) {
+    if seen_tags.seen_tags.is_empty() {
+        return; // No observation processed yet
+    }
+
+    let to_remove: Vec<u64> = registry
+        .map
+        .keys()
+        .filter(|tag| !seen_tags.seen_tags.contains(tag))
+        .cloned()
+        .collect();
+
+    for tag in to_remove {
+        if let Some(entity) = registry.map.remove(&tag) {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Second phase: Update existing units and spawn new ones
 pub fn handle_observation(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
     registry: &mut ResMut<UnitRegistry>,
     entity_system: &Res<EntitySystem>,
     obs_msg: &ResponseObservation,
-    unit_query: &mut Query<(&mut UnitHealth, Option<&mut UnitShield>, &mut UnitProto, &mut CurrentOrderAbility, &mut Transform, Option<&mut UnitBuildProgress>, With<Entity>)>,
+    unit_query: Query<&UnitBuildProgress>,
+    seen_tags: &mut ResMut<ObservationUnitTags>,
 ) {
     let obs = obs_msg.observation.as_ref().unwrap();
     let raw_data = obs.raw_data.as_ref().unwrap();
-    let mut seen_tags = HashSet::new();
+
+    // Clear and rebuild seen tags for this observation
+    seen_tags.seen_tags.clear();
     let map_size = (200.0 , 176.0);
 
     for unit in &raw_data.units {
         let tag = unit.tag.unwrap();
-        seen_tags.insert(tag);
+        seen_tags.seen_tags.insert(tag);
         let pos = unit.pos.as_ref().unwrap();
         let (x, y, _z ) = (pos.x.unwrap(), pos.y.unwrap(), pos.z.unwrap());
         let health = unit.health.unwrap_or(1.0);
-        let max_health = unit.health_max.unwrap_or(1.0);
+        let max_health = unit.health_max.unwrap_or(1.0); //TODO: check zero division
         let shield = unit.shield.unwrap_or(0.0);
         let max_shield = unit.shield_max.unwrap_or(0.0);
         let build_progress = unit.build_progress.unwrap_or(0.0);
@@ -133,58 +168,22 @@ pub fn handle_observation(
         let size = unit_radius * 2.0 * tile_size;
         let image_handle = entity_system.get_icon_handle(unit_type, asset_server);
 
-        // Update existing entity by mutating components instead of re-inserting
-        // This prevents triggering the health bar plugin's detection system repeatedly
         if let Some(&entity) = registry.map.get(&tag) {
-            if let Ok((mut unit_health, shield_opt, mut unit_proto, mut order_ability, mut transform, build_progress_opt)) = unit_query.get_mut(entity) {
-                // Update component values
-                transform.translation = Vec3::new(world_x, world_y, 1.0);
-                unit_health.current = health;
-                // unit_health.max = max_health;
-                *unit_proto = UnitProto(unit.clone());
-                order_ability.0 = first_order_ability;
+            commands.entity(entity).insert((
+                Transform::from_xyz(world_x, world_y, 1.0),
+                UnitHealth { current: health, max: max_health },
+                UnitShield { current: shield, max: max_shield },
+                UnitProto(unit.clone()),
+                CurrentOrderAbility(first_order_ability),
+            ));
 
-                // Handle shield updates: only update if component exists, or add if unit now has shields
-                if let Some(mut unit_shield) = shield_opt {
-                    // Unit has shield component, just update values
-                    unit_shield.current = shield;
-                    unit_shield.max = max_shield;
-                } else if max_shield > 0.0 {
-                    // Unit didn't have shields before but now does - add shield components
-                    commands.entity(entity).insert((
-                        UnitShield { current: shield, max: max_shield },
-                        BarSettings::<UnitShield> {
-                            offset: -size / 2. - 2.0,
-                            height: BarHeight::Static(1.),
-                            width: size,
-                            ..default()
-                        },
-                    ));
-                }
-
-                // Prevent flickering: only insert/remove build progress bar if needed
-                if let Some(mut build_progress_comp) = build_progress_opt {
-                    // Build progress component exists, just update the value
-                    if build_progress < 1.0 {
-                        // Mutate the value directly to avoid triggering health bar plugin
-                        build_progress_comp.0 = build_progress;
-                    } else {
-                        // Building complete, remove the bar
-                        commands.entity(entity).remove::<BarSettings<UnitBuildProgress>>();
-                        commands.entity(entity).remove::<UnitBuildProgress>();
-                    }
-                } else if build_progress < 1.0 {
-                    // Unit didn't have build progress before but now does - add both components together
-                    commands.entity(entity).insert((
-                        UnitBuildProgress(build_progress),
-                        BarSettings::<UnitBuildProgress> {
-                            offset: -size / 2. - 4.0,
-                            height: BarHeight::Static(1.),
-                            width: size,
-                            ..default()
-                        },
-                    ));
-                }
+            // Prevent flickering: only insert/remove build progress bar if needed
+            let has_build_progress = unit_query.get(entity).is_ok();
+            if build_progress < 1.0 {
+                commands.entity(entity).insert(UnitBuildProgress(build_progress));
+            } else if has_build_progress {
+                commands.entity(entity).remove::<BarSettings<UnitBuildProgress>>();
+                commands.entity(entity).remove::<UnitBuildProgress>();
             }
         } else {
             // Spawn new sprite based on config (without text label)
@@ -239,18 +238,6 @@ pub fn handle_observation(
 
             let entity = entity_commands.id();
             registry.map.insert(tag, entity);
-        }
-    }
-    let to_remove: Vec<u64> = registry
-        .map
-        .keys()
-        .filter(|tag| !seen_tags.contains(tag))
-        .cloned()
-        .collect();
-
-    for tag in to_remove {
-        if let Some(entity) = registry.map.remove(&tag) {
-            commands.entity(entity).despawn();
         }
     }
 }
