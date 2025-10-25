@@ -32,7 +32,7 @@ use std::process::exit;
 use bevy::color::palettes::basic::{GREEN, RED};
 use sc2_proto::common::Race;
 use crate::ui::GameType;
-use crate::app_settings::{AppSettings, load_settings};
+use crate::app_settings::{AppSettings, load_settings, StarcraftConfig};
 use crate::entity_system::setup_entity_system;
 use crate::ui::game_config_panel::list_maps_folder;
 
@@ -74,11 +74,9 @@ enum CliCommands {
 }
 
 /// Start the server inside Docker and wait until it's reachable.
-fn start_server_container() -> Result<(), String> {
-    let image = std::env::var("SC2_SERVER_IMAGE").unwrap_or_else(|_| "sc2:latest".into());
-    let container_name = std::env::var("SC2_SERVER_CONTAINER").unwrap_or_else(|_| "sc2-tweak".into());
-    let _port: u16 = 5555; // unused
-    let _host = "127.0.0.1"; // unused
+fn start_server_container(docker_config : &StarcraftConfig) -> Result<(), String> {
+    let image = &docker_config.image;
+    let container_name = &docker_config.container_name;
 
     // Remove any existing container with the same name
     let _ = Command::new("docker")
@@ -101,7 +99,7 @@ fn start_server_container() -> Result<(), String> {
         .args([
             "run", "-d", "--rm", "-it",
             "--name", &container_name,
-            "-p", "5555:5555",
+            "-p", format!("{}:{}", docker_config.upstream_port, docker_config.upstream_port).as_str(),
             "-v", &maps_mount,
             &image,
         ])
@@ -117,9 +115,9 @@ fn start_server_container() -> Result<(), String> {
 }
 
 /// Blocking Docker startup for CLI mode
-fn startup_docker_blocking() -> Result<(), String> {
+fn startup_docker_blocking(config: &StarcraftConfig) -> Result<(), String> {
     println!("[startup_docker_blocking] Starting Docker container...");
-    let result = start_server_container();
+    let result = start_server_container(&config);
     match &result {
         Ok(_) => println!("[startup_docker_blocking] Docker container started successfully."),
         Err(e) => eprintln!("[startup_docker_blocking] Failed to start Docker: {e}"),
@@ -131,11 +129,16 @@ fn startup_docker_blocking() -> Result<(), String> {
 fn docker_startup_system(
     runtime: Res<TokioTasksRuntime>,
     mut docker_status: ResMut<DockerStatus>,
+    docker_config: Res<AppSettings>
 ) {
     docker_status.clone_from(&DockerStatus::Starting);
+    // Clone config to own it in the task
+    let starcraft_config = docker_config.starcraft.clone();
     runtime.spawn_background_task(|mut ctx| async move {
         // Use spawn_blocking for blocking code
-        let result = tokio::task::spawn_blocking(start_server_container).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        let result = tokio::task::spawn_blocking(move ||
+            start_server_container(&starcraft_config)
+        ).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
         let status = match result {
             Ok(_) => DockerStatus::Running,
             Err(e) => {
@@ -206,7 +209,7 @@ fn main() {
             exit(1);
         }
         // Start Docker synchronously in CLI mode
-        if let Err(e) = startup_docker_blocking() {
+        if let Err(e) = startup_docker_blocking(&app_settings.starcraft) {
             eprintln!("Error: Could not start Docker container: {e}");
             exit(1);
         }

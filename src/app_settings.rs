@@ -114,7 +114,10 @@ pub fn load_settings() -> AppSettings {
         .add_source(config::File::with_name("config").required(false))
         .build()
         .and_then(|c| c.try_deserialize())
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            eprintln!("[config] Failed to load config.toml: {}, using defaults", e);
+            AppSettings::default()
+        });
 
     // Set config path for entities
     settings.config_path = PathBuf::from("config/entities.toml");
@@ -197,8 +200,8 @@ impl Default for StarcraftConfig {
             upstream_port: 5555,
             listen_url: "127.0.0.1".to_string(),
             listen_port: 5000,
-            image: "sc2:latest".to_string(),
-            container_name: "sc2-tweak".to_string(),
+            image: "minimal-sc2:latest".to_string(),
+            container_name: "aiurgaze-sc2".to_string(),
         }
     }
 }
