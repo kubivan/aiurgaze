@@ -105,25 +105,24 @@ impl EntitySystem {
         /// Display configuration by unit ID (from entities.toml)
         let mut map_config = MapConfig::default();
         let mut display_config: HashMap<u32, EntityDisplayInfo> = HashMap::new();
-        if Path::new("config/entities.toml").exists() {
-            if let Ok(toml_content) = std::fs::read_to_string("config/entities.toml") {
-                if let Ok(config) = toml::de::from_str::<EntitiesConfig>(&toml_content) {
-                    // Load map config from [map] section
-                    if let Some(map) = config.map {
-                        map_config = map;
-                    }
 
-                    for entity in config.entity {
-                        let mut info = EntityDisplayInfo::default();
-                        info.name = Some(entity.name.clone());
-                        info.icon = entity.icon;
-                        info.tile_size = entity.tile_size;
-                        display_config.insert(entity.id, info);
-                    }
-                    info!("Loaded {} entities from entities.toml", display_config.len());
-                }
-            }
+        let toml_content = std::fs::read_to_string("data/entities.toml")
+            .expect("Failed to read entities.toml");
+        let config = toml::de::from_str::<EntitiesConfig>(&toml_content)
+            .expect("Failed to parse entities.toml");
+        // Load map config from [map] section
+        if let Some(map) = config.map {
+            map_config = map;
         }
+
+        for entity in config.entity {
+            let mut info = EntityDisplayInfo::default();
+            info.name = Some(entity.name.clone());
+            info.icon = entity.icon;
+            info.tile_size = entity.tile_size;
+            display_config.insert(entity.id, info);
+        }
+        info!("Loaded {} entities from entities.toml", display_config.len());
 
         // Pre-load icons
         let mut icon_handles = HashMap::new();
@@ -132,7 +131,7 @@ impl EntitySystem {
                 let handle = asset_server.load(icon_path.clone());
                 icon_handles.insert(*id, handle);
             }else {
-                let handle = asset_server.load("icons/default.png");
+                let handle = asset_server.load("units/default.png");
                 info!("No icon for unit {}. Using default icon.", id);
                 icon_handles.insert(*id, handle);
             }

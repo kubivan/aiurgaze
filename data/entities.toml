@@ -30,1223 +30,1223 @@ height_intensity = [0.6, 1.0]
 [[entity]]
 id = 4
 name = "Colossus"
-icon = "icons/Colossus.webp"
+icon = "units/Colossus.webp"
 
 [[entity]]
 id = 5
 name = "TechLab"
-icon = "icons/TechLab.webp"
+icon = "units/TechLab.webp"
 
 [[entity]]
 id = 6
 name = "Reactor"
-icon = "icons/Reactor.webp"
+icon = "units/Reactor.webp"
 
 [[entity]]
 id = 7
 name = "InfestorTerran"
-icon = "icons/InfestedTerran.webp"
+icon = "units/InfestedTerran.webp"
 
 [[entity]]
 id = 8
 name = "BanelingCocoon"
-icon = "icons/Baneling.webp"
+icon = "units/Baneling.webp"
 
 [[entity]]
 id = 9
 name = "Baneling"
-icon = "icons/Baneling.webp"
+icon = "units/Baneling.webp"
 
 [[entity]]
 id = 10
 name = "Mothership"
-icon = "icons/Mothership.webp"
+icon = "units/Mothership.webp"
 
 [[entity]]
 id = 11
 name = "PointDefenseDrone"
-icon = "icons/PointDefenseDrone.webp"
+icon = "units/PointDefenseDrone.webp"
 
 [[entity]]
 id = 12
 name = "Changeling"
-icon = "icons/Changeling.webp"
+icon = "units/Changeling.webp"
 
 [[entity]]
 id = 13
 name = "ChangelingZealot"
-icon = "icons/ChangelingZealot.webp"
+icon = "units/ChangelingZealot.webp"
 
 [[entity]]
 id = 14
 name = "ChangelingMarineShield"
-icon = "icons/ChangelingMarineShield.webp"
+icon = "units/ChangelingMarineShield.webp"
 
 [[entity]]
 id = 15
 name = "ChangelingMarine"
-icon = "icons/ChangelingMarine.webp"
+icon = "units/ChangelingMarine.webp"
 
 [[entity]]
 id = 16
 name = "ChangelingZerglingWings"
-icon = "icons/ChangelingZerglingWings.webp"
+icon = "units/ChangelingZerglingWings.webp"
 
 [[entity]]
 id = 17
 name = "ChangelingZergling"
-icon = "icons/ChangelingZergling.webp"
+icon = "units/ChangelingZergling.webp"
 
 [[entity]]
 id = 18
 name = "CommandCenter"
-icon = "icons/CommandCenter.webp"
+icon = "units/CommandCenter.webp"
 
 [[entity]]
 id = 19
 name = "SupplyDepot"
-icon = "icons/SupplyDepot.webp"
+icon = "units/SupplyDepot.webp"
 
 [[entity]]
 id = 20
 name = "Refinery"
-icon = "icons/Refinery.webp"
+icon = "units/Refinery.webp"
 
 [[entity]]
 id = 21
 name = "Barracks"
-icon = "icons/Barracks.webp"
+icon = "units/Barracks.webp"
 
 [[entity]]
 id = 22
 name = "EngineeringBay"
-icon = "icons/EngineeringBay.webp"
+icon = "units/EngineeringBay.webp"
 
 [[entity]]
 id = 23
 name = "MissileTurret"
-icon = "icons/MissileTurret.webp"
+icon = "units/MissileTurret.webp"
 
 [[entity]]
 id = 24
 name = "Bunker"
-icon = "icons/Bunker.webp"
+icon = "units/Bunker.webp"
 
 [[entity]]
 id = 25
 name = "SensorTower"
-icon = "icons/SensorTower.webp"
+icon = "units/SensorTower.webp"
 
 [[entity]]
 id = 26
 name = "GhostAcademy"
-icon = "icons/GhostAcademy.webp"
+icon = "units/GhostAcademy.webp"
 
 [[entity]]
 id = 27
 name = "Factory"
-icon = "icons/Factory.webp"
+icon = "units/Factory.webp"
 
 [[entity]]
 id = 28
 name = "Starport"
-icon = "icons/Starport.webp"
+icon = "units/Starport.webp"
 
 [[entity]]
 id = 29
 name = "Armory"
-icon = "icons/Armory.webp"
+icon = "units/Armory.webp"
 
 [[entity]]
 id = 30
 name = "FusionCore"
-icon = "icons/FusionCore.webp"
+icon = "units/FusionCore.webp"
 
 [[entity]]
 id = 31
 name = "AutoTurret"
-icon = "icons/AutoTurret.webp"
+icon = "units/AutoTurret.webp"
 
 [[entity]]
 id = 32
 name = "SiegeTankSieged"
-icon = "icons/SiegeTankSieged.webp"
+icon = "units/SiegeTankSieged.webp"
 
 [[entity]]
 id = 33
 name = "SiegeTank"
-icon = "icons/SiegeTank.webp"
+icon = "units/SiegeTank.webp"
 
 [[entity]]
 id = 34
 name = "VikingAssault"
-icon = "icons/VikingAssault.webp"
+icon = "units/VikingAssault.webp"
 
 [[entity]]
 id = 35
 name = "VikingFighter"
-icon = "icons/VikingFighter.webp"
+icon = "units/VikingFighter.webp"
 
 [[entity]]
 id = 36
 name = "CommandCenterFlying"
-icon = "icons/CommandCenterFlying.webp"
+icon = "units/CommandCenterFlying.webp"
 
 [[entity]]
 id = 37
 name = "BarracksTechLab"
-icon = "icons/BarracksTechLab.webp"
+icon = "units/BarracksTechLab.webp"
 
 [[entity]]
 id = 38
 name = "BarracksReactor"
-icon = "icons/BarracksReactor.webp"
+icon = "units/BarracksReactor.webp"
 
 [[entity]]
 id = 39
 name = "FactoryTechLab"
-icon = "icons/FactoryTechLab.webp"
+icon = "units/FactoryTechLab.webp"
 
 [[entity]]
 id = 40
 name = "FactoryReactor"
-icon = "icons/FactoryReactor.webp"
+icon = "units/FactoryReactor.webp"
 
 [[entity]]
 id = 41
 name = "StarportTechLab"
-icon = "icons/StarportTechLab.webp"
+icon = "units/StarportTechLab.webp"
 
 [[entity]]
 id = 42
 name = "StarportReactor"
-icon = "icons/StarportReactor.webp"
+icon = "units/StarportReactor.webp"
 
 [[entity]]
 id = 43
 name = "FactoryFlying"
-icon = "icons/FactoryFlying.webp"
+icon = "units/FactoryFlying.webp"
 
 [[entity]]
 id = 44
 name = "StarportFlying"
-icon = "icons/StarportFlying.webp"
+icon = "units/StarportFlying.webp"
 
 [[entity]]
 id = 45
 name = "SCV"
-icon = "icons/SCV.webp"
+icon = "units/SCV.webp"
 
 [[entity]]
 id = 46
 name = "BarracksFlying"
-icon = "icons/BarracksFlying.webp"
+icon = "units/BarracksFlying.webp"
 
 [[entity]]
 id = 47
 name = "SupplyDepotLowered"
-icon = "icons/SupplyDepotLowered.webp"
+icon = "units/SupplyDepotLowered.webp"
 
 [[entity]]
 id = 48
 name = "Marine"
-icon = "icons/Marine.webp"
+icon = "units/Marine.webp"
 
 [[entity]]
 id = 49
 name = "Reaper"
-icon = "icons/Reaper.webp"
+icon = "units/Reaper.webp"
 
 [[entity]]
 id = 50
 name = "Ghost"
-icon = "icons/Ghost.webp"
+icon = "units/Ghost.webp"
 
 [[entity]]
 id = 51
 name = "Marauder"
-icon = "icons/Marauder.webp"
+icon = "units/Marauder.webp"
 
 [[entity]]
 id = 52
 name = "Thor"
-icon = "icons/Thor.webp"
+icon = "units/Thor.webp"
 
 [[entity]]
 id = 53
 name = "Hellion"
-icon = "icons/Hellion.webp"
+icon = "units/Hellion.webp"
 
 [[entity]]
 id = 54
 name = "Medivac"
-icon = "icons/Medivac.webp"
+icon = "units/Medivac.webp"
 
 [[entity]]
 id = 55
 name = "Banshee"
-icon = "icons/Banshee.webp"
+icon = "units/Banshee.webp"
 
 [[entity]]
 id = 56
 name = "Raven"
-icon = "icons/Raven.webp"
+icon = "units/Raven.webp"
 
 [[entity]]
 id = 57
 name = "Battlecruiser"
-icon = "icons/Battlecruiser.webp"
+icon = "units/Battlecruiser.webp"
 
 [[entity]]
 id = 58
 name = "Nuke"
-icon = "icons/Nuke.webp"
+icon = "units/Nuke.webp"
 
 [[entity]]
 id = 59
 name = "Nexus"
-icon = "icons/Nexus.webp"
+icon = "units/Nexus.webp"
 
 [[entity]]
 id = 60
 name = "Pylon"
-icon = "icons/Pylon.webp"
+icon = "units/Pylon.webp"
 
 [[entity]]
 id = 61
 name = "Assimilator"
-icon = "icons/Assimilator.webp"
+icon = "units/Assimilator.webp"
 
 [[entity]]
 id = 62
 name = "Gateway"
-icon = "icons/Gateway.webp"
+icon = "units/Gateway.webp"
 
 [[entity]]
 id = 63
 name = "Forge"
-icon = "icons/Forge.webp"
+icon = "units/Forge.webp"
 
 [[entity]]
 id = 64
 name = "FleetBeacon"
-icon = "icons/FleetBeacon.webp"
+icon = "units/FleetBeacon.webp"
 
 [[entity]]
 id = 65
 name = "TwilightCouncil"
-icon = "icons/TwilightCouncil.webp"
+icon = "units/TwilightCouncil.webp"
 
 [[entity]]
 id = 66
 name = "PhotonCannon"
-icon = "icons/PhotonCannon.webp"
+icon = "units/PhotonCannon.webp"
 
 [[entity]]
 id = 67
 name = "Stargate"
-icon = "icons/Stargate.webp"
+icon = "units/Stargate.webp"
 
 [[entity]]
 id = 68
 name = "TemplarArchive"
-icon = "icons/TemplarArchive.webp"
+icon = "units/TemplarArchive.webp"
 
 [[entity]]
 id = 69
 name = "DarkShrine"
-icon = "icons/DarkShrine.webp"
+icon = "units/DarkShrine.webp"
 
 [[entity]]
 id = 70
 name = "RoboticsBay"
-icon = "icons/RoboticsBay.webp"
+icon = "units/RoboticsBay.webp"
 
 [[entity]]
 id = 71
 name = "RoboticsFacility"
-icon = "icons/RoboticsFacility.webp"
+icon = "units/RoboticsFacility.webp"
 
 [[entity]]
 id = 72
 name = "CyberneticsCore"
-icon = "icons/CyberneticsCore.webp"
+icon = "units/CyberneticsCore.webp"
 
 [[entity]]
 id = 73
 name = "Zealot"
-icon = "icons/Zealot.webp"
+icon = "units/Zealot.webp"
 
 [[entity]]
 id = 74
 name = "Stalker"
-icon = "icons/Stalker.webp"
+icon = "units/Stalker.webp"
 
 [[entity]]
 id = 75
 name = "HighTemplar"
-icon = "icons/HighTemplar.webp"
+icon = "units/HighTemplar.webp"
 
 [[entity]]
 id = 76
 name = "DarkTemplar"
-icon = "icons/DarkTemplar.webp"
+icon = "units/DarkTemplar.webp"
 
 [[entity]]
 id = 77
 name = "Sentry"
-icon = "icons/Sentry.webp"
+icon = "units/Sentry.webp"
 
 [[entity]]
 id = 78
 name = "Phoenix"
-icon = "icons/Phoenix.webp"
+icon = "units/Phoenix.webp"
 
 [[entity]]
 id = 79
 name = "Carrier"
-icon = "icons/Carrier.webp"
+icon = "units/Carrier.webp"
 
 [[entity]]
 id = 80
 name = "VoidRay"
-icon = "icons/VoidRay.webp"
+icon = "units/VoidRay.webp"
 
 [[entity]]
 id = 81
 name = "WarpPrism"
-icon = "icons/WarpPrism.webp"
+icon = "units/WarpPrism.webp"
 
 [[entity]]
 id = 82
 name = "Observer"
-icon = "icons/Observer.webp"
+icon = "units/Observer.webp"
 
 [[entity]]
 id = 83
 name = "Immortal"
-icon = "icons/Immortal.webp"
+icon = "units/Immortal.webp"
 
 [[entity]]
 id = 84
 name = "Probe"
-icon = "icons/Probe.webp"
+icon = "units/Probe.webp"
 
 [[entity]]
 id = 85
 name = "Interceptor"
-icon = "icons/Interceptor.webp"
+icon = "units/Interceptor.webp"
 
 [[entity]]
 id = 86
 name = "Hatchery"
-icon = "icons/Hatchery.webp"
+icon = "units/Hatchery.webp"
 
 [[entity]]
 id = 87
 name = "CreepTumor"
-icon = "icons/CreepTumor.webp"
+icon = "units/CreepTumor.webp"
 
 [[entity]]
 id = 88
 name = "Extractor"
-icon = "icons/Extractor.webp"
+icon = "units/Extractor.webp"
 
 [[entity]]
 id = 89
 name = "SpawningPool"
-icon = "icons/SpawningPool.webp"
+icon = "units/SpawningPool.webp"
 
 [[entity]]
 id = 90
 name = "EvolutionChamber"
-icon = "icons/EvolutionChamber.webp"
+icon = "units/EvolutionChamber.webp"
 
 [[entity]]
 id = 91
 name = "HydraliskDen"
-icon = "icons/HydraliskDen.webp"
+icon = "units/HydraliskDen.webp"
 
 [[entity]]
 id = 92
 name = "Spire"
-icon = "icons/Spire.webp"
+icon = "units/Spire.webp"
 
 [[entity]]
 id = 93
 name = "UltraliskCavern"
-icon = "icons/UltraliskCavern.webp"
+icon = "units/UltraliskCavern.webp"
 
 [[entity]]
 id = 94
 name = "InfestationPit"
-icon = "icons/InfestationPit.webp"
+icon = "units/InfestationPit.webp"
 
 [[entity]]
 id = 95
 name = "NydusNetwork"
-icon = "icons/NydusNetwork.webp"
+icon = "units/NydusNetwork.webp"
 
 [[entity]]
 id = 96
 name = "BanelingNest"
-icon = "icons/BanelingNest.webp"
+icon = "units/BanelingNest.webp"
 
 [[entity]]
 id = 97
 name = "RoachWarren"
-icon = "icons/RoachWarren.webp"
+icon = "units/RoachWarren.webp"
 
 [[entity]]
 id = 98
 name = "SpineCrawler"
-icon = "icons/SpineCrawler.webp"
+icon = "units/SpineCrawler.webp"
 
 [[entity]]
 id = 99
 name = "SporeCrawler"
-icon = "icons/SporeCrawler.webp"
+icon = "units/SporeCrawler.webp"
 
 [[entity]]
 id = 100
 name = "Lair"
-icon = "icons/Lair.webp"
+icon = "units/Lair.webp"
 
 [[entity]]
 id = 101
 name = "Hive"
-icon = "icons/Hive.webp"
+icon = "units/Hive.webp"
 
 [[entity]]
 id = 102
 name = "GreaterSpire"
-icon = "icons/GreaterSpire.webp"
+icon = "units/GreaterSpire.webp"
 
 [[entity]]
 id = 103
 name = "Egg"
-icon = "icons/Egg.webp"
+icon = "units/Egg.webp"
 
 [[entity]]
 id = 104
 name = "Drone"
-icon = "icons/Drone.webp"
+icon = "units/Drone.webp"
 
 [[entity]]
 id = 105
 name = "Zergling"
-icon = "icons/Zergling.webp"
+icon = "units/Zergling.webp"
 
 [[entity]]
 id = 106
 name = "Overlord"
-icon = "icons/Overlord.webp"
+icon = "units/Overlord.webp"
 
 [[entity]]
 id = 107
 name = "Hydralisk"
-icon = "icons/Hydralisk.webp"
+icon = "units/Hydralisk.webp"
 
 [[entity]]
 id = 108
 name = "Mutalisk"
-icon = "icons/Mutalisk.webp"
+icon = "units/Mutalisk.webp"
 
 [[entity]]
 id = 109
 name = "Ultralisk"
-icon = "icons/Ultralisk.webp"
+icon = "units/Ultralisk.webp"
 
 [[entity]]
 id = 110
 name = "Roach"
-icon = "icons/Roach.webp"
+icon = "units/Roach.webp"
 
 [[entity]]
 id = 111
 name = "Infestor"
-icon = "icons/Infestor.webp"
+icon = "units/Infestor.webp"
 
 [[entity]]
 id = 112
 name = "Corruptor"
-icon = "icons/Corruptor.webp"
+icon = "units/Corruptor.webp"
 
 [[entity]]
 id = 113
 name = "BroodLordCocoon"
-icon = "icons/BroodLord.webp"
+icon = "units/BroodLord.webp"
 
 [[entity]]
 id = 114
 name = "BroodLord"
-icon = "icons/BroodLord.webp"
+icon = "units/BroodLord.webp"
 
 [[entity]]
 id = 115
 name = "BanelingBurrowed"
-icon = "icons/BanelingBurrowed.webp"
+icon = "units/BanelingBurrowed.webp"
 
 [[entity]]
 id = 116
 name = "DroneBurrowed"
-icon = "icons/DroneBurrowed.webp"
+icon = "units/DroneBurrowed.webp"
 
 [[entity]]
 id = 117
 name = "HydraliskBurrowed"
-icon = "icons/HydraliskBurrowed.webp"
+icon = "units/HydraliskBurrowed.webp"
 
 [[entity]]
 id = 118
 name = "RoachBurrowed"
-icon = "icons/RoachBurrowed.webp"
+icon = "units/RoachBurrowed.webp"
 
 [[entity]]
 id = 119
 name = "ZerglingBurrowed"
-icon = "icons/ZerglingBurrowed.webp"
+icon = "units/ZerglingBurrowed.webp"
 
 [[entity]]
 id = 120
 name = "InfestorTerranBurrowed"
-icon = "icons/InfestorTerranBurrowed.webp"
+icon = "units/InfestorTerranBurrowed.webp"
 
 [[entity]]
 id = 125
 name = "QueenBurrowed"
-icon = "icons/QueenBurrowed.webp"
+icon = "units/QueenBurrowed.webp"
 
 [[entity]]
 id = 126
 name = "Queen"
-icon = "icons/Queen.webp"
+icon = "units/Queen.webp"
 
 [[entity]]
 id = 127
 name = "InfestorBurrowed"
-icon = "icons/InfestorBurrowed.webp"
+icon = "units/InfestorBurrowed.webp"
 
 [[entity]]
 id = 128
 name = "OverlordCocoon"
-icon = "icons/Overlord.webp"
+icon = "units/Overlord.webp"
 
 [[entity]]
 id = 129
 name = "Overseer"
-icon = "icons/Overseer.webp"
+icon = "units/Overseer.webp"
 
 [[entity]]
 id = 130
 name = "PlanetaryFortress"
-icon = "icons/PlanetaryFortress.webp"
+icon = "units/PlanetaryFortress.webp"
 
 [[entity]]
 id = 131
 name = "UltraliskBurrowed"
-icon = "icons/UltraliskBurrowed.webp"
+icon = "units/UltraliskBurrowed.webp"
 
 [[entity]]
 id = 132
 name = "OrbitalCommand"
-icon = "icons/OrbitalCommand.webp"
+icon = "units/OrbitalCommand.webp"
 
 [[entity]]
 id = 133
 name = "WarpGate"
-icon = "icons/WarpGate.webp"
+icon = "units/WarpGate.webp"
 
 [[entity]]
 id = 134
 name = "OrbitalCommandFlying"
-icon = "icons/OrbitalCommandFlying.webp"
+icon = "units/OrbitalCommandFlying.webp"
 
 [[entity]]
 id = 136
 name = "WarpPrismPhasing"
-icon = "icons/WarpPrismPhasing.webp"
+icon = "units/WarpPrismPhasing.webp"
 
 [[entity]]
 id = 137
 name = "CreepTumorBurrowed"
-icon = "icons/CreepTumorBurrowed.webp"
+icon = "units/CreepTumorBurrowed.webp"
 
 [[entity]]
 id = 138
 name = "CreepTumorQueen"
-icon = "icons/CreepTumorQueen.webp"
+icon = "units/CreepTumorQueen.webp"
 
 [[entity]]
 id = 139
 name = "SpineCrawlerUprooted"
-icon = "icons/SpineCrawlerUprooted.webp"
+icon = "units/SpineCrawlerUprooted.webp"
 
 [[entity]]
 id = 140
 name = "SporeCrawlerUprooted"
-icon = "icons/SporeCrawlerUprooted.webp"
+icon = "units/SporeCrawlerUprooted.webp"
 
 [[entity]]
 id = 141
 name = "Archon"
-icon = "icons/Archon.webp"
+icon = "units/Archon.webp"
 
 [[entity]]
 id = 142
 name = "NydusCanal"
-icon = "icons/NydusCanal.webp"
+icon = "units/NydusCanal.webp"
 
 [[entity]]
 id = 145
 name = "GhostNova"
-icon = "icons/GhostNova.webp"
+icon = "units/GhostNova.webp"
 
 [[entity]]
 id = 150
 name = "InfestedTerransEgg"
-icon = "icons/InfestedTerransEgg.webp"
+icon = "units/InfestedTerransEgg.webp"
 
 [[entity]]
 id = 151
 name = "Larva"
-icon = "icons/Larva.webp"
+icon = "units/Larva.webp"
 
 [[entity]]
 id = 268
 name = "MULE"
-icon = "icons/MULE.webp"
+icon = "units/MULE.webp"
 
 [[entity]]
 id = 289
 name = "Broodling"
-icon = "icons/Broodling.webp"
+icon = "units/Broodling.webp"
 
 [[entity]]
 id = 311
 name = "Adept"
-icon = "icons/Adept.webp"
+icon = "units/Adept.webp"
 
 [[entity]]
 id = 339
 name = "InfestedTerransEggPlacement"
-icon = "icons/InfestedTerransEggPlacement.webp"
+icon = "units/InfestedTerransEggPlacement.webp"
 
 [[entity]]
 id = 484
 name = "HellionTank"
-icon = "icons/Hellbat.webp"
+icon = "units/Hellbat.webp"
 
 [[entity]]
 id = 488
 name = "MothershipCore"
-icon = "icons/MothershipCore.webp"
+icon = "units/MothershipCore.webp"
 
 [[entity]]
 id = 489
 name = "LocustMP"
-icon = "icons/LocustMP.webp"
+icon = "units/LocustMP.webp"
 
 [[entity]]
 id = 491
 name = "NydusCanalAttacker"
-icon = "icons/NydusCanalAttacker.webp"
+icon = "units/NydusCanalAttacker.webp"
 
 [[entity]]
 id = 492
 name = "NydusCanalCreeper"
-icon = "icons/NydusCanalCreeper.webp"
+icon = "units/NydusCanalCreeper.webp"
 
 [[entity]]
 id = 493
 name = "SwarmHostBurrowedMP"
-icon = "icons/SwarmHostBurrowedMP.webp"
+icon = "units/SwarmHostBurrowedMP.webp"
 
 [[entity]]
 id = 494
 name = "SwarmHostMP"
-icon = "icons/SwarmHostMP.webp"
+icon = "units/SwarmHostMP.webp"
 
 [[entity]]
 id = 495
 name = "Oracle"
-icon = "icons/Oracle.webp"
+icon = "units/Oracle.webp"
 
 [[entity]]
 id = 496
 name = "Tempest"
-icon = "icons/Tempest.webp"
+icon = "units/Tempest.webp"
 
 [[entity]]
 id = 497
 name = "WarHound"
-icon = "icons/WarHound.webp"
+icon = "units/WarHound.webp"
 
 [[entity]]
 id = 498
 name = "WidowMine"
-icon = "icons/WidowMine.webp"
+icon = "units/WidowMine.webp"
 
 [[entity]]
 id = 499
 name = "Viper"
-icon = "icons/Viper.webp"
+icon = "units/Viper.webp"
 
 [[entity]]
 id = 500
 name = "WidowMineBurrowed"
-icon = "icons/WidowMineBurrowed.webp"
+icon = "units/WidowMineBurrowed.webp"
 
 [[entity]]
 id = 501
 name = "LurkerMPEgg"
-icon = "icons/LurkerMPEgg.webp"
+icon = "units/LurkerMPEgg.webp"
 
 [[entity]]
 id = 502
 name = "LurkerMP"
-icon = "icons/LurkerMP.webp"
+icon = "units/LurkerMP.webp"
 
 [[entity]]
 id = 503
 name = "LurkerMPBurrowed"
-icon = "icons/LurkerMPBurrowed.webp"
+icon = "units/LurkerMPBurrowed.webp"
 
 [[entity]]
 id = 504
 name = "LurkerDenMP"
-icon = "icons/LurkerDenMP.webp"
+icon = "units/LurkerDenMP.webp"
 
 [[entity]]
 id = 569
 name = "ResourceBlocker"
-icon = "icons/ResourceBlocker.webp"
+icon = "units/ResourceBlocker.webp"
 
 [[entity]]
 id = 593
 name = "IceProtossCrates"
-icon = "icons/IceProtossCrates.webp"
+icon = "units/IceProtossCrates.webp"
 
 [[entity]]
 id = 594
 name = "ProtossCrates"
-icon = "icons/ProtossCrates.webp"
+icon = "units/ProtossCrates.webp"
 
 [[entity]]
 id = 595
 name = "TowerMine"
-icon = "icons/TowerMine.webp"
+icon = "units/TowerMine.webp"
 
 [[entity]]
 id = 687
 name = "RavagerCocoon"
-icon = "icons/RavagerCocoon.webp"
+icon = "units/RavagerCocoon.webp"
 
 [[entity]]
 id = 688
 name = "Ravager"
-icon = "icons/Ravager.webp"
+icon = "units/Ravager.webp"
 
 [[entity]]
 id = 689
 name = "Liberator"
-icon = "icons/Liberator.webp"
+icon = "units/Liberator.webp"
 
 [[entity]]
 id = 690
 name = "RavagerBurrowed"
-icon = "icons/RavagerBurrowed.webp"
+icon = "units/RavagerBurrowed.webp"
 
 [[entity]]
 id = 691
 name = "ThorAP"
-icon = "icons/ThorAP.webp"
+icon = "units/ThorAP.webp"
 
 [[entity]]
 id = 692
 name = "Cyclone"
-icon = "icons/Cyclone.webp"
+icon = "units/Cyclone.webp"
 
 [[entity]]
 id = 693
 name = "LocustMPFlying"
-icon = "icons/LocustMPFlying.webp"
+icon = "units/LocustMPFlying.webp"
 
 [[entity]]
 id = 694
 name = "Disruptor"
-icon = "icons/Disruptor.webp"
+icon = "units/Disruptor.webp"
 
 [[entity]]
 id = 725
 name = "VoidMPImmortalReviveCorpse"
-icon = "icons/VoidMPImmortalReviveCorpse.webp"
+icon = "units/VoidMPImmortalReviveCorpse.webp"
 
 [[entity]]
 id = 726
 name = "GuardianCocoonMP"
-icon = "icons/GuardianCocoonMP.webp"
+icon = "units/GuardianCocoonMP.webp"
 
 [[entity]]
 id = 727
 name = "GuardianMP"
-icon = "icons/GuardianMP.webp"
+icon = "units/GuardianMP.webp"
 
 [[entity]]
 id = 728
 name = "DevourerCocoonMP"
-icon = "icons/DevourerCocoonMP.webp"
+icon = "units/DevourerCocoonMP.webp"
 
 [[entity]]
 id = 729
 name = "DevourerMP"
-icon = "icons/DevourerMP.webp"
+icon = "units/DevourerMP.webp"
 
 [[entity]]
 id = 730
 name = "DefilerMPBurrowed"
-icon = "icons/DefilerMPBurrowed.webp"
+icon = "units/DefilerMPBurrowed.webp"
 
 [[entity]]
 id = 731
 name = "DefilerMP"
-icon = "icons/DefilerMP.webp"
+icon = "units/DefilerMP.webp"
 
 [[entity]]
 id = 732
 name = "OracleStasisTrap"
 radius = 0.4375
-icon = "icons/StasisWard.webp"
+icon = "units/StasisWard.webp"
 
 [[entity]]
 id = 733
 name = "DisruptorPhased"
-icon = "icons/DisruptorPhased.webp"
+icon = "units/DisruptorPhased.webp"
 
 [[entity]]
 id = 734
 name = "LiberatorAG"
 radius = 0.75
-icon = "icons/LiberatorAG.webp"
+icon = "units/LiberatorAG.webp"
 
 [[entity]]
 id = 800
 name = "ReleaseInterceptorsBeacon"
 radius = 1.5
-icon = "icons/ReleaseInterceptorsBeacon.webp"
+icon = "units/ReleaseInterceptorsBeacon.webp"
 
 [[entity]]
 id = 801
 name = "AdeptPhaseShift"
-icon = "icons/AdeptPhaseShift.webp"
+icon = "units/AdeptPhaseShift.webp"
 
 [[entity]]
 id = 820
 name = "HERCPlacement"
 radius = 0.6875
-icon = "icons/HERCPlacement.webp"
+icon = "units/HERCPlacement.webp"
 
 [[entity]]
 id = 838
 name = "HERC"
-icon = "icons/HERC.webp"
+icon = "units/HERC.webp"
 
 [[entity]]
 id = 840
 name = "Replicant"
-icon = "icons/Replicant.webp"
+icon = "units/Replicant.webp"
 
 [[entity]]
 id = 855
 name = "CorsairMP"
-icon = "icons/CorsairMP.webp"
+icon = "units/CorsairMP.webp"
 
 [[entity]]
 id = 856
 name = "ScoutMP"
-icon = "icons/ScoutMP.webp"
+icon = "units/ScoutMP.webp"
 
 [[entity]]
 id = 857
 name = "ArbiterMP"
-icon = "icons/ArbiterMP.webp"
+icon = "units/ArbiterMP.webp"
 
 [[entity]]
 id = 858
 name = "ScourgeMP"
-icon = "icons/ScourgeMP.webp"
+icon = "units/ScourgeMP.webp"
 
 [[entity]]
 id = 860
 name = "QueenMP"
-icon = "icons/QueenMP.webp"
+icon = "units/QueenMP.webp"
 
 [[entity]]
 id = 891
 name = "Elsecaro_Colonist_Hut"
-icon = "icons/Elsecaro_Colonist_Hut.webp"
+icon = "units/Elsecaro_Colonist_Hut.webp"
 
 [[entity]]
 id = 892
 name = "TransportOverlordCocoon"
-icon = "icons/Overlord.webp"
+icon = "units/Overlord.webp"
 
 [[entity]]
 id = 893
 name = "OverlordTransport"
-icon = "icons/OverlordTransport.webp"
+icon = "units/OverlordTransport.webp"
 
 [[entity]]
 id = 894
 name = "PylonOvercharged"
-icon = "icons/Pylon.webp"
+icon = "units/Pylon.webp"
 
 [[entity]]
 id = 895
 name = "BypassArmorDrone"
-icon = "icons/BypassArmorDrone.webp"
+icon = "units/BypassArmorDrone.webp"
 
 [[entity]]
 id = 1910
 name = "ShieldBattery"
-icon = "icons/ShieldBattery.webp"
+icon = "units/ShieldBattery.webp"
 
 [[entity]]
 id = 1911
 name = "ObserverSiegeMode"
-icon = "icons/Observer.webp"
+icon = "units/Observer.webp"
 
 [[entity]]
 id = 1912
 name = "OverseerSiegeMode"
-icon = "icons/Overseer.webp"
+icon = "units/Overseer.webp"
 
 [[entity]]
 id = 1913
 name = "RavenRepairDrone"
-icon = "icons/RavenRepairDrone.webp"
+icon = "units/RavenRepairDrone.webp"
 
 [[entity]]
 id = 1940
 name = "Viking"
-icon = "icons/Viking.webp"
+icon = "units/Viking.webp"
 
 [[entity]]
 id = 1943
 name = "RefineryRich"
 radius = 1.6875
-icon = "icons/RefineryRich.webp"
+icon = "units/RefineryRich.webp"
 
 [[entity]]
 id = 1994
 name = "AssimilatorRich"
-icon = "icons/AssimilatorRich.webp"
+icon = "units/AssimilatorRich.webp"
 
 [[entity]]
 id = 1995
 name = "ExtractorRich"
-icon = "icons/ExtractorRich.webp"
+icon = "units/ExtractorRich.webp"
 
 [[entity]]
 id = 342
 name = "VespeneGeyser"
-icon = "icons/VespeneGeyser.webp"
+icon = "units/VespeneGeyser.webp"
 
 [[entity]]
 id = 344
 name = "RichVespeneGeyser"
-icon = "icons/VespeneGeyser.webp"
+icon = "units/VespeneGeyser.webp"
 
 [[entity]]
 id = 341
 name = "MineralField"
-icon = "icons/mineral.webp"
+icon = "units/mineral.webp"
 tile_size = [2.0, 1.0]
 
 [[entity]]
 id = 483
 name = "MineralField750"
 #TODO : custotm yellow color
-icon = "icons/mineral.webp"
+icon = "units/mineral.webp"
 tile_size = [2.0, 1.0]
 
 [[entity]]
 id = 624
 name = "DestructibleCityDebris2x4Vertical"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [2.0, 4.0]
 
 [[entity]]
 id = 625
 name = "DestructibleCityDebris2x4Horizontal"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [4.0, 2.0]
 
 [[entity]]
 id = 626
 name = "DestructibleCityDebris2x6Vertical"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [2.0, 6.0]
 
 [[entity]]
 id = 627
 name = "DestructibleCityDebris2x6Horizontal"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [6.0, 2.0]
 
 [[entity]]
 id = 628
 name = "DestructibleCityDebris4x4"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 #tile_size = [4.0, 4.0]
 
 [[entity]]
 id = 629
 name = "DestructibleCityDebris6x6"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 #tile_size = [6.0, 6.0]
 
 [[entity]]
 id = 630
 name = "DestructibleCityDebrisHugeDiagonalBLUR"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [8.0, 8.0]
 
 [[entity]]
 id = 631
 name = "DestructibleCityDebrisHugeDiagonalULBR"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [8.0, 8.0]
 
 [[entity]]
 id = 633
 name = "PathingBlockerRadius1"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 
 [[entity]]
 id = 634
 name = "DestructibleRockEx12x4Vertical"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [4.0, 12.0]
 
 [[entity]]
 id = 635
 name = "DestructibleRockEx12x4Horizontal"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [12.0, 4.0]
 
 [[entity]]
 id = 636
 name = "DestructibleRockEx12x6Vertical"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [6, 12]
 
 [[entity]]
 id = 637
 name = "DestructibleRockEx12x6Horizontal"
-icon = "icons/mineral.webp"
+icon = "units/mineral.webp"
 tile_size = [12, 6.0]
 
 [[entity]]
 id = 638
 name = "DestructibleRockEx14x4"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 
 [[entity]]
 id = 639
 name = "DestructibleRockEx16x6"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 
 [[entity]]
 id = 640
 name = "DestructibleRockEx1DiagonalHugeULBR"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [8.0, 8.0]
 
 [[entity]]
 id = 641
 name = "DestructibleRockEx1DiagonalHugeBLUR"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [8.0, 3.0]
 
 [[entity]]
 id = 642
 name = "DestructibleRockEx1VerticalHuge"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [2.0, 8.0]
 
 [[entity]]
 name = "DestructibleRockEx1HorizontalHuge"
-#icon = "icons/mineral.webp"
+#icon = "units/mineral.webp"
 tile_size = [8.0, 2.0]
 id = 643
 
 [[entity]]
 id = 644
 name = "DestructibleIce2x4Vertical"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [2.0, 4.0]
 
 [[entity]]
 id = 645
 name = "DestructibleIce2x4Horizontal"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [4.0, 2.0]
 
 [[entity]]
 id = 646
 name = "DestructibleIce2x6Vertical"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [2.0, 6.0]
 
 [[entity]]
 id = 647
 name = "DestructibleIce2x6Horizontal"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [6.0, 2.0]
 
 [[entity]]
 id = 648
 name = "DestructibleIce4x4"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [4.0, 4.0]
 
 [[entity]]
 id = 649
 name = "DestructibleIce6x6"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [6.0, 6.0]
 
 [[entity]]
 id = 650
 name = "DestructibleIceDiagonalHugeULBR"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [8.0, 8.0]
 
 [[entity]]
 id = 651
 name = "DestructibleIceDiagonalHugeBLUR"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [8.0, 8.0]
 
 [[entity]]
 id = 652
 name = "DestructibleIceVerticalHuge"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [2.0, 8.0]
 
 [[entity]]
 id = 653
 name = "DestructibleIceHorizontalHuge"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 tile_size = [8.0, 2.0]
 
 [[entity]]
 id = 472
 name = "UnbuildableRocksDestructible"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"
 
 [[entity]]
 id = 473
 name = "UnbuildableBricksDestructible"
-icon = "icons/destructable.webp"
+icon = "units/destructable.webp"

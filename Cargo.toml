@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 include = [
-    "assets/icons/*.png",
-    "assets/icons/*.webp",
+    "assets/units/*.png",
+    "assets/units/*.webp",
     "maps/*.sc2map",
     "config.toml",
     "config/**",

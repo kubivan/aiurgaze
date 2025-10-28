@@ -2,7 +2,6 @@ use std::fs;
 use std::path::Path;
 use bevy::prelude::*;
 use bevy_egui::egui;
-use sc2_proto::sc2api::RequestCreateGame;
 use sc2_proto::common::Race;
 use crate::app_settings::GameConfigPanelDefaults;
 
