@@ -1,8 +1,5 @@
-# SC2View Configuration
-
 # Window settings
 [window]
-title = "AiurGaze"
 width = 1920.0
 height = 1080.0
 resizable = true

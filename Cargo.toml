@@ -1,7 +1,19 @@
 [package]
-name = "sc2view"
+name = "aiurgaze"
 version = "0.1.0"
 edition = "2024"
+
+include = [
+    "assets/icons/*.png",
+    "assets/icons/*.webp",
+    "maps/*.sc2map",
+    "config.toml",
+    "config/**",
+    "data/**",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+]
 
 [dependencies]
 # --- Runtime / async / gRPC ---

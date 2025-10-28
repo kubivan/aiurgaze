@@ -196,7 +196,7 @@ fn main() {
         // Check required params
         if mode.is_none() || race.is_none() {
             eprintln!("Error: --mode and --race are required for create_game\n");
-            eprintln!("Usage: sc2view create_game --mode=<MODE> --race=<RACE>");
+            eprintln!("Usage: aiurgaze create_game --mode=<MODE> --race=<RACE>");
             exit(1);
         }
         let mode_val = mode.unwrap();
@@ -242,7 +242,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: app_settings.window.title.clone(),
+                        title: "aiurgaze - SC2 AI Observer".to_string(),
                         resolution: (app_settings.window.width, app_settings.window.height).into(),
                         resizable: app_settings.window.resizable,
                         ..default()

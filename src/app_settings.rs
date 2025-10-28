@@ -1,4 +1,3 @@
-use config::{Config, File};
 use std::path::PathBuf;
 use bevy::prelude::{Resource, Color};
 use serde::{Deserialize, Serialize};
@@ -9,8 +8,6 @@ pub struct AppSettings {
     pub starcraft: StarcraftConfig,
     #[serde(skip)]
     pub config_path: PathBuf,
-    #[serde(skip)]
-    pub data_source: DataSource,
     #[serde(skip)]
     pub entity_display: EntityDisplayConfig,
     #[serde(skip)]
@@ -100,7 +97,6 @@ impl Default for AppSettings {
             window: WindowConfig::default(),
             starcraft: StarcraftConfig::default(),
             config_path: PathBuf::from("config/entities.toml"),
-            data_source: DataSource::default(),
             entity_display: EntityDisplayConfig::default(),
             unit_by_id: std::collections::HashMap::new(),
             game_config_panel: GameConfigPanelDefaults::default(),
@@ -137,15 +133,12 @@ pub fn load_settings() -> AppSettings {
     settings.entity_display = entity_display.clone();
 
     // Load data.json
-    let data_json = std::fs::read_to_string("data/data.json").unwrap_or_default();
-    let data_source: DataSource = serde_json::from_str(&data_json).unwrap_or_default();
 
     // Build unit_by_id (empty for now, entities are loaded in EntitySystem)
     let unit_by_id = std::collections::HashMap::new();
 
     AppSettings {
         entity_display: settings.entity_display,
-        data_source,
         unit_by_id,
         window: settings.window,
         starcraft: settings.starcraft,
@@ -154,19 +147,8 @@ pub fn load_settings() -> AppSettings {
     }
 }
 
-impl AppSettings {
-    pub fn get_unit_display_by_id(&self, unit_type_id: u32) -> DisplayInfo {
-        self.unit_by_id.get(&unit_type_id).cloned().unwrap_or_default()
-    }
-    pub fn ability_name_by_id(&self, ability_id: u32) -> Option<&str> {
-        for ability in &self.data_source.ability { if ability.id == ability_id { return Some(ability.name.as_str()); } }
-        None
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WindowConfig {
-    pub title: String,
     pub width: f32,
     pub height: f32,
     pub resizable: bool,
@@ -175,7 +157,6 @@ pub struct WindowConfig {
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
-            title: "SC2 View".to_string(),
             width: 1920.0,
             height: 1080.0,
             resizable: true,
