@@ -188,7 +188,6 @@ fn main() {
     let cli = Cli::parse();
 
     // Default values for resources
-    let mut game_created = false;
     let mut app_state = AppState::StartScreen;
     let mut pending_request = PendingCreateGameRequest::default();
 
@@ -271,7 +270,7 @@ fn main() {
                 .foreground_color(ForegroundColor::Static(Color::srgb(1.0, 0.9, 0.2)))
                 .background_color(Color::srgb(0.3, 0.3, 0.1)),
         )
-        .insert_resource(GameCreated(game_created))
+        .insert_resource(GameCreated(false))
         .insert_resource(UnitRegistry::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(ObservationUnitTags::default())

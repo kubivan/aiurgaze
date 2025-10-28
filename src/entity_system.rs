@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::Path;
-use crate::app_settings::MapConfig;
+use serde_json::from_reader;
+use crate::app_settings::{MapConfig};
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
@@ -85,22 +87,15 @@ impl EntitySystem {
         info!("Loading EntitySystem...");
 
         // Load data.json
-        let data_json = std::fs::read_to_string("data/data.json")
-            .unwrap_or_else(|e| {
-                warn!("Failed to load data/data.json: {}", e);
-                String::from(r#"{"Unit":[],"Ability":[]}"#)
-            });
-        let data: DataJson = serde_json::from_str(&data_json)
-            .unwrap_or_else(|e| {
-                warn!("Failed to parse data.json: {}", e);
-                DataJson { unit: vec![], ability: vec![] }
-            });
+        let data_json_file = File::open("data/data.json")
+            .expect("Failed to open data.json");
+
+        let data: DataJson = from_reader(data_json_file)
+            .expect( "Failed to parse data.json");
 
         // Build unit and ability maps
-        let mut units = HashMap::new();
-        for unit in data.unit {
-            units.insert(unit.id, unit);
-        }
+        let units = data.unit.into_iter()
+            .map( |u| (u.id, u)).collect::<HashMap<u32, UnitData>>();
 
         let mut abilities = HashMap::new();
         for ability in data.ability {

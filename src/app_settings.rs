@@ -16,14 +16,6 @@ pub struct AppSettings {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct DataSource {
-    #[serde(rename = "Ability")]
-    pub ability: Vec<AbilityData>,
-    #[serde(rename = "Unit")]
-    pub unit: Vec<UnitData>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct AbilityData { pub id: u32, pub name: String }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

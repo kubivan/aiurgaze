@@ -1,18 +1,16 @@
 use std::time::Duration;
-use sc2_proto::sc2api::{LocalMap, PlayerSetup, PlayerType, Request, Response};
+use sc2_proto::sc2api::{Response};
 use tokio::time::sleep;
 
 
 use std::{
     error::Error,
-    net::{TcpListener, TcpStream},
+    net::{TcpStream},
 };
 use tungstenite::{connect, stream::MaybeTlsStream, WebSocket};
 
-use protobuf::{Message, RepeatedField};
+use protobuf::{Message};
 use tungstenite::Message::Binary;
-
-use futures::{SinkExt, StreamExt};
 
 pub use sc2_proto::sc2api::Request as SC2Request;
 pub use sc2_proto::sc2api::Response as SC2Response;
