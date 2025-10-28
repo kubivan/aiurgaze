@@ -1,6 +1,6 @@
 use futures_util::{future, StreamExt, SinkExt};
 use sc2_proto::sc2api::{Request, Response};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener};
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Result};
 
 use protobuf::Message;

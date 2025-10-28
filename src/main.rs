@@ -1,5 +1,4 @@
 // src/main.rs
-mod connection;
 mod proxy_ws;
 mod ui;
 mod controller;
