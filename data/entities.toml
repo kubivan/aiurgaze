@@ -1071,6 +1071,20 @@ icon = "units/mineral.webp"
 tile_size = [2.0, 1.0]
 
 [[entity]]
+id = 884
+name = "PurifierMineralField"
+#TODO : custotm yellow color
+icon = "units/mineral.webp"
+tile_size = [2.0, 1.0]
+
+[[entity]]
+id = 885
+name = "PurifierMineralField750"
+#TODO : custotm yellow color
+icon = "units/mineral.webp"
+tile_size = [2.0, 1.0]
+
+[[entity]]
 id = 624
 name = "DestructibleCityDebris2x4Vertical"
 #icon = "units/mineral.webp"
