@@ -64,9 +64,12 @@ impl MapConfig {
 
     pub fn apply_height_intensity(&self, color: Color, height: u8) -> Color {
         let normalized_height = height as f32 / 255.0;
-        let intensity = self.height_intensity[0] 
-            + normalized_height * (self.height_intensity[1] - self.height_intensity[0]);
-        
+        // Invert so higher elevation = darker (more saturated)
+        // height_intensity[0] = max intensity (low elevation, lighter)
+        // height_intensity[1] = min intensity (high elevation, darker)
+        let intensity = self.height_intensity[0]
+            - normalized_height * (self.height_intensity[0] - self.height_intensity[1]);
+
         let rgba = color.to_srgba();
         Color::srgba(rgba.red * intensity, rgba.green * intensity, rgba.blue * intensity, rgba.alpha)
     }

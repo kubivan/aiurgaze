@@ -24,8 +24,10 @@ creep = [0.4, 0.1, 0.5]
 # Energy overlay color (cyan/blue, like info highlighting)
 energy = [0.1, 0.3, 0.6]
 
-# Height intensity multipliers [min, max]
-height_intensity = [0.6, 1.0]
+# Height intensity multipliers [low_elevation, high_elevation]
+# Low elevation (0) gets multiplied by first value (lighter)
+# High elevation (255) gets multiplied by second value (darker/more saturated)
+height_intensity = [2, 0.1]
 
 [[entity]]
 id = 4
