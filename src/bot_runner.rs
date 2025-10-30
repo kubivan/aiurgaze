@@ -33,7 +33,7 @@ pub fn bot_process_system(
             if cmd.is_empty() {
                 continue;
             }
-
+            
             println!("[bot_runner] Starting player bot: {}", cmd);
             bot_status.player_bot_running = true;
             bot_status.player_bot_error = None;
@@ -47,7 +47,7 @@ pub fn bot_process_system(
                     let Some(mut status) = world.world.get_resource_mut::<BotProcessStatus>() else {
                         return;
                     };
-
+                    
                     status.player_bot_running = false;
                     match result {
                         Ok(output) => {
@@ -68,7 +68,7 @@ pub fn bot_process_system(
             if cmd.is_empty() {
                 continue;
             }
-
+            
             println!("[bot_runner] Starting opponent bot: {}", cmd);
             bot_status.opponent_bot_running = true;
             bot_status.opponent_bot_error = None;
@@ -82,7 +82,7 @@ pub fn bot_process_system(
                     let Some(mut status) = world.world.get_resource_mut::<BotProcessStatus>() else {
                         return;
                     };
-
+                    
                     status.opponent_bot_running = false;
                     match result {
                         Ok(output) => {
@@ -160,7 +160,7 @@ async fn run_bot_command(command: &str, is_player: bool) -> Result<Vec<String>, 
     if !status.success() {
         return Err(format!("{} bot process exited with status: {:?}", bot_type, status));
     }
-
+    
     println!("[bot_runner] {} bot process completed with status: {:?}", bot_type, status);
     Ok(output_lines)
 }

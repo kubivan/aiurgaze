@@ -88,9 +88,9 @@ fn update_tilemap_colors(
             };
             
             // Get static layer values
-            let pathing = static_layers.pathing.as_ref().map_or(0, |l| l.get_value(x, y));
-            let placement = static_layers.placement.as_ref().map_or(0, |l| l.get_value(x, y));
-            let height_val = static_layers.height.as_ref().map_or(128, |l| l.get_value(x, y));
+            let pathing = static_layers.pathing.get_value(x, y);
+            let placement = static_layers.placement.get_value(x, y);
+            let height_val = static_layers.height.get_value(x, y);
 
             // Get dynamic layer values
             let creep = creep_layer.map_or(0, |l| l.get_value(x, y));
@@ -126,7 +126,7 @@ pub fn response_controller_system(
                     let map_state = raw_data.map_state.as_ref();
 
                     let creep_layer = map_state.and_then(|ms| ms.creep.as_ref()).map(|creep_data| {
-                        TerrainLayer::from_image_data(creep_data, crate::map::TerrainLayerKind::Creep)
+                        TerrainLayer::from_image_data(creep_data)
                     });
 
                     // TODO: Extract energy layer when available
@@ -175,22 +175,16 @@ pub fn response_controller_system(
 
                 // Create static layers
                 let path_layer = TerrainLayer::from_image_data(
-                    start_raw.pathing_grid.as_ref().unwrap(),
-                    crate::map::TerrainLayerKind::Pathing);
+                    start_raw.pathing_grid.as_ref().unwrap());
                 let placement_layer = TerrainLayer::from_image_data(
-                    start_raw.placement_grid.as_ref().unwrap(),
-                    crate::map::TerrainLayerKind::Placement);
+                    start_raw.placement_grid.as_ref().unwrap());
                 let height_layer = TerrainLayer::from_image_data(
-                    start_raw.terrain_height.as_ref().unwrap(),
-                    crate::map::TerrainLayerKind::Height);
+                    start_raw.terrain_height.as_ref().unwrap());
 
                 println!("Got game info: map size {} x {}", path_layer.width, path_layer.height);
 
-                // Build static layers container
-                let mut static_layers = TerrainLayers::new();
-                static_layers.add_layer(path_layer);
-                static_layers.add_layer(placement_layer);
-                static_layers.add_layer(height_layer);
+                // Build static layers container directly with all required layers
+                let static_layers = TerrainLayers::new(path_layer, placement_layer, height_layer);
 
                 // Spawn the tilemap with initial static layers only
                 let tile_storage = spawn_tilemap(

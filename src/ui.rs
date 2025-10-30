@@ -164,22 +164,22 @@ pub fn ui_system(
                 .show(ctx, |ui| {
                     ui.heading("Selected Unit Info");
                     ui.separator();
-
+                    
                     let Some(tag) = selected.tag else {
                         ui.label("No unit selected.");
                         return;
                     };
-
+                    
                     let Some(&entity) = registry.map.get(&tag) else {
                         ui.label("No unit selected.");
                         return;
                     };
-
+                    
                     let Ok((unit_proto, unit_tag, _, _)) = unit_query.get(entity) else {
                         ui.label("Unit data not found.");
                         return;
                     };
-
+                    
                     egui::CollapsingHeader::new("Unit Details")
                         .default_open(true)
                         .show(ui, |ui| {
@@ -207,7 +207,7 @@ pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerSt
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-
+    
     // println!("[StatusBar] DockerStatus: {:?}", *docker_status);
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {

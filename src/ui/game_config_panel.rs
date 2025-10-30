@@ -148,7 +148,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         GameType::VsBot => {
             ui.label("Bot Name:");
             ui.text_edit_singleline(panel.bot_name.get_or_insert_with(String::new));
-
+            
             ui.label("Bot Opponent Command:");
             ui.text_edit_singleline(&mut panel.bot_opponent_command);
             ui.label("(Bash command to run opponent bot)");
@@ -159,7 +159,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     ui.label("Bot Command:");
     ui.text_edit_singleline(&mut panel.bot_command);
     ui.label("(Optional: Bash command to run player bot)");
-
+    
     ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.checkbox(&mut panel.disable_fog, "Disable Fog");

@@ -4,16 +4,8 @@ use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 use sc2_proto::common::ImageData;
 use crate::app_settings::MapConfig;
-#[derive(PartialEq)]
-pub enum TerrainLayerKind {
-    Pathing,
-    Placement,
-    Height,
-    Creep,
-    Energy,
-}
+
 pub struct TerrainLayer {
-    kind: TerrainLayerKind,
     pub width: u32,
     pub height: u32,
     pub data: Vec<u8>, // raw bytes from ImageData.data - made public for hashing
@@ -28,7 +20,7 @@ fn unpack_bits(bytes: &[u8]) -> Vec<bool> {
     bits
 }
 impl TerrainLayer {
-    pub fn from_image_data1(data: &[u8], kind: TerrainLayerKind, width: u32, height: u32) -> Self {
+    pub fn from_image_data1(data: &[u8], width: u32, height: u32) -> Self {
         // 1 bit per pixel: unpack each bit
         let bits = unpack_bits(data);
         let pixels: Vec<u8> = bits
@@ -36,24 +28,25 @@ impl TerrainLayer {
             .map(|&b| if b { 255u8 } else { 0 })
             .collect();
         TerrainLayer {
-            kind,
             width,
             height,
             data: pixels, // now 8 bits per pixel
         }
     }
-    pub fn from_image_data(img: &ImageData, kind: TerrainLayerKind) -> Self {
+
+    pub fn from_image_data(img: &ImageData) -> Self {
         let img_size = img.size.clone().unwrap();
         let width = img_size.x.unwrap().clone() as u32;
         let height = img_size.y.unwrap().clone() as u32;
         let bits = img.bits_per_pixel.unwrap();
         if bits == 1 {
-            Self::from_image_data1(img.data.as_ref().unwrap(), kind, width, height)
+            Self::from_image_data1(img.data.as_ref().unwrap(), width, height)
         } else {
-            Self::from_image_data8(img, kind)
+            Self::from_image_data8(img)
         }
     }
-    pub fn from_image_data8(img: &ImageData, kind: TerrainLayerKind) -> Self {
+
+    pub fn from_image_data8(img: &ImageData) -> Self {
         let bits = img.bits_per_pixel.unwrap();
         assert_eq!(bits, 8, "Only 8 bits per pixel supported for now (got {bits})");
         let img_size = img.size.clone().unwrap();
@@ -65,7 +58,6 @@ impl TerrainLayer {
             "Image data size mismatch"
         );
         Self {
-            kind,
             width,
             height,
             data: img.data.clone().unwrap(),
@@ -105,49 +97,26 @@ pub fn blend_tile_color(
     map_config.apply_height_intensity(base_color, height)
 }
 pub struct TerrainLayers {
-    pub pathing: Option<TerrainLayer>,
-    pub placement: Option<TerrainLayer>,
-    pub height: Option<TerrainLayer>,
+    pub pathing: TerrainLayer,
+    pub placement: TerrainLayer,
+    pub height: TerrainLayer,
     pub creep: Option<TerrainLayer>,
     pub energy: Option<TerrainLayer>,
 }
+
 impl TerrainLayers {
-    pub fn new() -> Self {
+    pub fn new(pathing: TerrainLayer, placement: TerrainLayer, height: TerrainLayer) -> Self {
         Self {
-            pathing: None,
-            placement: None,
-            height: None,
+            pathing,
+            placement,
+            height,
             creep: None,
             energy: None,
         }
     }
-    pub fn add_layer(&mut self, layer: TerrainLayer) {
-        match layer.kind {
-            TerrainLayerKind::Pathing => self.pathing = Some(layer),
-            TerrainLayerKind::Placement => self.placement = Some(layer),
-            TerrainLayerKind::Height => self.height = Some(layer),
-            TerrainLayerKind::Creep => self.creep = Some(layer),
-            TerrainLayerKind::Energy => self.energy = Some(layer),
-        }
-    }
+
     pub fn get_dimensions(&self) -> (u32, u32) {
-        // Get dimensions from the first available layer
-        if let Some(ref layer) = self.pathing {
-            return (layer.width, layer.height);
-        }
-        if let Some(ref layer) = self.placement {
-            return (layer.width, layer.height);
-        }
-        if let Some(ref layer) = self.height {
-            return (layer.width, layer.height);
-        }
-        if let Some(ref layer) = self.creep {
-            return (layer.width, layer.height);
-        }
-        if let Some(ref layer) = self.energy {
-            return (layer.width, layer.height);
-        }
-        (0, 0)
+        (self.pathing.width, self.pathing.height)
     }
 }
 pub fn spawn_tilemap(
@@ -172,9 +141,9 @@ pub fn spawn_tilemap(
         for x in 0..width {
             let tile_pos = TilePos { x, y };
             // Get values from each layer
-            let pathing = layers.pathing.as_ref().map_or(0, |l| l.get_value(x, y));
-            let placement = layers.placement.as_ref().map_or(0, |l| l.get_value(x, y));
-            let height_val = layers.height.as_ref().map_or(128, |l| l.get_value(x, y));
+            let pathing = layers.pathing.get_value(x, y);
+            let placement = layers.placement.get_value(x, y);
+            let height_val = layers.height.get_value(x, y);
             let creep = layers.creep.as_ref().map_or(0, |l| l.get_value(x, y));
             let energy = layers.energy.as_ref().map_or(0, |l| l.get_value(x, y));
             // Get color based on all layers using map config
