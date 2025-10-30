@@ -110,6 +110,7 @@ impl EntitySystem {
             .expect("Failed to read entities.toml");
         let config = toml::de::from_str::<EntitiesConfig>(&toml_content)
             .expect("Failed to parse entities.toml");
+        
         // Load map config from [map] section
         if let Some(map) = config.map {
             map_config = map;
@@ -127,14 +128,13 @@ impl EntitySystem {
         // Pre-load icons
         let mut icon_handles = HashMap::new();
         for (id, info) in &display_config {
-            if let Some(icon_path) = &info.icon {
-                let handle = asset_server.load(icon_path.clone());
-                icon_handles.insert(*id, handle);
-            }else {
-                let handle = asset_server.load("units/default.png");
+            let handle = if let Some(icon_path) = &info.icon {
+                asset_server.load(icon_path.clone())
+            } else {
                 info!("No icon for unit {}. Using default icon.", id);
-                icon_handles.insert(*id, handle);
-            }
+                asset_server.load("units/default.png")
+            };
+            icon_handles.insert(*id, handle);
         }
         info!("Pre-loaded {} icon handles", icon_handles.len());
 
@@ -165,11 +165,11 @@ impl EntitySystem {
     /// Get pre-loaded icon handle for a unit type
     pub fn get_icon_handle(&self, unit_id: u32, asset_server: &AssetServer) -> Handle<Image> {
         if let Some(handle) = self.icon_handles.get(&unit_id) {
-            handle.clone()
-        } else {
-            //TODO: another default icon?
-            asset_server.load("icons/default.png")
+            return handle.clone();
         }
+        
+        //TODO: another default icon?
+        asset_server.load("icons/default.png")
     }
 
     /// Get a custom tile size for a unit type [width, height], if specified in config

@@ -24,3 +24,5 @@ bot_name = "BotOpponent"
 disable_fog = true
 random_seed = 42
 realtime = false
+bot_command = ""             # Bash command to run player bot (if set)
+bot_opponent_command = ""    # Bash command to run opponent bot (if set, only for VsBot mode)

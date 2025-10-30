@@ -17,6 +17,8 @@ pub struct GameConfigPanel {
     pub disable_fog: bool,
     pub random_seed: Option<u32>,
     pub realtime: bool,
+    pub bot_command: String,
+    pub bot_opponent_command: String,
 }
 
 impl GameConfigPanel {
@@ -47,6 +49,8 @@ impl GameConfigPanel {
         let disable_fog = defaults.disable_fog.unwrap_or(false);
         let random_seed = defaults.random_seed;
         let realtime = defaults.realtime.unwrap_or(false);
+        let bot_command = defaults.bot_command.clone().unwrap_or_default();
+        let bot_opponent_command = defaults.bot_opponent_command.clone().unwrap_or_default();
         Self {
             game_type,
             map_name,
@@ -58,6 +62,8 @@ impl GameConfigPanel {
             disable_fog,
             random_seed,
             realtime,
+            bot_command,
+            bot_opponent_command,
         }
     }
 }
@@ -142,8 +148,17 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         GameType::VsBot => {
             ui.label("Bot Name:");
             ui.text_edit_singleline(panel.bot_name.get_or_insert_with(String::new));
+
+            ui.label("Bot Opponent Command:");
+            ui.text_edit_singleline(&mut panel.bot_opponent_command);
+            ui.label("(Bash command to run opponent bot)");
         }
     }
+
+    ui.add_space(10.0);
+    ui.label("Bot Command:");
+    ui.text_edit_singleline(&mut panel.bot_command);
+    ui.label("(Optional: Bash command to run player bot)");
 
     ui.add_space(10.0);
     ui.horizontal(|ui| {

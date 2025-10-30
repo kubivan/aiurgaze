@@ -283,22 +283,27 @@ pub fn unit_selection_system(
     if !mouse_button_input.just_pressed(MouseButton::Left) {
         return;
     }
+    
     let window = windows.single().unwrap();
     let (camera, camera_transform) = camera_query.single().unwrap();
-    if let Some(cursor_pos) = window.cursor_position() {
-        // Convert cursor position to world coordinates
-        let world_pos = camera.viewport_to_world(camera_transform, cursor_pos);
-        if let Ok(world_pos) = world_pos {
-            let world_pos = world_pos.origin.truncate();
-            // Check for unit under cursor
-            for (_entity, transform, tag) in unit_query.iter() {
-                let unit_pos = transform.translation.truncate();
-                let distance = unit_pos.distance(world_pos);
-                if distance < entity_system.map_config.tile_size {
-                    selected.tag = Some(tag.0);
-                    break;
-                }
-            }
+    
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    
+    // Convert cursor position to world coordinates
+    let Ok(world_pos) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
+    
+    let world_pos = world_pos.origin.truncate();
+    // Check for unit under cursor
+    for (_entity, transform, tag) in unit_query.iter() {
+        let unit_pos = transform.translation.truncate();
+        let distance = unit_pos.distance(world_pos);
+        if distance < entity_system.map_config.tile_size {
+            selected.tag = Some(tag.0);
+            break;
         }
     }
 }
@@ -341,17 +346,21 @@ pub fn draw_unit_orders(
             }
             Some(UnitOrder_oneof_target::target_unit_tag(target_tag)) => {
                 // Target is another unit
-                if let Some(&target_entity) = registry.map.get(target_tag) {
-                    if let Ok((target_transform, _)) = unit_query.get(target_entity) {
-                        let end_pos = Vec2::new(target_transform.translation.x, target_transform.translation.y);
+                let Some(&target_entity) = registry.map.get(target_tag) else {
+                    continue;
+                };
+                
+                let Ok((target_transform, _)) = unit_query.get(target_entity) else {
+                    continue;
+                };
+                
+                let end_pos = Vec2::new(target_transform.translation.x, target_transform.translation.y);
 
-                        // Draw solid line to unit target
-                        gizmos.line_2d(start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
+                // Draw solid line to unit target
+                gizmos.line_2d(start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
 
-                        // Draw a small arrow head
-                        draw_arrow_head(&mut gizmos, start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
-                    }
-                }
+                // Draw a small arrow head
+                draw_arrow_head(&mut gizmos, start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
             }
             _ => continue,
         }

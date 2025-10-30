@@ -79,24 +79,28 @@ fn update_tilemap_colors(
         for x in 0..width {
             let tile_pos = TilePos { x, y };
 
-            if let Some(tile_entity) = tile_storage.get(&tile_pos) {
-                if let Ok(mut tile_color) = tile_color_query.get_mut(tile_entity) {
-                    // Get static layer values
-                    let pathing = static_layers.pathing.as_ref().map_or(0, |l| l.get_value(x, y));
-                    let placement = static_layers.placement.as_ref().map_or(0, |l| l.get_value(x, y));
-                    let height_val = static_layers.height.as_ref().map_or(128, |l| l.get_value(x, y));
+            let Some(tile_entity) = tile_storage.get(&tile_pos) else {
+                continue;
+            };
+            
+            let Ok(mut tile_color) = tile_color_query.get_mut(tile_entity) else {
+                continue;
+            };
+            
+            // Get static layer values
+            let pathing = static_layers.pathing.as_ref().map_or(0, |l| l.get_value(x, y));
+            let placement = static_layers.placement.as_ref().map_or(0, |l| l.get_value(x, y));
+            let height_val = static_layers.height.as_ref().map_or(128, |l| l.get_value(x, y));
 
-                    // Get dynamic layer values
-                    let creep = creep_layer.map_or(0, |l| l.get_value(x, y));
-                    let energy = energy_layer.map_or(0, |l| l.get_value(x, y));
+            // Get dynamic layer values
+            let creep = creep_layer.map_or(0, |l| l.get_value(x, y));
+            let energy = energy_layer.map_or(0, |l| l.get_value(x, y));
 
-                    // Blend colors using map config from entity system
-                    let color = blend_tile_color(pathing, placement, creep, energy, height_val, &entity_system.map_config);
+            // Blend colors using map config from entity system
+            let color = blend_tile_color(pathing, placement, creep, energy, height_val, &entity_system.map_config);
 
-                    // Directly mutate the color component
-                    tile_color.0 = color;
-                }
-            }
+            // Directly mutate the color component
+            tile_color.0 = color;
         }
     }
 }

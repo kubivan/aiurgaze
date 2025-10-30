@@ -9,6 +9,7 @@ mod create_game_request;
 mod net_helpers;
 mod app_settings;
 mod entity_system;
+mod bot_runner;
 
 use bevy::prelude::*;
 use bevy_health_bar3d::prelude::*;
@@ -21,6 +22,7 @@ use protobuf::Message;
 use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy, ProxyResponseEvent};
+use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::CurrentOrderAbility;
@@ -149,14 +151,15 @@ fn docker_startup_system(
             }
         };
         ctx.run_on_main_thread(move |world| {
-            if let Some(mut status_res) = world.world.get_resource_mut::<DockerStatus>() {
-                status_res.clone_from(&status);
-                println!("[docker_startup_system] Updated DockerStatus to: {:?}", status);
-                if status == DockerStatus::Running {
-                    println!("Docker running, should start proxy connection now");
-                }
-            } else {
+            let Some(mut status_res) = world.world.get_resource_mut::<DockerStatus>() else {
                 println!("[docker_startup_system] DockerStatus resource not found!");
+                return;
+            };
+            
+            status_res.clone_from(&status);
+            println!("[docker_startup_system] Updated DockerStatus to: {:?}", status);
+            if status == DockerStatus::Running {
+                println!("Docker running, should start proxy connection now");
             }
         }).await;
     });
@@ -229,9 +232,9 @@ fn main() {
         }
     }
 
-
     App::new()
         .add_event::<ProxyResponseEvent>()
+        .add_event::<StartBotProcessesEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -274,6 +277,7 @@ fn main() {
         .insert_resource(SelectedUnit::default())
         .insert_resource(ObservationUnitTags::default())
         .insert_resource(CameraPanState::default())
+        .insert_resource(BotProcessStatus::default())
         .insert_resource(game_config_panel)
         .insert_resource(DockerStatus::Starting)
         .insert_resource(pending_request)
@@ -289,6 +293,7 @@ fn main() {
         .add_systems(Update, cleanup_dead_units.before(response_controller_system))
         .add_systems(Update, response_controller_system)
         .add_systems(Update, proxy_connect_on_docker_ready)
+        .add_systems(Update, bot_process_system)
         .add_systems(Update, draw_unit_orders)
         .run();
 }

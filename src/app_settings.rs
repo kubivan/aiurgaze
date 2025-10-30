@@ -190,4 +190,6 @@ pub struct GameConfigPanelDefaults {
     pub disable_fog: Option<bool>,
     pub random_seed: Option<u32>,
     pub realtime: Option<bool>,
+    pub bot_command: Option<String>,
+    pub bot_opponent_command: Option<String>,
 }

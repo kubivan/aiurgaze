@@ -7,6 +7,7 @@ use sc2_proto::sc2api::{Request, LocalMap, PlayerSetup, PlayerType, Difficulty};
 use sc2_proto::common::Race;
 use protobuf::RepeatedField;
 use crate::app_settings::AppSettings;
+use crate::bot_runner::StartBotProcessesEvent;
 
 pub(crate) mod game_config_panel;
 mod setup_game_config_panel; // kept for now if referenced elsewhere
@@ -71,6 +72,7 @@ pub fn ui_system(
     registry: Res<UnitRegistry>,
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
+    mut bot_events: EventWriter<StartBotProcessesEvent>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
     let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.upstream_url, app_settings.starcraft.upstream_port);
@@ -87,6 +89,26 @@ pub fn ui_system(
                 println!("[ui_system] Create game request sent successfully");
                 game_created.0 = true;
                 *app_state = AppState::GameScreen;
+
+                // Send event to start bot processes
+                let player_bot = if !game_config_panel.bot_command.is_empty() {
+                    Some(game_config_panel.bot_command.clone())
+                } else {
+                    None
+                };
+                let opponent_bot = if !game_config_panel.bot_opponent_command.is_empty()
+                    && game_config_panel.game_type == GameType::VsBot {
+                    Some(game_config_panel.bot_opponent_command.clone())
+                } else {
+                    None
+                };
+
+                if player_bot.is_some() || opponent_bot.is_some() {
+                    bot_events.send(StartBotProcessesEvent {
+                        player_bot_command: player_bot,
+                        opponent_bot_command: opponent_bot,
+                    });
+                }
             }
         }
         return;
@@ -109,6 +131,26 @@ pub fn ui_system(
                             game_created.0 = true;
                             *app_state = AppState::GameScreen;
                             ui.label("Create game request sent successfully.");
+
+                            // Send event to start bot processes
+                            let player_bot = if !game_config_panel.bot_command.is_empty() {
+                                Some(game_config_panel.bot_command.clone())
+                            } else {
+                                None
+                            };
+                            let opponent_bot = if !game_config_panel.bot_opponent_command.is_empty()
+                                && game_config_panel.game_type == GameType::VsBot {
+                                Some(game_config_panel.bot_opponent_command.clone())
+                            } else {
+                                None
+                            };
+
+                            if player_bot.is_some() || opponent_bot.is_some() {
+                                bot_events.send(StartBotProcessesEvent {
+                                    player_bot_command: player_bot,
+                                    opponent_bot_command: opponent_bot,
+                                });
+                            }
                         }
                     }
                 }
@@ -122,27 +164,22 @@ pub fn ui_system(
                 .show(ctx, |ui| {
                     ui.heading("Selected Unit Info");
                     ui.separator();
-                    let tag = match selected.tag {
-                        Some(tag) => tag,
-                        None => {
-                            ui.label("No unit selected.");
-                            return;
-                        }
+
+                    let Some(tag) = selected.tag else {
+                        ui.label("No unit selected.");
+                        return;
                     };
-                    let entity = match registry.map.get(&tag) {
-                        Some(&entity) => entity,
-                        None => {
-                            ui.label("No unit selected.");
-                            return;
-                        }
+
+                    let Some(&entity) = registry.map.get(&tag) else {
+                        ui.label("No unit selected.");
+                        return;
                     };
-                    let (unit_proto, unit_tag, _, _) = match unit_query.get(entity) {
-                        Ok(data) => data,
-                        Err(_) => {
-                            ui.label("Unit data not found.");
-                            return;
-                        }
+
+                    let Ok((unit_proto, unit_tag, _, _)) = unit_query.get(entity) else {
+                        ui.label("Unit data not found.");
+                        return;
                     };
+
                     egui::CollapsingHeader::new("Unit Details")
                         .default_open(true)
                         .show(ui, |ui| {
@@ -170,6 +207,7 @@ pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerSt
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+
     // println!("[StatusBar] DockerStatus: {:?}", *docker_status);
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
