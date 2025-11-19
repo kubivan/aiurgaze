@@ -92,6 +92,13 @@ pub struct ObservationUnitTags {
     pub seen_tags: HashSet<u64>,
 }
 
+#[derive(Resource, Default)]
+pub struct PendingBarInserts {
+    pub health: Vec<(Entity, BarSettings<UnitHealth>)>,
+    pub shield: Vec<(Entity, BarSettings<UnitShield>)>,
+    pub build: Vec<(Entity, BarSettings<UnitBuildProgress>)>,
+}
+
 /// First phase: Clean up units that are no longer present
 /// This runs BEFORE handle_observation to avoid race conditions
 pub fn cleanup_dead_units(
@@ -126,6 +133,7 @@ pub fn handle_observation(
     obs_msg: &ResponseObservation,
     unit_query: Query<&UnitBuildProgress>,
     seen_tags: &mut ResMut<ObservationUnitTags>,
+    pending: &mut ResMut<PendingBarInserts>,
     map_size: (f32, f32),
 ) {
     let obs = obs_msg.observation.as_ref().unwrap();
@@ -200,43 +208,50 @@ pub fn handle_observation(
                 UnitTag(tag),
                 UnitType(unit_type),
                 UnitHealth { current: health, max: max_health },
-                BarSettings::<UnitHealth> {
-                    offset: -size.y / 2.,
-                    height: BarHeight::Static(1.),
-                    width: size.x,
-                    ..default()
-                },
                 UnitProto(unit.clone()),
                 CurrentOrderAbility(first_order_ability),
             ));
 
             // Conditionally add shield bar
             if max_shield > 0.0 {
-                entity_commands.insert((
+                entity_commands.insert(
                     UnitShield { current: shield, max: max_shield },
-                    BarSettings::<UnitShield> {
-                        offset: -size.y / 2. - 2.0,
-                        height: BarHeight::Static(1.),
-                        width: size.x,
-                        ..default()
-                    },
-                ));
+                );
             }
 
             // Conditionally add build progress bar
             if build_progress < 1.0 {
-                entity_commands.insert((
+                entity_commands.insert(
                     UnitBuildProgress(build_progress),
-                    BarSettings::<UnitBuildProgress> {
-                        offset: -size.y / 2. - 4.0,
-                        height: BarHeight::Static(1.),
-                        width: size.x,
-                        ..default()
-                    },
-                ));
+                );
             }
 
             let entity = entity_commands.id();
+            // Queue BarSettings to be applied in a separate system (PreUpdate) to
+            // avoid command ordering races with the health-bar plugin.
+            pending.health.push((entity, BarSettings::<UnitHealth> {
+                offset: -size.y / 2.,
+                height: BarHeight::Static(1.),
+                width: size.x,
+                ..default()
+            }));
+            if max_shield > 0.0 {
+                pending.shield.push((entity, BarSettings::<UnitShield> {
+                    offset: -size.y / 2. - 2.0,
+                    height: BarHeight::Static(1.),
+                    width: size.x,
+                    ..default()
+                }));
+            }
+            if build_progress < 1.0 {
+                pending.build.push((entity, BarSettings::<UnitBuildProgress> {
+                    offset: -size.y / 2. - 4.0,
+                    height: BarHeight::Static(1.),
+                    width: size.x,
+                    ..default()
+                }));
+            }
+
             registry.map.insert(tag, entity);
         }
     }
@@ -268,6 +283,21 @@ pub fn get_set_fields(unit: &sc2_proto::raw::Unit) -> Vec<(String, String)> {
         }
     }
     result
+}
+
+pub fn apply_pending_bars(
+    mut commands: Commands,
+    mut pending: ResMut<PendingBarInserts>,
+) {
+    for (entity, bar) in pending.health.drain(..) {
+        commands.entity(entity).insert(bar);
+    }
+    for (entity, bar) in pending.shield.drain(..) {
+        commands.entity(entity).insert(bar);
+    }
+    for (entity, bar) in pending.build.drain(..) {
+        commands.entity(entity).insert(bar);
+    }
 }
 
 /// System to select unit on mouse click

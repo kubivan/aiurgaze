@@ -115,6 +115,7 @@ pub fn response_controller_system(
     mut tile_color_query: Query<&mut TileColor>,
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
+    pending: &mut ResMut<PendingBarInserts>,
 ) {
     for event in events.read() {
         match event.0.response.as_ref().unwrap() {
