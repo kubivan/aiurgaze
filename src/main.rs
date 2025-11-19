@@ -18,14 +18,11 @@ use std::process::Command;
 use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
-use protobuf::Message;
-use sc2_proto::sc2api::Response;
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxy, ProxyResponseEvent};
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
-use crate::units::CurrentOrderAbility;
 use crate::units::draw_unit_orders;
 use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
@@ -290,8 +287,8 @@ fn main() {
         .add_systems(Startup, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
-        .add_systems(Update, cleanup_dead_units.before(response_controller_system))
         .add_systems(Update, response_controller_system)
+        .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(Update, bot_process_system)
         .add_systems(Update, draw_unit_orders)
