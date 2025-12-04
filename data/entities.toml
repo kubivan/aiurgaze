@@ -1113,8 +1113,8 @@ tile_size = [6.0, 2.0]
 [[entity]]
 id = 628
 name = "DestructibleCityDebris4x4"
-#icon = "units/mineral.webp"
-#tile_size = [4.0, 4.0]
+icon = "units/DestructibleRocks4x4.webp"
+tile_size = [4.0, 4.0]
 
 [[entity]]
 id = 629
@@ -1160,18 +1160,22 @@ tile_size = [6, 12]
 [[entity]]
 id = 637
 name = "DestructibleRockEx12x6Horizontal"
-icon = "units/mineral.webp"
+#todo:
+icon = "units/DestructibleRocks4x4.webp"
 tile_size = [12, 6.0]
 
 [[entity]]
 id = 638
 name = "DestructibleRockEx14x4"
-#icon = "units/mineral.webp"
+icon = "units/DestructibleRocks4x4.webp"
+tile_size = [4.0, 4.0]
 
 [[entity]]
 id = 639
 name = "DestructibleRockEx16x6"
-#icon = "units/mineral.webp"
+#icon = "units/DestructibleRock4x4.webp"
+icon = "units/DestructibleRocks4x4.webp"
+tile_size = [4.0, 4.0]
 
 [[entity]]
 id = 640
@@ -1182,8 +1186,8 @@ tile_size = [8.0, 8.0]
 [[entity]]
 id = 641
 name = "DestructibleRockEx1DiagonalHugeBLUR"
-#icon = "units/mineral.webp"
-tile_size = [8.0, 3.0]
+icon = "units/rocks8x3_2.webp"
+#tile_size = [8.0, 3.0]
 
 [[entity]]
 id = 642
