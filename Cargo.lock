@@ -866,7 +866,7 @@ dependencies = [
 [[package]]
 name = "bevy_health_bar3d"
 version = "3.5.1"
-source = "git+https://github.com/kubivan/bevy_health_bar#68e680e50a1c9d334e0700030aa5b7433d24c187"
+source = "git+https://github.com/kubivan/bevy_health_bar?rev=68e680e50a1c9d334e0700030aa5b7433d24c187#68e680e50a1c9d334e0700030aa5b7433d24c187"
 dependencies = [
  "bevy",
  "ordered-float",
