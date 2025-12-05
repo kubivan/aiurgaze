@@ -3,7 +3,7 @@ use std::path::Path;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::common::Race;
-use crate::app_settings::GameConfigPanelDefaults;
+use crate::app_settings::{GameConfigPanelDefaults, get_maps_dir};
 
 #[derive(Resource, Default)]
 pub struct GameConfigPanel {
@@ -19,6 +19,7 @@ pub struct GameConfigPanel {
     pub realtime: bool,
     pub bot_command: String,
     pub bot_opponent_command: String,
+    pub error_message: Option<String>,
 }
 
 impl GameConfigPanel {
@@ -64,16 +65,17 @@ impl GameConfigPanel {
             realtime,
             bot_command,
             bot_opponent_command,
+            error_message: None,
         }
     }
 }
 
 pub fn list_maps_folder() -> Vec<String> {
-    let path = Path::new("maps");
+    let path = get_maps_dir();
     if !path.exists() {
         return vec![];
     }
-    match fs::read_dir(path) {
+    match fs::read_dir(&path) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
             .filter_map(|e| {
@@ -171,8 +173,20 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         }
     });
     ui.add_space(10.0);
-    if ui.button("Create Game").clicked() {
+
+    // Display any error message
+    if let Some(ref err) = panel.error_message {
+        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+        ui.add_space(5.0);
+    }
+
+    let can_create_game = !panel.available_maps.is_empty() && panel.map_name.is_some();
+    if ui.add_enabled(can_create_game, egui::Button::new("Create Game")).clicked() {
+        panel.error_message = None; // Clear previous error on new attempt
         start_game = true;
+    }
+    if !can_create_game {
+        ui.colored_label(egui::Color32::YELLOW, "Cannot create game: no maps available in ./maps");
     }
     start_game
 }

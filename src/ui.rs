@@ -126,7 +126,10 @@ pub fn ui_system(
                             send_create_game_request(req, &ws_url, 5, 1)
                         });
                     match res {
-                        Err(e) => { ui.label(e); },
+                        Err(e) => {
+                            eprintln!("Create game failed: {}", e);
+                            game_config_panel.error_message = Some(e);
+                        },
                         Ok(_) => {
                             game_created.0 = true;
                             *app_state = AppState::GameScreen;
