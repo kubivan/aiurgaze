@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use serde_json::from_reader;
-use crate::app_settings::{MapConfig};
+use crate::app_settings::{MapConfig, get_data_dir};
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
@@ -86,12 +86,15 @@ impl EntitySystem {
     pub fn load(asset_server: &AssetServer) -> Self {
         info!("Loading EntitySystem...");
 
+        let data_dir = get_data_dir();
+
         // Load data.json
-        let data_json_file = File::open("data/data.json")
-            .expect("Failed to open data.json");
+        let data_json_path = data_dir.join("data.json");
+        let data_json_file = File::open(&data_json_path)
+            .expect(&format!("Failed to open {:?}", data_json_path));
 
         let data: DataJson = from_reader(data_json_file)
-            .expect( "Failed to parse data.json");
+            .expect("Failed to parse data.json");
 
         // Build unit and ability maps
         let units = data.unit.into_iter()
@@ -106,8 +109,9 @@ impl EntitySystem {
         let mut map_config = MapConfig::default();
         let mut display_config: HashMap<u32, EntityDisplayInfo> = HashMap::new();
 
-        let toml_content = std::fs::read_to_string("data/entities.toml")
-            .expect("Failed to read entities.toml");
+        let entities_path = data_dir.join("entities.toml");
+        let toml_content = std::fs::read_to_string(&entities_path)
+            .expect(&format!("Failed to read {:?}", entities_path));
         let config = toml::de::from_str::<EntitiesConfig>(&toml_content)
             .expect("Failed to parse entities.toml");
         

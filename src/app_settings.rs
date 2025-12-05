@@ -1,6 +1,103 @@
 use std::path::PathBuf;
 use bevy::prelude::{Resource, Color};
 use serde::{Deserialize, Serialize};
+use directories::BaseDirs;
+
+// Return an XDG-style data/config base dir, falling back to HOME if BaseDirs is unavailable.
+fn xdg_or_fallback(is_config: bool) -> PathBuf {
+    if let Some(bd) = BaseDirs::new() {
+        return if is_config {
+            bd.config_dir().to_path_buf()
+        } else {
+            bd.data_dir().to_path_buf()
+        };
+    }
+
+    // Fallback to HOME-based defaults
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        return if is_config {
+            home.join(".config")
+        } else {
+            home.join(".local/share")
+        };
+    }
+
+    // Last resort: current directory
+    PathBuf::from(".")
+}
+
+/// Get the data directory path, checking XDG_DATA_HOME first, then ~/.local/share/aiurgaze
+pub fn get_data_dir() -> PathBuf {
+    // If the user explicitly wants to use local repo resources, prefer the
+    // repository `data/` directory. This is useful during development and can
+    // be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
+        if std::path::Path::new("data").exists() {
+            if let Ok(cwd) = std::env::current_dir() {
+                return cwd.join("data");
+            }
+            return PathBuf::from("data");
+        }
+    }
+
+    let base = xdg_or_fallback(false);
+    base.join("aiurgaze/data")
+}
+
+/// Get the assets directory path
+pub fn get_assets_dir() -> PathBuf {
+    // If the user explicitly wants to use local repo resources, prefer the
+    // repository `assets/` directory. This is useful during development and
+    // can be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
+        if std::path::Path::new("assets").exists() {
+            if let Ok(cwd) = std::env::current_dir() {
+                return cwd.join("assets");
+            }
+            return PathBuf::from("assets");
+        }
+    }
+
+    let base = xdg_or_fallback(false);
+    base.join("aiurgaze/assets")
+}
+
+/// Get the maps directory path
+pub fn get_maps_dir() -> PathBuf {
+    // If the user explicitly wants to use local repo resources, prefer the
+    // repository `maps/` directory. This is useful during development and can
+    // be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
+        if std::path::Path::new("maps").exists() {
+            if let Ok(cwd) = std::env::current_dir() {
+                return cwd.join("maps");
+            }
+            return PathBuf::from("maps");
+        }
+    }
+
+    let base = xdg_or_fallback(false);
+    base.join("aiurgaze/maps")
+}
+
+/// Get the config directory path
+pub fn get_config_dir() -> PathBuf {
+    // If the user explicitly wants to use local repo resources, prefer the
+    // repository root for configuration. This is useful during development and
+    // can be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
+        if std::path::Path::new("config.toml").exists() {
+            if let Ok(cwd) = std::env::current_dir() {
+                return cwd;
+            }
+            return PathBuf::from(".");
+        }
+    }
+
+    let base = xdg_or_fallback(true);
+    base.join("aiurgaze")
+}
 
 #[derive(Debug, Clone, Resource, Deserialize, Serialize)]
 pub struct AppSettings {
@@ -100,13 +197,18 @@ impl Default for AppSettings {
 }
 
 pub fn load_settings() -> AppSettings {
+    // Determine config file path
+    let config_dir = get_config_dir();
+    let config_file = config_dir.join("config.toml");
+    let config_path_str = config_file.to_str().unwrap_or("config.toml");
+
     // Load main config from config.toml
     let mut settings: AppSettings = config::Config::builder()
-        .add_source(config::File::with_name("config").required(false))
+        .add_source(config::File::with_name(config_path_str).required(false))
         .build()
         .and_then(|c| c.try_deserialize())
         .unwrap_or_else(|e| {
-            eprintln!("[config] Failed to load config.toml: {}, using defaults", e);
+            eprintln!("[config] Failed to load {}: {}, using defaults", config_path_str, e);
             AppSettings::default()
         });
 

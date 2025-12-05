@@ -28,9 +28,10 @@ use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
 use std::process::exit;
 use bevy::color::palettes::basic::{GREEN, RED};
+use bevy::asset::AssetPlugin;
 use sc2_proto::common::Race;
 use crate::ui::GameType;
-use crate::app_settings::{AppSettings, load_settings, StarcraftConfig};
+use crate::app_settings::{AppSettings, load_settings, StarcraftConfig, get_assets_dir, get_maps_dir};
 use crate::entity_system::setup_entity_system;
 use crate::ui::game_config_panel::list_maps_folder;
 
@@ -87,10 +88,8 @@ fn start_server_container(docker_config : &StarcraftConfig) -> Result<(), String
     //     .status();
 
     // Get absolute path to maps directory
-    let maps_dir = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current directory: {e}"))?
-        .join("maps");
-    let maps_mount = format!("{}:/StarCraftII/Maps", maps_dir.display());
+    let maps_dir = get_maps_dir();
+    let maps_mount = format!("{}:/StarCraftII/maps", maps_dir.display());
 
     // Run container detached, auto-remove on stop, bind to localhost
     let status = Command::new("docker")
@@ -181,6 +180,14 @@ fn proxy_connect_on_docker_ready(
 /// Entry point
 fn main() {
     let app_settings = load_settings();
+    // Print resolved resource directories for debugging
+    let assets_dir = get_assets_dir();
+    let data_dir = crate::app_settings::get_data_dir();
+    let maps_dir = get_maps_dir();
+    let config_dir = crate::app_settings::get_config_dir();
+    let dev_override = std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default();
+    println!("[startup] assets_dir={} data_dir={} maps_dir={} config_dir={} AIURGAZE_LOCAL_RESOURCES={}",
+        assets_dir.display(), data_dir.display(), maps_dir.display(), config_dir.display(), dev_override);
     let available_maps = list_maps_folder();
     let mut game_config_panel = GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
 
@@ -229,6 +236,9 @@ fn main() {
         }
     }
 
+    // Get assets directory for Bevy's AssetPlugin
+    let assets_dir = get_assets_dir();
+
     App::new()
         .add_event::<ProxyResponseEvent>()
         .add_event::<StartBotProcessesEvent>()
@@ -237,6 +247,10 @@ fn main() {
         .register_type::<UnitBuildProgress>()
         .add_plugins(
             DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: assets_dir.to_string_lossy().to_string(),
+                    ..default()
+                })
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin {
                     primary_window: Some(Window {
