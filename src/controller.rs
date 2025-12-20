@@ -23,6 +23,7 @@ pub struct MapResource {
     pub tile_storage: TileStorage,
     pub last_creep_hash: u64,
     pub last_energy_hash: u64,
+    pub last_visibility_hash: u64,
 }
 
 pub fn setup_proxy(runtime: Res<TokioTasksRuntime>, settings: Res<AppSettings>) {
@@ -70,6 +71,7 @@ fn update_tilemap_colors(
     static_layers: &TerrainLayers,
     creep_layer: Option<&TerrainLayer>,
     energy_layer: Option<&TerrainLayer>,
+    visibility_layer: Option<&TerrainLayer>,
     tile_color_query: &mut Query<&mut TileColor>,
     entity_system: &EntitySystem,
 ) {
@@ -95,9 +97,10 @@ fn update_tilemap_colors(
             // Get dynamic layer values
             let creep = creep_layer.map_or(0, |l| l.get_value(x, y));
             let energy = energy_layer.map_or(0, |l| l.get_value(x, y));
+            let visibility = visibility_layer.map_or(1, |l| l.get_value(x, y));
 
             // Blend colors using map config from entity system
-            let color = blend_tile_color(pathing, placement, creep, energy, height_val, &entity_system.map_config);
+            let color = blend_tile_color(pathing, placement, creep, energy, visibility, height_val, &entity_system.map_config);
 
             // Directly mutate the color component
             tile_color.0 = color;
@@ -129,21 +132,28 @@ pub fn response_controller_system(
                         TerrainLayer::from_image_data(creep_data)
                     });
 
+                    // Extract visibility layer (fog of war) from map state
+                    let visibility_layer = map_state.and_then(|ms| ms.visibility.as_ref()).map(|vis_data| {
+                        TerrainLayer::from_image_data(vis_data)
+                    });
+
                     // TODO: Extract energy layer when available
                     // let energy_layer = ...
 
                     // Calculate hashes to check if layers changed
                     let new_creep_hash = calculate_layer_hash(&creep_layer);
+                    let new_visibility_hash = calculate_layer_hash(&visibility_layer);
                     let new_energy_hash = 0; // TODO: calculate when energy layer is available
 
                     // Only update if something changed
-                    if new_creep_hash != map_res.last_creep_hash || new_energy_hash != map_res.last_energy_hash {
+                    if new_creep_hash != map_res.last_creep_hash || new_energy_hash != map_res.last_energy_hash || new_visibility_hash != map_res.last_visibility_hash {
                         // Update all tile colors with new dynamic data
                         update_tilemap_colors(
                             &map_res.tile_storage,
                             &map_res.static_layers,
                             creep_layer.as_ref(),
                             None, // energy_layer
+                            visibility_layer.as_ref(),
                             &mut tile_color_query,
                             &entity_system,
                         );
@@ -151,6 +161,7 @@ pub fn response_controller_system(
                         // Update hashes
                         map_res.last_creep_hash = new_creep_hash;
                         map_res.last_energy_hash = new_energy_hash;
+                        map_res.last_visibility_hash = new_visibility_hash;
                     }
                 }
 
@@ -200,6 +211,7 @@ pub fn response_controller_system(
                     tile_storage,
                     last_creep_hash: 0,
                     last_energy_hash: 0,
+                    last_visibility_hash: 0,
                 });
 
                 println!("Spawned tilemap, start pos: {:?}", start_pos);

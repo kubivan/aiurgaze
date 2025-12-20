@@ -79,6 +79,7 @@ pub fn blend_tile_color(
     placement: u8,
     creep: u8,
     energy: u8,
+    visibility: u8,
     height: u8,
     map_config: &MapConfig,
 ) -> Color {
@@ -93,8 +94,16 @@ pub fn blend_tile_color(
         return map_config.apply_height_intensity(color, height);
     }
     // Get discrete color for pathable/placeable combination
-    let base_color = map_config.get_terrain_color(pathing > 0, placement > 0);
-    map_config.apply_height_intensity(base_color, height)
+    let mut color = map_config.get_terrain_color(pathing > 0, placement > 0);
+    color = map_config.apply_height_intensity(color, height);
+
+    // Apply fog of war: darken unseen tiles (visibility == 0)
+    if visibility == 0 {
+        let rgba = color.to_srgba();
+        color = Color::srgba(rgba.red * 0.3, rgba.green * 0.3, rgba.blue * 0.3, rgba.alpha);
+    }
+
+    color
 }
 pub struct TerrainLayers {
     pub pathing: TerrainLayer,
@@ -147,7 +156,8 @@ pub fn spawn_tilemap(
             let creep = layers.creep.as_ref().map_or(0, |l| l.get_value(x, y));
             let energy = layers.energy.as_ref().map_or(0, |l| l.get_value(x, y));
             // Get color based on all layers using map config
-            let color = blend_tile_color(pathing, placement, creep, energy, height_val, map_config);
+            // Default visibility to 1 (visible) - will be updated from observation
+            let color = blend_tile_color(pathing, placement, creep, energy, 1, height_val, map_config);
             let tile_entity = commands
                 .spawn(TileBundle {
                     position: tile_pos,
