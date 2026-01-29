@@ -20,10 +20,7 @@ pub enum AppState { StartScreen, GameScreen }
 #[derive(Resource, Default)]
 pub struct PendingCreateGameRequest(pub Option<Request>);
 
-#[derive(Component)]
-pub struct MainCamera;
-
-pub fn setup_camera(mut commands: Commands) { commands.spawn((Camera2d, Transform::from_xyz(0.0, 0.0, 1000.0))); }
+pub fn setup_camera(mut commands: Commands) { commands.spawn((Camera2d, Transform::from_xyz(0.0, 0.0, 1000.0),)); }
 
 #[derive(Resource, Default)]
 pub struct CameraPanState {
@@ -73,6 +70,7 @@ pub fn ui_system(
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
     mut bot_events: EventWriter<StartBotProcessesEvent>,
+    mut active_source: ResMut<crate::controller::ActiveObservationSource>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
     let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.upstream_url, app_settings.starcraft.upstream_port);
@@ -165,6 +163,27 @@ pub fn ui_system(
                 .resizable(true)
                 .default_width(300.0)
                 .show(ctx, |ui| {
+                    ui.heading("Game Controls");
+                    ui.separator();
+                    
+                    // Observation source selector
+                    ui.label("Observation Source:");
+                    egui::ComboBox::from_id_source("observation_source_combo")
+                        .selected_text(match game_config_panel.active_source {
+                            crate::controller::ObservationSource::BotProxy => "Bot Proxy",
+                            crate::controller::ObservationSource::DirectObserver => "Observer",
+                        })
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::BotProxy, "Bot Proxy").clicked() {
+                                active_source.current = crate::controller::ObservationSource::BotProxy;
+                            }
+                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::DirectObserver, "Observer").clicked() {
+                                active_source.current = crate::controller::ObservationSource::DirectObserver;
+                            }
+                        });
+                    
+                    ui.add_space(10.0);
+                    ui.separator();
                     ui.heading("Selected Unit Info");
                     ui.separator();
                     
@@ -192,6 +211,13 @@ pub fn ui_system(
                                 ui.label(format!("{}: {}", field, value));
                             }
                         });
+                });
+            
+            // Central panel for game rendering - transparent to allow Bevy rendering
+            egui::CentralPanel::default()
+                .frame(egui::Frame::none())
+                .show(ctx, |_ui| {
+                    // Empty panel - game world renders via Bevy camera behind egui
                 });
         }
     }

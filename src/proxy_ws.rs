@@ -216,8 +216,34 @@ where
         }
         println!("Observer: RequestGameInfo sent");
 
+        // Spawn a task to send periodic observation requests
+        let write_arc = Arc::new(tokio::sync::Mutex::new(write));
+        let write_clone = write_arc.clone();
+        tokio::spawn(async move {
+            use sc2_proto::sc2api::RequestObservation;
+            
+            // Wait a bit for JoinGame and GameInfo to complete
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            
+            loop {
+                let mut obs_req = Request::new();
+                obs_req.set_observation(RequestObservation::new());
+                
+                if let Ok(bytes) = obs_req.write_to_bytes() {
+                    let mut write = write_clone.lock().await;
+                    if write.send(tungstenite::Message::Binary(Bytes::from(bytes))).await.is_err() {
+                        break;
+                    }
+                }
+                
+                // Request observations at ~22 FPS (SC2 game speed)
+                tokio::time::sleep(std::time::Duration::from_millis(45)).await;
+            }
+        });
+
         // Read responses and emit via callback
-        while let Some(msg) = read.next().await {
+        let mut read_handle = read;
+        while let Some(msg) = read_handle.next().await {
             match msg {
                 Ok(tungstenite::Message::Binary(data)) => {
                     let mut res = Response::new();
