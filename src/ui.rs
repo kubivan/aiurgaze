@@ -2,12 +2,13 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use crate::units::{SelectedUnit, UnitRegistry, UnitTag, UnitProto, get_set_fields, CurrentOrderAbility, UnitType};
-use crate::net_helpers::send_create_game_request;
 use sc2_proto::sc2api::{Request, LocalMap, PlayerSetup, PlayerType, Difficulty};
 use sc2_proto::common::Race;
 use protobuf::RepeatedField;
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
+use crate::observation_pipeline::VisionMode;
+use tokio::sync::watch;
 
 pub(crate) mod game_config_panel;
 mod setup_game_config_panel; // kept for now if referenced elsewhere
@@ -20,10 +21,43 @@ pub enum AppState { StartScreen, GameScreen }
 #[derive(Resource, Default)]
 pub struct PendingCreateGameRequest(pub Option<Request>);
 
-#[derive(Component)]
-pub struct MainCamera;
+/// Resource to hold the vision mode watch channel sender.
+/// UI updates this to change which bot's perspective is rendered.
+#[derive(Resource)]
+pub struct VisionModeChannel {
+    pub sender: watch::Sender<VisionMode>,
+    pub current: VisionMode,
+}
 
-pub fn setup_camera(mut commands: Commands) { commands.spawn((Camera2d, Transform::from_xyz(0.0, 0.0, 1000.0))); }
+impl VisionModeChannel {
+    pub fn new() -> (Self, watch::Receiver<VisionMode>) {
+        let (sender, receiver) = watch::channel(VisionMode::default());
+        (
+            Self {
+                sender,
+                current: VisionMode::default(),
+            },
+            receiver,
+        )
+    }
+
+    pub fn set(&mut self, mode: VisionMode) {
+        self.current = mode;
+        let _ = self.sender.send(mode);
+    }
+}
+
+impl Default for VisionModeChannel {
+    fn default() -> Self {
+        let (sender, _) = watch::channel(VisionMode::default());
+        Self {
+            sender,
+            current: VisionMode::default(),
+        }
+    }
+}
+
+pub fn setup_camera(mut commands: Commands) { commands.spawn((Camera2d, Transform::from_xyz(0.0, 0.0, 1000.0),)); }
 
 #[derive(Resource, Default)]
 pub struct CameraPanState {
@@ -37,7 +71,7 @@ pub fn camera_controls(
     mut scroll_evr: EventReader<MouseWheel>,
     mut q_camera: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
 ) {
-    if let Ok((mut transform, mut projection)) = q_camera.get_single_mut() {
+    if let Ok((mut transform, mut projection)) = q_camera.single_mut() {
         // Middle mouse drag to pan
         if buttons.just_pressed(MouseButton::Middle) {
             state.dragging = true;
@@ -73,43 +107,37 @@ pub fn ui_system(
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
     mut bot_events: EventWriter<StartBotProcessesEvent>,
+    mut vision_mode_channel: ResMut<VisionModeChannel>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
-    let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.upstream_url, app_settings.starcraft.upstream_port);
-    
-    // Check if there's a pending request from CLI to send
-    if let Some(req) = pending_request.0.take() {
-        println!("[ui_system] Sending pending create game request from CLI");
-        let res = send_create_game_request(req, &ws_url, 5, 1);
-        match res {
-            Err(e) => {
-                eprintln!("[ui_system] Failed to send create game request: {}", e);
-            },
-            Ok(_) => {
-                println!("[ui_system] Create game request sent successfully");
-                game_created.0 = true;
-                *app_state = AppState::GameScreen;
 
-                // Send event to start bot processes
-                let player_bot = if !game_config_panel.bot_command.is_empty() {
-                    Some(game_config_panel.bot_command.clone())
-                } else {
-                    None
-                };
-                let opponent_bot = if !game_config_panel.bot_opponent_command.is_empty()
-                    && game_config_panel.game_type == GameType::VsBot {
-                    Some(game_config_panel.bot_opponent_command.clone())
-                } else {
-                    None
-                };
+    // Check if there's a pending request from CLI — store it for proxy to send
+    if pending_request.0.is_some() && !game_created.0 {
+        println!("[ui_system] Pending create game request from CLI, marking ready for proxy");
+        game_created.0 = true;
+        *app_state = AppState::GameScreen;
 
-                if player_bot.is_some() || opponent_bot.is_some() {
-                    bot_events.send(StartBotProcessesEvent {
-                        player_bot_command: player_bot,
-                        opponent_bot_command: opponent_bot,
-                    });
-                }
-            }
+        // Send event to start bot processes
+        let player_bot = if !game_config_panel.bot_command.is_empty() {
+            Some(game_config_panel.bot_command.clone())
+        } else {
+            None
+        };
+        let opponent_bot = if !game_config_panel.bot_opponent_command.is_empty()
+            && game_config_panel.game_type == GameType::VsBot {
+            Some(game_config_panel.bot_opponent_command.clone())
+        } else {
+            None
+        };
+
+        if player_bot.is_some() || opponent_bot.is_some() {
+            bot_events.write(StartBotProcessesEvent {
+                player_bot_command: player_bot,
+                opponent_bot_command: opponent_bot,
+                player_name: Some(game_config_panel.player_name.clone()),
+                opponent_name: game_config_panel.bot_name.clone(),
+                listen_port: app_settings.starcraft.listen_port,
+            });
         }
         return;
     }
@@ -120,20 +148,13 @@ pub fn ui_system(
                 ui.heading("SC2 Proxy");
                 ui.separator();
                 if show_game_config_panel(ui, &mut game_config_panel) {
-                    let res = build_create_game_request(&game_config_panel)
-                        .and_then(|req| {
-                            println!("Sending create game request: {:?}", req);
-                            send_create_game_request(req, &ws_url, 5, 1)
-                        });
-                    match res {
-                        Err(e) => {
-                            eprintln!("Create game failed: {}", e);
-                            game_config_panel.error_message = Some(e);
-                        },
-                        Ok(_) => {
+                    match build_create_game_request(&game_config_panel) {
+                        Ok(req) => {
+                            println!("!!! CreateGame request: req={:?}", req);
+                            // Store request — proxy will send it on its upstream connection
+                            pending_request.0 = Some(req);
                             game_created.0 = true;
                             *app_state = AppState::GameScreen;
-                            ui.label("Create game request sent successfully.");
 
                             // Send event to start bot processes
                             let player_bot = if !game_config_panel.bot_command.is_empty() {
@@ -149,11 +170,18 @@ pub fn ui_system(
                             };
 
                             if player_bot.is_some() || opponent_bot.is_some() {
-                                bot_events.send(StartBotProcessesEvent {
+                                bot_events.write(StartBotProcessesEvent {
                                     player_bot_command: player_bot,
                                     opponent_bot_command: opponent_bot,
+                                    player_name: Some(game_config_panel.player_name.clone()),
+                                    opponent_name: game_config_panel.bot_name.clone(),
+                                    listen_port: app_settings.starcraft.listen_port,
                                 });
                             }
+                        }
+                        Err(e) => {
+                            eprintln!("Create game failed: {}", e);
+                            game_config_panel.error_message = Some(e);
                         }
                     }
                 }
@@ -165,6 +193,24 @@ pub fn ui_system(
                 .resizable(true)
                 .default_width(300.0)
                 .show(ctx, |ui| {
+                    ui.heading("Game Controls");
+                    ui.separator();
+                    
+                    // Vision mode selector
+                    ui.label("Vision Mode:");
+                    let current_mode = vision_mode_channel.current;
+                    egui::ComboBox::from_id_salt("vision_mode_combo")
+                        .selected_text(format!("{}", current_mode))
+                        .show_ui(ui, |ui| {
+                            for mode in [VisionMode::Player1, VisionMode::Player2, VisionMode::All] {
+                                if ui.selectable_label(current_mode == mode, format!("{}", mode)).clicked() {
+                                    vision_mode_channel.set(mode);
+                                }
+                            }
+                        });
+                    
+                    ui.add_space(10.0);
+                    ui.separator();
                     ui.heading("Selected Unit Info");
                     ui.separator();
                     
@@ -192,6 +238,13 @@ pub fn ui_system(
                                 ui.label(format!("{}: {}", field, value));
                             }
                         });
+                });
+            
+            // Central panel for game rendering - transparent to allow Bevy rendering
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(ctx, |_ui| {
+                    // Empty panel - game world renders via Bevy camera behind egui
                 });
         }
     }
@@ -240,14 +293,15 @@ pub fn build_create_game_request(panel: &GameConfigPanel) -> Result<Request, Str
 
     let mut participant_setup = PlayerSetup::default();
     participant_setup.set_field_type(PlayerType::Participant);
-    participant_setup.set_race(Race::Random);
-    participant_setup.set_player_name(panel.player_name.clone());
+    participant_setup.set_race(Race::Protoss);
+    //participant_setup.set_race(panel.ai_race.unwrap_or(Race::Protoss));
+    //participant_setup.set_player_name(panel.player_name.clone());
 
     let mut opponent_setup = PlayerSetup::default();
     match game_type {
         GameType::VsAI => {
             opponent_setup.set_field_type(PlayerType::Computer);
-            opponent_setup.set_race(panel.ai_race.unwrap_or(Race::Random));
+            opponent_setup.set_race(panel.ai_race.unwrap_or(Race::Protoss));
             opponent_setup.set_difficulty(match panel.ai_difficulty.as_deref() {
                 Some("Easy") => Difficulty::Easy,
                 Some("Medium") => Difficulty::Medium,
@@ -258,8 +312,8 @@ pub fn build_create_game_request(panel: &GameConfigPanel) -> Result<Request, Str
         }
         GameType::VsBot => {
             opponent_setup.set_field_type(PlayerType::Participant);
-            opponent_setup.set_race(Race::Random);
-            opponent_setup.set_player_name(panel.bot_name.clone().unwrap_or_default());
+            opponent_setup.set_race(Race::Protoss);
+            //opponent_setup.set_player_name(panel.bot_name.clone().unwrap_or_default());
         }
     }
     let participants = vec![participant_setup, opponent_setup];
@@ -271,5 +325,8 @@ pub fn build_create_game_request(panel: &GameConfigPanel) -> Result<Request, Str
     if let Some(seed) = panel.random_seed {
         req_create_game.set_random_seed(seed);
     }
+    println!("!!! CreateGame request: req={:?}",
+        req,
+    );
     Ok(req)
 }

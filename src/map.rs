@@ -96,13 +96,13 @@ pub fn blend_tile_color(
     // Get discrete color for pathable/placeable combination
     let mut color = map_config.get_terrain_color(pathing > 0, placement > 0);
     color = map_config.apply_height_intensity(color, height);
-
+    
     // Apply fog of war: darken unseen tiles (visibility == 0)
     if visibility == 0 {
         let rgba = color.to_srgba();
         color = Color::srgba(rgba.red * 0.3, rgba.green * 0.3, rgba.blue * 0.3, rgba.alpha);
     }
-
+    
     color
 }
 pub struct TerrainLayers {

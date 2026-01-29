@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::common::Race;
@@ -97,7 +96,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     ui.separator();
 
     ui.label("Game Type:");
-    egui::ComboBox::from_id_source("game_type_combo")
+    egui::ComboBox::from_id_salt("game_type_combo")
         .selected_text(match panel.game_type {
             GameType::VsAI => "vs AI",
             GameType::VsBot => "vs Bot",
@@ -115,7 +114,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         if panel.map_name.is_none() {
             panel.map_name = Some(panel.available_maps[0].clone());
         }
-        egui::ComboBox::from_id_source("map_name_combo")
+        egui::ComboBox::from_id_salt("map_name_combo")
             .selected_text(panel.map_name.clone().unwrap_or_else(|| "Select map".to_string()))
             .show_ui(ui, |ui| {
                 for map in &panel.available_maps {
@@ -130,7 +129,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     match panel.game_type {
         GameType::VsAI => {
             ui.label("AI Difficulty:");
-            egui::ComboBox::from_id_source("ai_difficulty_combo")
+            egui::ComboBox::from_id_salt("ai_difficulty_combo")
                 .selected_text(panel.ai_difficulty.clone().unwrap_or_else(|| "Select difficulty".to_string()))
                 .show_ui(ui, |ui| {
                     for diff in ["Easy", "Medium", "Hard", "Cheat"] {
@@ -139,7 +138,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
                 });
 
             ui.label("AI Race:");
-            egui::ComboBox::from_id_source("ai_race_combo")
+            egui::ComboBox::from_id_salt("ai_race_combo")
                 .selected_text(panel.ai_race.map(|r| format!("{:?}", r)).unwrap_or_else(|| "Select race".to_string()))
                 .show_ui(ui, |ui| {
                     for &race in &[Race::Random, Race::Terran, Race::Zerg, Race::Protoss] {

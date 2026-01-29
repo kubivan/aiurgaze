@@ -200,6 +200,7 @@ pub fn load_settings() -> AppSettings {
     // Determine config file path
     let config_dir = get_config_dir();
     let config_file = config_dir.join("config.toml");
+    println!("!!! config_file {}", config_file.display());
     let config_path_str = config_file.to_str().unwrap_or("config.toml");
 
     // Load main config from config.toml

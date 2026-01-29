@@ -1,5 +1,7 @@
 // src/main.rs
-mod proxy_ws;
+//mod proxy_ws;
+mod proxy_channel;
+mod observation_pipeline;
 mod ui;
 mod controller;
 mod map;
@@ -19,12 +21,12 @@ use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tap::prelude::*;
-use crate::controller::{response_controller_system, setup_proxy, ProxyResponseEvent};
+use crate::controller::{response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode};
+use crate::proxy_channel::ProxyReadySignal;
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
-use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
+use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::draw_unit_orders;
-use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
 use std::process::exit;
 use bevy::color::palettes::basic::{GREEN, RED};
@@ -73,7 +75,9 @@ enum CliCommands {
 }
 
 /// Start the server inside Docker and wait until it's reachable.
-fn start_server_container(docker_config : &StarcraftConfig) -> Result<(), String> {
+/// If `multiplayer` is true, sets SC2_MULTIPLAYER=1 inside the container
+/// so that two SC2 instances are started (on upstream_port and upstream_port+1).
+fn start_server_container(docker_config : &StarcraftConfig, multiplayer: bool) -> Result<(), String> {
     let image = &docker_config.image;
     let container_name = &docker_config.container_name;
 
@@ -91,15 +95,40 @@ fn start_server_container(docker_config : &StarcraftConfig) -> Result<(), String
     let maps_dir = get_maps_dir();
     let maps_mount = format!("{}:/StarCraftII/maps", maps_dir.display());
 
+    // Build port mappings, env vars, and multiplayer ports
+    let port1_map = format!("{}:{}", docker_config.upstream_port, docker_config.upstream_port);
+    let port2_map = format!("{}:{}", docker_config.upstream_port + 1, docker_config.upstream_port + 1);
+
+    // Also map the SC2 internal sync ports (server_ports + client_ports).
+    // These are derived from upstream_port + 2..+7 and must be reachable between
+    // the host and the container so the two SC2 instances can sync.
+    let mut port_maps: Vec<String> = vec![port1_map, port2_map];
+    if multiplayer {
+        for offset in 2..8 {
+            let p = docker_config.upstream_port + offset;
+            port_maps.push(format!("{}:{}", p, p));
+        }
+    }
+
+    let mut args: Vec<String> = vec![
+        "run".into(), "-d".into(), "--rm".into(), "-it".into(),
+        "--name".into(), container_name.clone(),
+    ];
+    for pm in &port_maps {
+        args.push("-p".into());
+        args.push(pm.clone());
+    }
+    if multiplayer {
+        args.push("-e".into());
+        args.push("SC2_MULTIPLAYER=1".into());
+    }
+    args.push("-v".into());
+    args.push(maps_mount);
+    args.push(image.clone());
+
     // Run container detached, auto-remove on stop, bind to localhost
     let status = Command::new("docker")
-        .args([
-            "run", "-d", "--rm", "-it",
-            "--name", &container_name,
-            "-p", format!("{}:{}", docker_config.upstream_port, docker_config.upstream_port).as_str(),
-            "-v", &maps_mount,
-            &image,
-        ])
+        .args(&args)
         .status()
         .map_err(|e| format!("Failed to execute docker run: {e}"))?;
 
@@ -112,9 +141,9 @@ fn start_server_container(docker_config : &StarcraftConfig) -> Result<(), String
 }
 
 /// Blocking Docker startup for CLI mode
-fn startup_docker_blocking(config: &StarcraftConfig) -> Result<(), String> {
-    println!("[startup_docker_blocking] Starting Docker container...");
-    let result = start_server_container(&config);
+fn startup_docker_blocking(config: &StarcraftConfig, multiplayer: bool) -> Result<(), String> {
+    println!("[startup_docker_blocking] Starting Docker container (multiplayer={})...", multiplayer);
+    let result = start_server_container(&config, multiplayer);
     match &result {
         Ok(_) => println!("[startup_docker_blocking] Docker container started successfully."),
         Err(e) => eprintln!("[startup_docker_blocking] Failed to start Docker: {e}"),
@@ -131,11 +160,13 @@ fn docker_startup_system(
     docker_status.clone_from(&DockerStatus::Starting);
     // Clone config to own it in the task
     let starcraft_config = docker_config.starcraft.clone();
-    runtime.spawn_background_task(|mut ctx| async move {
+    let multiplayer = docker_config.game_config_panel.game_type.as_deref() == Some("VsBot");
+    runtime.spawn_background_task(move |mut ctx| async move {
         // Use spawn_blocking for blocking code
-        let result = tokio::task::spawn_blocking(move ||
-            start_server_container(&starcraft_config)
-        ).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        //let result = tokio::task::spawn_blocking(move ||
+        //    start_server_container(&starcraft_config)
+        //).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        let result = start_server_container(&starcraft_config, multiplayer);
         let status = match result {
             Ok(_) => DockerStatus::Running,
             Err(e) => {
@@ -151,7 +182,7 @@ fn docker_startup_system(
                 println!("[docker_startup_system] DockerStatus resource not found!");
                 return;
             };
-            
+
             status_res.clone_from(&status);
             println!("[docker_startup_system] Updated DockerStatus to: {:?}", status);
             if status == DockerStatus::Running {
@@ -161,19 +192,31 @@ fn docker_startup_system(
     });
 }
 
-/// System to start proxy connection when Docker is running
+/// Resource wrapper for ProxyReadySignal.
+#[derive(Resource, Default, Clone)]
+pub struct ProxyReadyResource(pub Option<ProxyReadySignal>);
+
+/// System to start proxy connections when Docker is running and game is created.
+/// Sets up one or two proxy channels depending on game mode (VsAI = 1 proxy, VsBot = 2 proxies).
 fn proxy_connect_on_docker_ready(
     docker_status: Res<DockerStatus>,
     mut has_connected: Local<bool>,
     runtime: Res<TokioTasksRuntime>,
     game_created: ResMut<GameCreated>,
     settings: Res<AppSettings>,
+    game_config: Res<GameConfigPanel>,
+    vision_mode_channel: Res<VisionModeChannel>,
+    mut proxy_ready: ResMut<ProxyReadyResource>,
+    mut pending_request: ResMut<PendingCreateGameRequest>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_proxy(runtime, settings);
+        let is_vs_bot = game_config.game_type == GameType::VsBot;
+        let vision_rx = vision_mode_channel.sender.subscribe();
+        let create_req = pending_request.0.take();
+        let ready_signal = setup_proxies(&runtime, &settings, is_vs_bot, vision_rx, create_req);
+        proxy_ready.0 = Some(ready_signal);
         *has_connected = true;
-        // game_created.0 = false;
-        println!("Proxy connection started after Docker became ready and game was created");
+        println!("Proxy connection started after Docker became ready and game was created (VsBot={})", is_vs_bot);
     }
 }
 
@@ -214,7 +257,7 @@ fn main() {
             exit(1);
         }
         // Start Docker synchronously in CLI mode
-        if let Err(e) = startup_docker_blocking(&app_settings.starcraft) {
+        if let Err(e) = startup_docker_blocking(&app_settings.starcraft, game_config_panel.game_type == GameType::VsBot) {
             eprintln!("Error: Could not start Docker container: {e}");
             exit(1);
         }
@@ -240,8 +283,9 @@ fn main() {
     let assets_dir = get_assets_dir();
 
     App::new()
-        .add_event::<ProxyResponseEvent>()
         .add_event::<StartBotProcessesEvent>()
+        .add_event::<GameInfoEvent>()
+        .add_event::<ObservationEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -294,6 +338,9 @@ fn main() {
         .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
+        .insert_resource(VisionModeChannel::default())
+        .insert_resource(LastVisionMode::default())
+        .insert_resource(ProxyReadyResource::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
