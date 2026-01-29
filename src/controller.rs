@@ -4,7 +4,7 @@ use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Event, EventReader};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use crate::proxy_ws::ProxyWS;
+use crate::proxy_ws::{ProxyWS, ObserverClient};
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
 use crate::units::{handle_observation, UnitBuildProgress, UnitRegistry, ObservationUnitTags};
@@ -12,9 +12,41 @@ use crate::app_settings::AppSettings;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-// Event for proxy responses
+// Source of observation data
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservationSource {
+    BotProxy,
+    DirectObserver,
+}
+
+impl Default for ObservationSource {
+    fn default() -> Self {
+        ObservationSource::BotProxy
+    }
+}
+
+// Event for proxy responses with source tagging
 #[derive(Event)]
-pub struct ProxyResponseEvent(pub Response);
+pub struct ProxyResponseEvent {
+    pub source: ObservationSource,
+    pub response: Response,
+}
+
+// Resource to track which source is currently active for visualization
+#[derive(Resource)]
+pub struct ActiveObservationSource {
+    pub current: ObservationSource,
+    pub previous: Option<ObservationSource>,
+}
+
+impl Default for ActiveObservationSource {
+    fn default() -> Self {
+        Self {
+            current: ObservationSource::BotProxy, // Default to bot proxy
+            previous: None,
+        }
+    }
+}
 
 // Resource to store static terrain layers and tile storage
 #[derive(Resource)]
@@ -43,7 +75,10 @@ pub fn setup_proxy(runtime: Res<TokioTasksRuntime>, settings: Res<AppSettings>) 
                 let mut ctx_clone = ctx.clone();
                 tokio::spawn(async move {
                     ctx_clone.run_on_main_thread(move |ctx| {
-                        ctx.world.send_event(ProxyResponseEvent(resp));
+                        ctx.world.send_event(ProxyResponseEvent {
+                            source: ObservationSource::BotProxy,
+                            response: resp,
+                        });
                     }).await;
                 });
             }
@@ -55,6 +90,38 @@ pub fn setup_proxy(runtime: Res<TokioTasksRuntime>, settings: Res<AppSettings>) 
     });
 
     println!("======Proxy task spawned====");
+}
+
+pub fn setup_observer(runtime: Res<TokioTasksRuntime>, settings: Res<AppSettings>) {
+    println!("======setup_observer====");
+
+    let upstream_addr = format!("{}:{}/sc2api", settings.starcraft.upstream_url, settings.starcraft.upstream_port);
+
+    // Create observer client with callback that emits Bevy events directly
+    runtime.spawn_background_task(|ctx| async move {
+        let observer = ObserverClient::new(
+            &upstream_addr,
+            move |resp| {
+                // This callback runs in the async task, so we need to queue the event
+                // to be sent on the main thread
+                let mut ctx_clone = ctx.clone();
+                tokio::spawn(async move {
+                    ctx_clone.run_on_main_thread(move |ctx| {
+                        ctx.world.send_event(ProxyResponseEvent {
+                            source: ObservationSource::DirectObserver,
+                            response: resp,
+                        });
+                    }).await;
+                });
+            }
+        );
+
+        if let Err(e) = observer.run().await {
+            eprintln!("Observer task failed: {e}");
+        }
+    });
+
+    println!("======Observer task spawned====");
 }
 
 
@@ -110,6 +177,7 @@ fn update_tilemap_colors(
 
 pub fn response_controller_system(
     mut events: EventReader<ProxyResponseEvent>,
+    mut active_source: ResMut<ActiveObservationSource>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
@@ -119,8 +187,44 @@ pub fn response_controller_system(
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
+    // Check if source changed - if so, despawn all entities for fresh respawn
+    if active_source.previous.is_some() && active_source.previous != Some(active_source.current) {
+        println!("Observation source changed from {:?} to {:?}, despawning all entities", 
+                 active_source.previous, active_source.current);
+        
+        // Despawn all entities
+        for (_tag, entity) in registry.map.drain() {
+            commands.entity(entity).despawn_recursive();
+        }
+        
+        // Reset seen tags
+        seen_tags.seen_tags.clear();
+        
+        // Update previous to current
+        active_source.previous = Some(active_source.current);
+    } else if active_source.previous.is_none() {
+        // First time initialization
+        active_source.previous = Some(active_source.current);
+    }
+
     for event in events.read() {
-        match event.0.response.as_ref().unwrap() {
+        // Filter events by active source for observations
+        // Game info is processed from any source (observer preferred, but fallback to proxy if observer unavailable)
+        match event.response.response.as_ref().unwrap() {
+            observation(_) => {
+                // Only process observations from the active source
+                if event.source != active_source.current {
+                    continue;
+                }
+            }
+            game_info(_) => {
+                // Accept game_info from observer first (once available), otherwise from proxy
+                // This ensures we initialize the map even if observer doesn't connect
+            }
+            _ => {}
+        }
+
+        match event.response.response.as_ref().unwrap() {
             observation (obs)  => {
                 // Update dynamic layers (creep, energy, visibility) only if changed
                 if let Some(ref mut map_res) = map_res {
@@ -176,7 +280,7 @@ pub fn response_controller_system(
                     map_res.as_ref().map(|m| {
                         let (w, h) = m.static_layers.get_dimensions();
                         (w as f32, h as f32)
-                    }).unwrap(),
+                    }),
                 );
 
             }

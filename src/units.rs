@@ -126,13 +126,18 @@ pub fn handle_observation(
     obs_msg: &ResponseObservation,
     unit_query: Query<&UnitBuildProgress>,
     seen_tags: &mut ResMut<ObservationUnitTags>,
-    map_size: (f32, f32),
+    map_size: Option<(f32, f32)>,
 ) {
     let obs = obs_msg.observation.as_ref().unwrap();
     let raw_data = obs.raw_data.as_ref().unwrap();
 
     // Clear and rebuild seen tags for this observation
     seen_tags.seen_tags.clear();
+
+    // Skip unit processing if map size not yet available
+    let Some(map_size) = map_size else {
+        return;
+    };
 
     for unit in &raw_data.units {
         let tag = unit.tag.unwrap();

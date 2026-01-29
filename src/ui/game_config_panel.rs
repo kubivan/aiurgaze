@@ -1,9 +1,9 @@
 use std::fs;
-use std::path::Path;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::common::Race;
 use crate::app_settings::{GameConfigPanelDefaults, get_maps_dir};
+use crate::controller::ObservationSource;
 
 #[derive(Resource, Default)]
 pub struct GameConfigPanel {
@@ -20,6 +20,7 @@ pub struct GameConfigPanel {
     pub bot_command: String,
     pub bot_opponent_command: String,
     pub error_message: Option<String>,
+    pub active_source: ObservationSource,
 }
 
 impl GameConfigPanel {
@@ -28,6 +29,7 @@ impl GameConfigPanel {
         Self {
             available_maps,
             ai_race: Some(Race::Random),
+            active_source: ObservationSource::BotProxy,
             ..Default::default()
         }
     }
@@ -66,6 +68,7 @@ impl GameConfigPanel {
             bot_command,
             bot_opponent_command,
             error_message: None,
+            active_source: ObservationSource::BotProxy,
         }
     }
 }

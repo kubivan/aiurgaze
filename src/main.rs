@@ -19,7 +19,7 @@ use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tap::prelude::*;
-use crate::controller::{response_controller_system, setup_proxy, ProxyResponseEvent};
+use crate::controller::{response_controller_system, setup_proxy, setup_observer, ProxyResponseEvent, ActiveObservationSource};
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
@@ -177,6 +177,20 @@ fn proxy_connect_on_docker_ready(
     }
 }
 
+fn observer_connect_on_docker_ready(
+    docker_status: Res<DockerStatus>,
+    mut has_connected: Local<bool>,
+    runtime: Res<TokioTasksRuntime>,
+    game_created: ResMut<GameCreated>,
+    settings: Res<AppSettings>,
+) {
+    if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
+        setup_observer(runtime, settings);
+        *has_connected = true;
+        println!("Observer connection started after Docker became ready and game was created");
+    }
+}
+
 /// Entry point
 fn main() {
     let app_settings = load_settings();
@@ -294,6 +308,7 @@ fn main() {
         .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
+        .insert_resource(ActiveObservationSource::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -304,6 +319,7 @@ fn main() {
         .add_systems(Update, response_controller_system)
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
+        .add_systems(Update, observer_connect_on_docker_ready)
         .add_systems(Update, bot_process_system)
         .add_systems(Update, draw_unit_orders)
         .run();
