@@ -120,13 +120,16 @@ async fn run_bot_command(command: &str, is_player: bool) -> Result<Vec<String>, 
 
     let mut output_lines = Vec::new();
 
+    let bot_type_stdout = bot_type.to_string();
+    let bot_type_stderr = bot_type.to_string();
+
     // Spawn task to read stdout
     let stdout_handle = tokio::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         let mut collected = Vec::new();
         while let Ok(Some(line)) = lines.next_line().await {
-            println!("[bot_runner:{}:stdout] {}", bot_type, line);
+            println!("[bot_runner:{}:stdout] {}", bot_type_stdout, line);
             collected.push(line);
         }
         collected
@@ -138,7 +141,7 @@ async fn run_bot_command(command: &str, is_player: bool) -> Result<Vec<String>, 
         let mut lines = reader.lines();
         let mut collected = Vec::new();
         while let Ok(Some(line)) = lines.next_line().await {
-            eprintln!("[bot_runner:{}:stderr] {}", bot_type, line);
+            eprintln!("[bot_runner:{}:stderr] {}", bot_type_stderr, line);
             collected.push(line);
         }
         collected

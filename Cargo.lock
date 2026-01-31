@@ -865,8 +865,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_health_bar3d"
-version = "3.5.1"
-source = "git+https://github.com/kubivan/bevy_health_bar?rev=68e680e50a1c9d334e0700030aa5b7433d24c187#68e680e50a1c9d334e0700030aa5b7433d24c187"
+version = "3.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "306d80aea5ab8ea405802cc68b64c407e42ac5ff4915f2d2adcfa4cf78805f56"
 dependencies = [
  "bevy",
  "ordered-float",

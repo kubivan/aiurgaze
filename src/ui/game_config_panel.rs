@@ -29,7 +29,7 @@ impl GameConfigPanel {
         Self {
             available_maps,
             ai_race: Some(Race::Random),
-            active_source: ObservationSource::BotProxy,
+            active_source: ObservationSource::Player1,
             ..Default::default()
         }
     }
@@ -68,7 +68,7 @@ impl GameConfigPanel {
             bot_command,
             bot_opponent_command,
             error_message: None,
-            active_source: ObservationSource::BotProxy,
+            active_source: ObservationSource::Player1,
         }
     }
 }
@@ -164,7 +164,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     ui.label("Bot Command:");
     ui.text_edit_singleline(&mut panel.bot_command);
     ui.label("(Optional: Bash command to run player bot)");
-    
+
     ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.checkbox(&mut panel.disable_fog, "Disable Fog");

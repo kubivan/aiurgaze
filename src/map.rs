@@ -136,7 +136,7 @@ pub fn spawn_tilemap(
     #[cfg(all(not(feature = "atlas"), feature = "render"))] array_texture_loader: Res<
         ArrayTextureLoader,
     >,
-) -> TileStorage {
+) -> (TileStorage, Entity) {
     let texture_handle: Handle<Image> = asset_server.load("tiles.png");
     let (width, height) = layers.get_dimensions();
     let map_size = TilemapSize {
@@ -194,5 +194,5 @@ pub fn spawn_tilemap(
             ..Default::default()
         });
     }
-    return tile_storage;
+    (tile_storage, tilemap_entity)
 }

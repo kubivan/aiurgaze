@@ -70,7 +70,7 @@ pub fn ui_system(
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
     mut bot_events: EventWriter<StartBotProcessesEvent>,
-    mut active_source: ResMut<crate::controller::ActiveObservationSource>,
+    mut router: ResMut<crate::controller::ObservationRouter>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
     let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.upstream_url, app_settings.starcraft.upstream_port);
@@ -163,6 +163,14 @@ pub fn ui_system(
                 .resizable(true)
                 .default_width(300.0)
                 .show(ctx, |ui| {
+                    // Ensure Player2 source is only available for VsBot
+                    if game_config_panel.game_type == GameType::VsAI
+                        && game_config_panel.active_source == crate::controller::ObservationSource::Player2
+                    {
+                        game_config_panel.active_source = crate::controller::ObservationSource::Player1;
+                        router.active_source = crate::controller::ObservationSource::Player1;
+                    }
+
                     ui.heading("Game Controls");
                     ui.separator();
                     
@@ -170,15 +178,17 @@ pub fn ui_system(
                     ui.label("Observation Source:");
                     egui::ComboBox::from_id_source("observation_source_combo")
                         .selected_text(match game_config_panel.active_source {
-                            crate::controller::ObservationSource::BotProxy => "Bot Proxy",
-                            crate::controller::ObservationSource::DirectObserver => "Observer",
+                            crate::controller::ObservationSource::Player1 => "Player 1",
+                            crate::controller::ObservationSource::Player2 => "Player 2",
                         })
                         .show_ui(ui, |ui| {
-                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::BotProxy, "Bot Proxy").clicked() {
-                                active_source.current = crate::controller::ObservationSource::BotProxy;
+                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::Player1, "Player 1").clicked() {
+                                router.active_source = crate::controller::ObservationSource::Player1;
                             }
-                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::DirectObserver, "Observer").clicked() {
-                                active_source.current = crate::controller::ObservationSource::DirectObserver;
+                            if game_config_panel.game_type == GameType::VsBot {
+                                if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::Player2, "Player 2").clicked() {
+                                    router.active_source = crate::controller::ObservationSource::Player2;
+                                }
                             }
                         });
                     
@@ -288,6 +298,7 @@ pub fn build_create_game_request(panel: &GameConfigPanel) -> Result<Request, Str
             opponent_setup.set_player_name(panel.bot_name.clone().unwrap_or_default());
         }
     }
+
     let participants = vec![participant_setup, opponent_setup];
     req_create_game.set_player_setup(RepeatedField::from_vec(participants));
 

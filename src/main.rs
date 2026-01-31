@@ -19,7 +19,7 @@ use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tap::prelude::*;
-use crate::controller::{response_controller_system, setup_proxy, setup_observer, ProxyResponseEvent, ActiveObservationSource};
+use crate::controller::{apply_game_info, apply_observation, route_proxy_responses, setup_proxy, GameInfoEvent, ObservationEvent, SourceSwitchedEvent, ObservationRouter, ObservationSource};
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
@@ -168,26 +168,17 @@ fn proxy_connect_on_docker_ready(
     runtime: Res<TokioTasksRuntime>,
     game_created: ResMut<GameCreated>,
     settings: Res<AppSettings>,
+    game_config_panel: Res<GameConfigPanel>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_proxy(runtime, settings);
+        let base_port = settings.starcraft.listen_port;
+        setup_proxy(&runtime, &settings, ObservationSource::Player1, base_port);
+        if game_config_panel.game_type == GameType::VsBot {
+            setup_proxy(&runtime, &settings, ObservationSource::Player2, base_port + 1);
+        }
         *has_connected = true;
         // game_created.0 = false;
         println!("Proxy connection started after Docker became ready and game was created");
-    }
-}
-
-fn observer_connect_on_docker_ready(
-    docker_status: Res<DockerStatus>,
-    mut has_connected: Local<bool>,
-    runtime: Res<TokioTasksRuntime>,
-    game_created: ResMut<GameCreated>,
-    settings: Res<AppSettings>,
-) {
-    if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_observer(runtime, settings);
-        *has_connected = true;
-        println!("Observer connection started after Docker became ready and game was created");
     }
 }
 
@@ -254,7 +245,9 @@ fn main() {
     let assets_dir = get_assets_dir();
 
     App::new()
-        .add_event::<ProxyResponseEvent>()
+        .add_event::<ObservationEvent>()
+        .add_event::<GameInfoEvent>()
+        .add_event::<SourceSwitchedEvent>()
         .add_event::<StartBotProcessesEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
@@ -308,7 +301,7 @@ fn main() {
         .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
-        .insert_resource(ActiveObservationSource::default())
+        .insert_resource(ObservationRouter::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -316,10 +309,11 @@ fn main() {
         .add_systems(Startup, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
-        .add_systems(Update, response_controller_system)
-        .add_systems(Update, cleanup_dead_units.after(response_controller_system))
+        .add_systems(Update, route_proxy_responses)
+        .add_systems(Update, apply_game_info)
+        .add_systems(Update, apply_observation.after(apply_game_info))
+        .add_systems(Update, cleanup_dead_units.after(apply_observation))
         .add_systems(Update, proxy_connect_on_docker_ready)
-        .add_systems(Update, observer_connect_on_docker_ready)
         .add_systems(Update, bot_process_system)
         .add_systems(Update, draw_unit_orders)
         .run();
