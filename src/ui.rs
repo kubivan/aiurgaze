@@ -20,6 +20,17 @@ pub enum AppState { StartScreen, GameScreen }
 #[derive(Resource, Default)]
 pub struct PendingCreateGameRequest(pub Option<Request>);
 
+/// Resource to indicate proxies are ready to accept bot connections
+#[derive(Resource, Default)]
+pub struct ProxiesReady(pub bool);
+
+/// Resource to hold pending bot commands until proxies are ready
+#[derive(Resource, Default, Clone)]
+pub struct PendingBotCommands {
+    pub player: Option<String>,
+    pub opponent: Option<String>,
+}
+
 pub fn setup_camera(mut commands: Commands) { commands.spawn((Camera2d, Transform::from_xyz(0.0, 0.0, 1000.0),)); }
 
 #[derive(Resource, Default)]
@@ -65,11 +76,11 @@ pub fn ui_system(
     mut game_config_panel: ResMut<GameConfigPanel>,
     mut game_created: ResMut<GameCreated>,
     mut pending_request: ResMut<PendingCreateGameRequest>,
+    mut pending_bots: ResMut<PendingBotCommands>,
     selected: Res<SelectedUnit>,
     registry: Res<UnitRegistry>,
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
-    mut bot_events: EventWriter<StartBotProcessesEvent>,
     mut router: ResMut<crate::controller::ObservationRouter>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
@@ -101,12 +112,8 @@ pub fn ui_system(
                     None
                 };
 
-                if player_bot.is_some() || opponent_bot.is_some() {
-                    bot_events.send(StartBotProcessesEvent {
-                        player_bot_command: player_bot,
-                        opponent_bot_command: opponent_bot,
-                    });
-                }
+                pending_bots.player = player_bot;
+                pending_bots.opponent = opponent_bot;
             }
         }
         return;
@@ -146,12 +153,8 @@ pub fn ui_system(
                                 None
                             };
 
-                            if player_bot.is_some() || opponent_bot.is_some() {
-                                bot_events.send(StartBotProcessesEvent {
-                                    player_bot_command: player_bot,
-                                    opponent_bot_command: opponent_bot,
-                                });
-                            }
+                            pending_bots.player = player_bot;
+                            pending_bots.opponent = opponent_bot;
                         }
                     }
                 }
@@ -231,6 +234,29 @@ pub fn ui_system(
                 });
         }
     }
+}
+
+pub fn start_bots_when_ready(
+    proxies_ready: Res<ProxiesReady>,
+    mut pending_bots: ResMut<PendingBotCommands>,
+    mut bot_events: EventWriter<StartBotProcessesEvent>,
+) {
+    if !proxies_ready.0 {
+        return;
+    }
+
+    if pending_bots.player.is_none() && pending_bots.opponent.is_none() {
+        return;
+    }
+
+    println!("[ui_system] Proxies ready, starting bot processes");
+    bot_events.send(StartBotProcessesEvent {
+        player_bot_command: pending_bots.player.clone(),
+        opponent_bot_command: pending_bots.opponent.clone(),
+    });
+
+    pending_bots.player = None;
+    pending_bots.opponent = None;
 }
 
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
