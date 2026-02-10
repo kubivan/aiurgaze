@@ -8,6 +8,8 @@ use sc2_proto::common::Race;
 use protobuf::RepeatedField;
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
+use crate::observation_pipeline::VisionMode;
+use tokio::sync::watch;
 
 pub(crate) mod game_config_panel;
 mod setup_game_config_panel; // kept for now if referenced elsewhere
@@ -19,6 +21,42 @@ pub enum AppState { StartScreen, GameScreen }
 /// Resource to hold a pending CreateGame request from CLI
 #[derive(Resource, Default)]
 pub struct PendingCreateGameRequest(pub Option<Request>);
+
+/// Resource to hold the vision mode watch channel sender.
+/// UI updates this to change which bot's perspective is rendered.
+#[derive(Resource)]
+pub struct VisionModeChannel {
+    pub sender: watch::Sender<VisionMode>,
+    pub current: VisionMode,
+}
+
+impl VisionModeChannel {
+    pub fn new() -> (Self, watch::Receiver<VisionMode>) {
+        let (sender, receiver) = watch::channel(VisionMode::default());
+        (
+            Self {
+                sender,
+                current: VisionMode::default(),
+            },
+            receiver,
+        )
+    }
+
+    pub fn set(&mut self, mode: VisionMode) {
+        self.current = mode;
+        let _ = self.sender.send(mode);
+    }
+}
+
+impl Default for VisionModeChannel {
+    fn default() -> Self {
+        let (sender, _) = watch::channel(VisionMode::default());
+        Self {
+            sender,
+            current: VisionMode::default(),
+        }
+    }
+}
 
 pub fn setup_camera(mut commands: Commands) { commands.spawn((Camera2d, Transform::from_xyz(0.0, 0.0, 1000.0),)); }
 
@@ -70,7 +108,7 @@ pub fn ui_system(
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
     mut bot_events: EventWriter<StartBotProcessesEvent>,
-    mut active_source: ResMut<crate::controller::ActiveObservationSource>,
+    mut vision_mode_channel: ResMut<VisionModeChannel>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
     let ws_url = format!("{}:{}/sc2api", app_settings.starcraft.upstream_url, app_settings.starcraft.upstream_port);
@@ -166,19 +204,16 @@ pub fn ui_system(
                     ui.heading("Game Controls");
                     ui.separator();
                     
-                    // Observation source selector
-                    ui.label("Observation Source:");
-                    egui::ComboBox::from_id_source("observation_source_combo")
-                        .selected_text(match game_config_panel.active_source {
-                            crate::controller::ObservationSource::BotProxy => "Bot Proxy",
-                            crate::controller::ObservationSource::DirectObserver => "Observer",
-                        })
+                    // Vision mode selector
+                    ui.label("Vision Mode:");
+                    let current_mode = vision_mode_channel.current;
+                    egui::ComboBox::from_id_source("vision_mode_combo")
+                        .selected_text(format!("{}", current_mode))
                         .show_ui(ui, |ui| {
-                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::BotProxy, "Bot Proxy").clicked() {
-                                active_source.current = crate::controller::ObservationSource::BotProxy;
-                            }
-                            if ui.selectable_value(&mut game_config_panel.active_source, crate::controller::ObservationSource::DirectObserver, "Observer").clicked() {
-                                active_source.current = crate::controller::ObservationSource::DirectObserver;
+                            for mode in [VisionMode::Player1, VisionMode::Player2, VisionMode::All] {
+                                if ui.selectable_label(current_mode == mode, format!("{}", mode)).clicked() {
+                                    vision_mode_channel.set(mode);
+                                }
                             }
                         });
                     

@@ -1,5 +1,7 @@
 // src/main.rs
 mod proxy_ws;
+mod proxy_channel;
+mod observation_pipeline;
 mod ui;
 mod controller;
 mod map;
@@ -19,12 +21,11 @@ use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tap::prelude::*;
-use crate::controller::{response_controller_system, setup_proxy, setup_observer, ProxyResponseEvent, ActiveObservationSource};
+use crate::controller::{response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode};
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
-use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest};
+use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::draw_unit_orders;
-use futures_util::StreamExt;
 use clap::{Parser, Subcommand};
 use std::process::exit;
 use bevy::color::palettes::basic::{GREEN, RED};
@@ -161,33 +162,23 @@ fn docker_startup_system(
     });
 }
 
-/// System to start proxy connection when Docker is running
+/// System to start proxy connections when Docker is running and game is created.
+/// Sets up one or two proxy channels depending on game mode (VsAI = 1 proxy, VsBot = 2 proxies).
 fn proxy_connect_on_docker_ready(
     docker_status: Res<DockerStatus>,
     mut has_connected: Local<bool>,
     runtime: Res<TokioTasksRuntime>,
     game_created: ResMut<GameCreated>,
     settings: Res<AppSettings>,
+    game_config: Res<GameConfigPanel>,
+    vision_mode_channel: Res<VisionModeChannel>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_proxy(runtime, settings);
+        let is_vs_bot = game_config.game_type == GameType::VsBot;
+        let vision_rx = vision_mode_channel.sender.subscribe();
+        setup_proxies(&runtime, &settings, is_vs_bot, vision_rx);
         *has_connected = true;
-        // game_created.0 = false;
-        println!("Proxy connection started after Docker became ready and game was created");
-    }
-}
-
-fn observer_connect_on_docker_ready(
-    docker_status: Res<DockerStatus>,
-    mut has_connected: Local<bool>,
-    runtime: Res<TokioTasksRuntime>,
-    game_created: ResMut<GameCreated>,
-    settings: Res<AppSettings>,
-) {
-    if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        setup_observer(runtime, settings);
-        *has_connected = true;
-        println!("Observer connection started after Docker became ready and game was created");
+        println!("Proxy connection started after Docker became ready and game was created (VsBot={})", is_vs_bot);
     }
 }
 
@@ -254,8 +245,9 @@ fn main() {
     let assets_dir = get_assets_dir();
 
     App::new()
-        .add_event::<ProxyResponseEvent>()
         .add_event::<StartBotProcessesEvent>()
+        .add_event::<GameInfoEvent>()
+        .add_event::<ObservationEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -308,7 +300,8 @@ fn main() {
         .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
-        .insert_resource(ActiveObservationSource::default())
+        .insert_resource(VisionModeChannel::default())
+        .insert_resource(LastVisionMode::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -319,7 +312,6 @@ fn main() {
         .add_systems(Update, response_controller_system)
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
-        .add_systems(Update, observer_connect_on_docker_ready)
         .add_systems(Update, bot_process_system)
         .add_systems(Update, draw_unit_orders)
         .run();
