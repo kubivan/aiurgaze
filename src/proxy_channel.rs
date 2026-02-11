@@ -5,12 +5,15 @@
 //! - Publishes all SC2 Response messages to a broadcast channel
 //! - Consumers can subscribe to get a Stream of responses
 
+use bytes::Bytes;
 use futures_util::{future, SinkExt, StreamExt};
-use sc2_proto::sc2api::{Request, Response};
+use sc2_proto::sc2api::{Request, Response, Response_oneof_response};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Result};
 use protobuf::Message;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Size of the broadcast channel buffer.
 /// Messages are dropped if consumers fall behind.
@@ -125,37 +128,81 @@ impl ProxyDataChannel {
         // 3. Proxy messages in both directions
         let (mut client_write, mut client_read) = client_ws.split();
 
+        // Shared state: track if we're expecting a silent GameInfo response
+        let expecting_silent_game_info = Arc::new(AtomicBool::new(false));
+        
+        // Wrap upstream_write in Arc<Mutex> so s2c can send the silent request
+        let upstream_write = Arc::new(tokio::sync::Mutex::new(upstream_write));
+
         // Client → Server: forward requests
-        let c2s = async {
-            while let Some(msg) = client_read.next().await {
-                let msg = msg?;
+        let c2s = {
+            let upstream_write = upstream_write.clone();
+            async move {
+                while let Some(msg) = client_read.next().await {
+                    let msg = msg?;
 
-                // Parse for debugging (optional)
-                let mut req = Request::new();
-                if let Ok(_) = req.merge_from_bytes(msg.clone().into_data().iter().as_slice()) {
-                    // Could log request type here if needed
+                    // Parse for debugging (optional)
+                    let mut req = Request::new();
+                    if let Ok(_) = req.merge_from_bytes(msg.clone().into_data().iter().as_slice()) {
+                        // Could log request type here if needed
+                    }
+
+                    upstream_write.lock().await.send(msg).await?;
                 }
-
-                upstream_write.send(msg).await?;
+                Ok::<_, tungstenite::Error>(())
             }
-            Ok::<_, tungstenite::Error>(())
         };
 
         // Server → Client: forward responses AND publish to channel
         let s2c = {
             let sender = sender.clone();
+            let upstream_write = upstream_write.clone();
+            let expecting_silent = expecting_silent_game_info.clone();
             async move {
                 while let Some(msg) = upstream_read.next().await {
                     let msg = msg?;
 
-                    // Parse response and publish to channel
+                    // Parse response
                     let mut res = Response::new();
                     if res.merge_from_bytes(msg.clone().into_data().iter().as_slice()).is_ok() {
-                        // Publish to broadcast channel (ignore send errors - no receivers is ok)
+                        // Check if this is a response to our silent GameInfo request
+                        let is_silent_response = expecting_silent.load(Ordering::SeqCst) 
+                            && matches!(res.response, Some(Response_oneof_response::game_info(_)));
+                        
+                        if is_silent_response {
+                            // This is our silent GameInfo response - publish but don't forward
+                            println!("[{}] Received silent GameInfo response (map data)", player_id);
+                            expecting_silent.store(false, Ordering::SeqCst);
+                            let _ = sender.send(TaggedResponse {
+                                player_id,
+                                response: res,
+                            });
+                            // Don't forward to client - they didn't request it
+                            continue;
+                        }
+                        
+                        // Publish to broadcast channel
                         let _ = sender.send(TaggedResponse {
                             player_id,
-                            response: res,
+                            response: res.clone(),
                         });
+                        
+                        // Check if this is CreateGameResponse - if so, send silent GameInfo request
+                        if matches!(res.response, Some(Response_oneof_response::create_game(_))) {
+                            println!("[{}] Detected CreateGameResponse, sending silent GameInfo request", player_id);
+                            expecting_silent.store(true, Ordering::SeqCst);
+                            
+                            // Build and send GameInfo request
+                            let mut game_info_req = Request::new();
+                            game_info_req.mut_game_info();
+                            if let Ok(bytes) = game_info_req.write_to_bytes() {
+                                let ws_msg = tungstenite::Message::Binary(Bytes::from(bytes));
+                                if let Err(e) = upstream_write.lock().await.send(ws_msg).await {
+                                    eprintln!("[{}] Failed to send silent GameInfo request: {}", player_id, e);
+                                    expecting_silent.store(false, Ordering::SeqCst);
+                                }
+                            }
+                        }
                     }
 
                     // Forward to client
