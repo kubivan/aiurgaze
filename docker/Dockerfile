@@ -52,7 +52,7 @@ RUN chown -R sc2:sc2 /StarCraftII \
 WORKDIR /StarCraftII
 USER sc2
 # Expose default game port (documented; optional to map at runtime)
-EXPOSE 5555
+EXPOSE 5555 5556
 # Add ENTRYPOINT to run the helper script by default. The container will start SC2 with
 # sane defaults: -listen 0.0.0.0 -port 5555. Users can override or append flags.
 ENTRYPOINT ["/StarCraftII/run-sc2.sh"]

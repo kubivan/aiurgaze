@@ -10,11 +10,11 @@ use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Event, EventReader};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use sc2_proto::sc2api::{ResponseObservation, ResponseGameInfo};
+use sc2_proto::sc2api::{Request, ResponseObservation, ResponseGameInfo};
 use tokio::sync::watch;
 use tokio_stream::StreamExt;
 
-use crate::proxy_channel::{ProxyDataChannel, PlayerId};
+use crate::proxy_channel::{ProxyDataChannel, PlayerId, ProxyReadySignal, SharedUpstream, JoinBarrier};
 use crate::observation_pipeline::{VisionMode, create_observation_pipeline, PipelineEvent};
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
@@ -56,27 +56,32 @@ pub struct LastVisionMode(pub Option<VisionMode>);
 ///
 /// Creates one or two proxy channels depending on game mode,
 /// merges their streams with vision filtering, and emits Bevy events.
+/// Returns a ProxyReadySignal that will be signaled when all proxies are ready.
 pub fn setup_proxies(
     runtime: &TokioTasksRuntime,
     settings: &AppSettings,
     is_vs_bot: bool,
     vision_mode_rx: watch::Receiver<VisionMode>,
-) {
+    create_game_request: Option<Request>,
+) -> ProxyReadySignal {
     println!("====== setup_proxies (is_vs_bot={}) ======", is_vs_bot);
+
+    // Create ready signal - expect 1 proxy for VsAI, 2 for VsBot
+    let expected_proxies = if is_vs_bot { 2 } else { 1 };
+    let ready_signal = ProxyReadySignal::new(expected_proxies);
 
     let base_port = settings.starcraft.listen_port;
     let listen_url = settings.starcraft.listen_url.clone();
     let upstream_url = settings.starcraft.upstream_url.clone();
     let upstream_port = settings.starcraft.upstream_port;
+    let upstream_addr = format!("{}:{}/sc2api", upstream_url, upstream_port);
 
     // Create Player1 proxy channel
     let listen_addr1 = format!("{}:{}", listen_url, base_port);
-    let upstream_addr = format!("{}:{}/sc2api", upstream_url, upstream_port);
-    
+
     let (channel1, rx1) = ProxyDataChannel::new(
         PlayerId::Player1,
         listen_addr1.clone(),
-        upstream_addr.clone(),
     );
 
     // Create Player2 proxy channel if VsBot mode
@@ -85,7 +90,6 @@ pub fn setup_proxies(
         let (ch, rx) = ProxyDataChannel::new(
             PlayerId::Player2,
             listen_addr2,
-            upstream_addr.clone(),
         );
         (Some(ch), Some(rx))
     } else {
@@ -130,25 +134,72 @@ pub fn setup_proxies(
         println!("Pipeline consumer finished");
     });
 
-    // Spawn Player1 proxy task
+    // Get the publish sender from Player1's channel for SharedUpstream to use
+    let publish_sender = channel1.sender();
+
+    // Create join barrier for bot-vs-bot: holds all communication until
+    // every proxy has received its JoinGame response + silent GameInfo
+    let join_barrier = if is_vs_bot {
+        Some(JoinBarrier::new(2))
+    } else {
+        None
+    };
+
+    // Spawn a single task that creates the SharedUpstream and then runs both proxies
+    let ready_signal1 = ready_signal.clone();
+    let ready_signal2 = ready_signal.clone();
+    let barrier1 = join_barrier.clone();
+    let barrier2 = join_barrier;
     runtime.spawn_background_task(move |_ctx| async move {
-        println!("[Player1] Starting proxy on {}", listen_addr1);
-        if let Err(e) = channel1.run().await {
-            eprintln!("[Player1] Proxy task failed: {}", e);
+        // Create SharedUpstream: single WS to SC2, sends CreateGame first
+        // expected_joins: 1 for VsAI (only player joins), 2 for VsBot (both join)
+        let expected_joins: u8 = if barrier1.is_some() { 2 } else { 1 };
+        let upstream = match SharedUpstream::connect(
+            &upstream_addr,
+            create_game_request,
+            publish_sender,
+            expected_joins,
+        ).await {
+            Ok(u) => u,
+            Err(e) => {
+                eprintln!("[setup_proxies] Failed to connect SharedUpstream: {}", e);
+                return;
+            }
+        };
+
+        println!("[setup_proxies] SharedUpstream connected, spawning proxy tasks");
+
+        // Spawn Player1 proxy task
+        let upstream1 = upstream.clone();
+        let p1_handle = tokio::spawn(async move {
+            println!("[Player1] Starting proxy on {}", listen_addr1);
+            if let Err(e) = channel1.run(Some(ready_signal1), upstream1, barrier1).await {
+                eprintln!("[Player1] Proxy task failed: {}", e);
+            }
+        });
+
+        // Spawn Player2 proxy task if VsBot
+        let p2_handle = if let Some(channel2) = channel2 {
+            let upstream2 = upstream.clone();
+            Some(tokio::spawn(async move {
+                println!("[Player2] Starting proxy");
+                if let Err(e) = channel2.run(Some(ready_signal2), upstream2, barrier2).await {
+                    eprintln!("[Player2] Proxy task failed: {}", e);
+                }
+            }))
+        } else {
+            None
+        };
+
+        // Wait for proxy tasks to finish
+        let _ = p1_handle.await;
+        if let Some(h) = p2_handle {
+            let _ = h.await;
         }
     });
 
-    // Spawn Player2 proxy task if VsBot
-    if let Some(channel2) = channel2 {
-        runtime.spawn_background_task(move |_ctx| async move {
-            println!("[Player2] Starting proxy");
-            if let Err(e) = channel2.run().await {
-                eprintln!("[Player2] Proxy task failed: {}", e);
-            }
-        });
-    }
-
     println!("====== Proxy tasks spawned ======");
+    ready_signal
 }
 
 fn calculate_layer_hash(layer: &Option<TerrainLayer>) -> u64 {

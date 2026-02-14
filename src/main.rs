@@ -1,5 +1,5 @@
 // src/main.rs
-mod proxy_ws;
+//mod proxy_ws;
 mod proxy_channel;
 mod observation_pipeline;
 mod ui;
@@ -22,6 +22,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode};
+use crate::proxy_channel::ProxyReadySignal;
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
@@ -98,6 +99,7 @@ fn start_server_container(docker_config : &StarcraftConfig) -> Result<(), String
             "run", "-d", "--rm", "-it",
             "--name", &container_name,
             "-p", format!("{}:{}", docker_config.upstream_port, docker_config.upstream_port).as_str(),
+            "-p", format!("{}:{}", docker_config.upstream_port + 1, docker_config.upstream_port + 1).as_str(),
             "-v", &maps_mount,
             &image,
         ])
@@ -134,9 +136,10 @@ fn docker_startup_system(
     let starcraft_config = docker_config.starcraft.clone();
     runtime.spawn_background_task(|mut ctx| async move {
         // Use spawn_blocking for blocking code
-        let result = tokio::task::spawn_blocking(move ||
-            start_server_container(&starcraft_config)
-        ).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        //let result = tokio::task::spawn_blocking(move ||
+        //    start_server_container(&starcraft_config)
+        //).await.unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        let result = start_server_container(&starcraft_config);//.unwrap_or_else(|_| Err("Thread panicked".to_string()));
         let status = match result {
             Ok(_) => DockerStatus::Running,
             Err(e) => {
@@ -152,7 +155,7 @@ fn docker_startup_system(
                 println!("[docker_startup_system] DockerStatus resource not found!");
                 return;
             };
-            
+
             status_res.clone_from(&status);
             println!("[docker_startup_system] Updated DockerStatus to: {:?}", status);
             if status == DockerStatus::Running {
@@ -161,6 +164,10 @@ fn docker_startup_system(
         }).await;
     });
 }
+
+/// Resource wrapper for ProxyReadySignal.
+#[derive(Resource, Default, Clone)]
+pub struct ProxyReadyResource(pub Option<ProxyReadySignal>);
 
 /// System to start proxy connections when Docker is running and game is created.
 /// Sets up one or two proxy channels depending on game mode (VsAI = 1 proxy, VsBot = 2 proxies).
@@ -172,11 +179,15 @@ fn proxy_connect_on_docker_ready(
     settings: Res<AppSettings>,
     game_config: Res<GameConfigPanel>,
     vision_mode_channel: Res<VisionModeChannel>,
+    mut proxy_ready: ResMut<ProxyReadyResource>,
+    mut pending_request: ResMut<PendingCreateGameRequest>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
         let is_vs_bot = game_config.game_type == GameType::VsBot;
         let vision_rx = vision_mode_channel.sender.subscribe();
-        setup_proxies(&runtime, &settings, is_vs_bot, vision_rx);
+        let create_req = pending_request.0.take();
+        let ready_signal = setup_proxies(&runtime, &settings, is_vs_bot, vision_rx, create_req);
+        proxy_ready.0 = Some(ready_signal);
         *has_connected = true;
         println!("Proxy connection started after Docker became ready and game was created (VsBot={})", is_vs_bot);
     }
@@ -302,6 +313,7 @@ fn main() {
         .insert_resource(app_state)
         .insert_resource(VisionModeChannel::default())
         .insert_resource(LastVisionMode::default())
+        .insert_resource(ProxyReadyResource::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
