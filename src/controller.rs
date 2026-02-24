@@ -80,21 +80,23 @@ pub fn setup_proxies(
 
     // Create Player1 proxy channel (each gets its own upstream URL)
     let listen_addr1 = format!("{}:{}", listen_url, base_port);
-    let (channel1, rx1) = ProxyDataChannel::new(
+    let (channel1, _rx1) = ProxyDataChannel::new(
         PlayerId::Player1,
         listen_addr1.clone(),
         upstream_addr1.clone(),
     );
+    let p1_stream = channel1.response_stream();
 
     // Create Player2 proxy channel if VsBot mode — connects to the 2nd SC2 instance
-    let (channel2, rx2) = if is_vs_bot {
+    let (channel2, p2_stream) = if is_vs_bot {
         let listen_addr2 = format!("{}:{}", listen_url, base_port + 1);
-        let (ch, rx) = ProxyDataChannel::new(
+        let (ch, _rx) = ProxyDataChannel::new(
             PlayerId::Player2,
             listen_addr2,
             upstream_addr2.clone(),
         );
-        (Some(ch), Some(rx))
+        let s2 = ch.response_stream();
+        (Some(ch), Some(s2))
     } else {
         (None, None)
     };
@@ -102,7 +104,7 @@ pub fn setup_proxies(
     // Spawn the pipeline consumer task
     runtime.spawn_background_task(move |ctx| async move {
         // Create the merged observation pipeline
-        let pipeline = create_observation_pipeline(rx1, rx2, vision_mode_rx);
+        let pipeline = create_observation_pipeline(p1_stream, p2_stream, vision_mode_rx);
         tokio::pin!(pipeline);
 
         // Consume pipeline events and emit Bevy events
