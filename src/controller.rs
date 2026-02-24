@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use tokio_stream::StreamExt;
 
 use crate::proxy_channel::{ProxyDataChannel, PlayerId, ProxyReadySignal, CreateGameSignal, JoinResponseBarrier, MultiplayerPorts};
-use crate::observation_pipeline::{VisionMode, create_observation_pipeline, PipelineEvent};
+use crate::observation_pipeline::{VisionMode, TaggedResponseStream, create_observation_stream, create_game_info_stream};
 use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
 use crate::entity_system::EntitySystem;
 use crate::units::{handle_observation, UnitBuildProgress, UnitRegistry, ObservationUnitTags};
@@ -85,58 +85,63 @@ pub fn setup_proxies(
         listen_addr1.clone(),
         upstream_addr1.clone(),
     );
-    let p1_stream = channel1.response_stream();
 
     // Create Player2 proxy channel if VsBot mode — connects to the 2nd SC2 instance
-    let (channel2, p2_stream) = if is_vs_bot {
+    let (channel2, p2_gi_stream, p2_obs_stream) = if is_vs_bot {
         let listen_addr2 = format!("{}:{}", listen_url, base_port + 1);
         let (ch, _rx) = ProxyDataChannel::new(
             PlayerId::Player2,
             listen_addr2,
             upstream_addr2.clone(),
         );
-        let s2 = ch.response_stream();
-        (Some(ch), Some(s2))
+        let gi: TaggedResponseStream = Box::pin(ch.response_stream());
+        let obs: TaggedResponseStream = Box::pin(ch.response_stream());
+        (Some(ch), Some(gi), Some(obs))
     } else {
-        (None, None)
+        (None, None, None)
     };
 
-    // Spawn the pipeline consumer task
+    // Spawn game_info consumer (cold — fires once per player at startup)
+    let p1_gi: TaggedResponseStream = Box::pin(channel1.response_stream());
     runtime.spawn_background_task(move |ctx| async move {
-        // Create the merged observation pipeline
-        let pipeline = create_observation_pipeline(p1_stream, p2_stream, vision_mode_rx);
-        tokio::pin!(pipeline);
+        let gi_stream = create_game_info_stream(p1_gi, p2_gi_stream);
+        tokio::pin!(gi_stream);
 
-        // Consume pipeline events and emit Bevy events
-        while let Some(event) = pipeline.next().await {
+        while let Some(tagged_gi) = gi_stream.next().await {
             let mut ctx_clone = ctx.clone();
-            match event {
-                PipelineEvent::Observation(tagged_obs) => {
-                    let obs_event = ObservationEvent {
-                        player_id: tagged_obs.player_id,
-                        observation: tagged_obs.observation,
-                        vision_mode: tagged_obs.vision_mode,
-                    };
-                    tokio::spawn(async move {
-                        ctx_clone.run_on_main_thread(move |ctx| {
-                            ctx.world.send_event(obs_event);
-                        }).await;
-                    });
-                }
-                PipelineEvent::GameInfo(tagged_gi) => {
-                    let gi_event = GameInfoEvent {
-                        player_id: tagged_gi.player_id,
-                        game_info: tagged_gi.game_info,
-                    };
-                    tokio::spawn(async move {
-                        ctx_clone.run_on_main_thread(move |ctx| {
-                            ctx.world.send_event(gi_event);
-                        }).await;
-                    });
-                }
-            }
+            let gi_event = GameInfoEvent {
+                player_id: tagged_gi.player_id,
+                game_info: tagged_gi.game_info,
+            };
+            tokio::spawn(async move {
+                ctx_clone.run_on_main_thread(move |ctx| {
+                    ctx.world.send_event(gi_event);
+                }).await;
+            });
         }
-        println!("Pipeline consumer finished");
+        println!("GameInfo stream finished");
+    });
+
+    // Spawn observation consumer (hot — continuous during game)
+    let p1_obs: TaggedResponseStream = Box::pin(channel1.response_stream());
+    runtime.spawn_background_task(move |ctx| async move {
+        let obs_stream = create_observation_stream(p1_obs, p2_obs_stream, vision_mode_rx);
+        tokio::pin!(obs_stream);
+
+        while let Some(tagged_obs) = obs_stream.next().await {
+            let mut ctx_clone = ctx.clone();
+            let obs_event = ObservationEvent {
+                player_id: tagged_obs.player_id,
+                observation: tagged_obs.observation,
+                vision_mode: tagged_obs.vision_mode,
+            };
+            tokio::spawn(async move {
+                ctx_clone.run_on_main_thread(move |ctx| {
+                    ctx.world.send_event(obs_event);
+                }).await;
+            });
+        }
+        println!("Observation stream finished");
     });
 
     // Spawn independent proxy tasks — each with its own upstream WS to SC2.
