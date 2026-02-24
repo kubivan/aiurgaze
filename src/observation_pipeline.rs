@@ -6,7 +6,6 @@ use sc2_proto::raw::Alliance;
 use tokio::sync::{broadcast, watch};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-
 use crate::proxy_channel::{PlayerId, TaggedResponse};
 
 /// Vision mode controlling which bot's perspective to render.
@@ -70,71 +69,91 @@ pub struct PipelineSettings {
     pub vision_mode_rx: watch::Receiver<VisionMode>,
 }
 
-/// Returns a copy of the observation with neutral units removed.
-/// This is useful for hiding neutral units from the perspective of Player2 in "All" vision mode.
-fn strip_neutral_units(obs: &ResponseObservation) -> ResponseObservation {
-    let mut obs = obs.clone();
-    if let Some(o) = obs.observation.as_mut() {
-        if let Some(raw) = o.raw_data.as_mut() {
-            raw.units.retain(|unit| unit.alliance != Some(Alliance::Neutral));
+/// Merges P2's own units into P1's observation, re-tagging them as Enemy.
+///
+/// This produces a single unified observation from P1's perspective where:
+/// - P1's own/allied/neutral units are preserved as-is from P1's obs
+/// - P2's own units (which are the actual enemy units) are appended re-tagged as `Enemy`
+///
+/// This mimics "disable_fog" behaviour without requiring a real observer bot.
+fn merge_p2_into_p1_obs(
+    p1_obs: &ResponseObservation,
+    p2_obs: &ResponseObservation,
+) -> ResponseObservation {
+    let mut merged = p1_obs.clone();
+    if let Some(p1_inner) = merged.observation.as_mut() {
+        if let Some(p1_raw) = p1_inner.raw_data.as_mut() {
+            if let Some(p2_inner) = p2_obs.observation.as_ref() {
+                if let Some(p2_raw) = p2_inner.raw_data.as_ref() {
+                    // Take P2's own units and resurface them as Enemy in P1's view.
+                    // Alliance::value_Self corresponds to proto value 1 ("Self").
+                    for unit in p2_raw.units.iter() {
+                        if unit.alliance == Some(Alliance::value_Self) {
+                            let mut enemy_unit = unit.clone();
+                            enemy_unit.set_alliance(Alliance::Enemy);
+                            p1_raw.units.push(enemy_unit);
+                        }
+                    }
+                }
+            }
         }
     }
-    obs
+    merged
 }
 
 /// Create the merged observation pipeline.
 ///
-/// Takes receivers from bot channels and a vision mode watch channel,
-/// returns a stream of pipeline events filtered by current vision mode.
+/// ```text
+/// p1$ ─┐                                                    ┌─► PipelineEvent
+///      ├─ merge ─► filter_map(mode, withLatestFrom(p2_obs)) ┤
+/// p2$ ─┘              │                                     └─► PipelineEvent
+///               send(p2_obs_tx)
+/// ```
+///
+/// `VisionMode::All`: P2 observations feed the watch slot (withLatestFrom source);
+/// P1 observations read it via `.borrow()` and call `merge_p2_into_p1_obs`.
+/// Other modes: standard accept/reject per player.
 pub fn create_observation_pipeline(
     player1_rx: broadcast::Receiver<TaggedResponse>,
     player2_rx: Option<broadcast::Receiver<TaggedResponse>>,
     vision_mode_rx: watch::Receiver<VisionMode>,
 ) -> impl tokio_stream::Stream<Item = PipelineEvent> {
-    // Convert broadcast receivers to streams
-    let stream1 = BroadcastStream::new(player1_rx).filter_map(|r| r.ok());
+    use sc2_proto::sc2api::Response_oneof_response::*;
 
-    // Merge streams based on whether we have 1 or 2 players
-    let merged: Box<dyn tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin> = 
-        if let Some(rx2) = player2_rx {
-            let stream2 = BroadcastStream::new(rx2).filter_map(|r| r.ok());
-            Box::new(StreamExt::merge(stream1, stream2))
-        } else {
-            Box::new(stream1)
+    let s1 = BroadcastStream::new(player1_rx).filter_map(|r| r.ok());
+    let (p2_obs_tx, p2_obs_rx) = watch::channel::<Option<ResponseObservation>>(None);
+
+    let merged: Box<dyn tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin> =
+        match player2_rx {
+            Some(rx2) => Box::new(s1.merge(BroadcastStream::new(rx2).filter_map(|r| r.ok()))),
+            None => Box::new(s1),
         };
 
-    // Filter and transform based on vision mode
-    let vision_mode = vision_mode_rx;
     merged.filter_map(move |tagged| {
-        let current_mode = *vision_mode.borrow();
-
-        use sc2_proto::sc2api::Response_oneof_response::*;
-        let resp = tagged.response.response.as_ref()?;
-
-        match resp {
+        let mode = *vision_mode_rx.borrow();
+        match tagged.response.response.as_ref()? {
             observation(obs) => {
-                if !current_mode.accepts(tagged.player_id) {
+                if mode == VisionMode::All && tagged.player_id == PlayerId::Player2 {
+                    let _ = p2_obs_tx.send(Some(obs.clone())); // drive withLatestFrom slot
                     return None;
                 }
-                // Strip neutral units for Player2 in All vision mode
-                let obs_final = if current_mode == VisionMode::All && tagged.player_id == PlayerId::Player2 {
-                    strip_neutral_units(obs)
-                } else {
-                    obs.clone()
+                if !mode.accepts(tagged.player_id) {
+                    return None;
+                }
+                let obs_out = match (mode, p2_obs_rx.borrow().as_ref()) {
+                    (VisionMode::All, Some(p2_obs)) => merge_p2_into_p1_obs(obs, p2_obs),
+                    _ => obs.clone(),
                 };
                 Some(PipelineEvent::Observation(TaggedObservation {
                     player_id: tagged.player_id,
-                    observation: obs_final,
-                    vision_mode: current_mode,
+                    observation: obs_out,
+                    vision_mode: mode,
                 }))
             }
-            game_info(gi) => {
-                // Game info is always passed through (for map initialization)
-                Some(PipelineEvent::GameInfo(TaggedGameInfo {
-                    player_id: tagged.player_id,
-                    game_info: gi.clone(),
-                }))
-            }
+            game_info(gi) => Some(PipelineEvent::GameInfo(TaggedGameInfo {
+                player_id: tagged.player_id,
+                game_info: gi.clone(),
+            })),
             _ => None,
         }
     })
