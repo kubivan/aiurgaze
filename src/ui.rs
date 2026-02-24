@@ -106,7 +106,7 @@ pub fn ui_system(
     registry: Res<UnitRegistry>,
     unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
-    mut bot_events: EventWriter<StartBotProcessesEvent>,
+    mut pending_bot_start: ResMut<PendingBotStart>,
     mut vision_mode_channel: ResMut<VisionModeChannel>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
@@ -117,7 +117,7 @@ pub fn ui_system(
         game_created.0 = true;
         *app_state = AppState::GameScreen;
 
-        // Send event to start bot processes
+        // Store bot start info — will be emitted once proxies are ready
         let player_bot = if !game_config_panel.bot_command.is_empty() {
             Some(game_config_panel.bot_command.clone())
         } else {
@@ -131,7 +131,7 @@ pub fn ui_system(
         };
 
         if player_bot.is_some() || opponent_bot.is_some() {
-            bot_events.write(StartBotProcessesEvent {
+            pending_bot_start.0 = Some(StartBotProcessesEvent {
                 player_bot_command: player_bot,
                 opponent_bot_command: opponent_bot,
                 player_name: Some(game_config_panel.player_name.clone()),
@@ -170,7 +170,7 @@ pub fn ui_system(
                             };
 
                             if player_bot.is_some() || opponent_bot.is_some() {
-                                bot_events.write(StartBotProcessesEvent {
+                                pending_bot_start.0 = Some(StartBotProcessesEvent {
                                     player_bot_command: player_bot,
                                     opponent_bot_command: opponent_bot,
                                     player_name: Some(game_config_panel.player_name.clone()),
@@ -252,6 +252,7 @@ pub fn ui_system(
 
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub enum DockerStatus {
+    Idle,
     NotFound,
     Starting,
     Running,
@@ -269,6 +270,7 @@ pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerSt
         ui.horizontal(|ui| {
             ui.label("Docker status:");
             match &*docker_status {
+                DockerStatus::Idle => ui.colored_label(egui::Color32::GRAY, "Idle"),
                 DockerStatus::Running => ui.colored_label(egui::Color32::GREEN, "Running"),
                 DockerStatus::Starting => ui.colored_label(egui::Color32::YELLOW, "Starting"),
                 DockerStatus::NotFound => ui.colored_label(egui::Color32::RED, "Not Found"),
@@ -280,6 +282,10 @@ pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerSt
 
 #[derive(Resource, Default, Debug, PartialEq, Eq, Clone)]
 pub struct GameCreated(pub bool);
+
+/// Holds bot start info until proxies are ready to accept connections.
+#[derive(Resource, Default)]
+pub struct PendingBotStart(pub Option<StartBotProcessesEvent>);
 
 pub fn build_create_game_request(panel: &GameConfigPanel) -> Result<Request, String> {
     let (Some(map_name), Some(game_type)) = (panel.map_name.clone(), Some(panel.game_type.clone())) else {

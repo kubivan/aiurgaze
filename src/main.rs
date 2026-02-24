@@ -24,7 +24,7 @@ use tap::prelude::*;
 use crate::controller::{response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode};
 use crate::proxy_channel::ProxyReadySignal;
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
-use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel};
+use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel, PendingBotStart};
 use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
 use crate::units::draw_unit_orders;
 use clap::{Parser, Subcommand};
@@ -151,16 +151,23 @@ fn startup_docker_blocking(config: &StarcraftConfig, multiplayer: bool) -> Resul
     result
 }
 
-/// System to check/start Docker and update status
+/// System to check/start Docker and update status.
+/// Runs as an Update system — only triggers once when the game is created
+/// and Docker hasn't been started yet (status == Idle).
 fn docker_startup_system(
     runtime: Res<TokioTasksRuntime>,
     mut docker_status: ResMut<DockerStatus>,
-    docker_config: Res<AppSettings>
+    docker_config: Res<AppSettings>,
+    game_created: Res<GameCreated>,
+    game_config: Res<GameConfigPanel>,
 ) {
+    if *docker_status != DockerStatus::Idle || !game_created.0 {
+        return;
+    }
     docker_status.clone_from(&DockerStatus::Starting);
     // Clone config to own it in the task
     let starcraft_config = docker_config.starcraft.clone();
-    let multiplayer = docker_config.game_config_panel.game_type.as_deref() == Some("VsBot");
+    let multiplayer = game_config.game_type == GameType::VsBot;
     runtime.spawn_background_task(move |mut ctx| async move {
         // Use spawn_blocking for blocking code
         //let result = tokio::task::spawn_blocking(move ||
@@ -195,6 +202,21 @@ fn docker_startup_system(
 /// Resource wrapper for ProxyReadySignal.
 #[derive(Resource, Default, Clone)]
 pub struct ProxyReadyResource(pub Option<ProxyReadySignal>);
+
+/// System to emit StartBotProcessesEvent once the proxy ready signal is available.
+/// This ensures bots are only started after proxies are listening.
+fn emit_pending_bot_start(
+    proxy_ready: Res<ProxyReadyResource>,
+    mut pending_bot_start: ResMut<PendingBotStart>,
+    mut bot_events: EventWriter<StartBotProcessesEvent>,
+) {
+    if proxy_ready.0.is_some() {
+        if let Some(event) = pending_bot_start.0.take() {
+            println!("[emit_pending_bot_start] Proxy ready signal available, emitting StartBotProcessesEvent");
+            bot_events.write(event);
+        }
+    }
+}
 
 /// System to start proxy connections when Docker is running and game is created.
 /// Sets up one or two proxy channels depending on game mode (VsAI = 1 proxy, VsBot = 2 proxies).
@@ -239,6 +261,7 @@ fn main() {
     // Default values for resources
     let mut app_state = AppState::StartScreen;
     let mut pending_request = PendingCreateGameRequest::default();
+    let mut docker_status = DockerStatus::Idle;
 
     if let Some(CliCommands::CreateGame { mode, race }) = cli.command {
         // Check required params
@@ -261,6 +284,7 @@ fn main() {
             eprintln!("Error: Could not start Docker container: {e}");
             exit(1);
         }
+        docker_status = DockerStatus::Running;
         // Set up resources to skip the start screen
         app_state = AppState::GameScreen;
         game_config_panel.game_type = game_type.unwrap();
@@ -334,24 +358,26 @@ fn main() {
         .insert_resource(CameraPanState::default())
         .insert_resource(BotProcessStatus::default())
         .insert_resource(game_config_panel)
-        .insert_resource(DockerStatus::Starting)
+        .insert_resource(docker_status)
         .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
         .insert_resource(app_state)
         .insert_resource(VisionModeChannel::default())
         .insert_resource(LastVisionMode::default())
         .insert_resource(ProxyReadyResource::default())
+        .insert_resource(PendingBotStart::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
         .add_systems(Update, camera_controls)
-        .add_systems(Startup, docker_startup_system)
+        .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
         .add_systems(Update, response_controller_system)
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
-        .add_systems(Update, bot_process_system)
+        .add_systems(Update, emit_pending_bot_start.after(proxy_connect_on_docker_ready))
+        .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
         .add_systems(Update, draw_unit_orders)
         .run();
 }

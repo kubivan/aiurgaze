@@ -347,9 +347,9 @@ pub fn response_controller_system(
                     let new_energy_hash = 0;
 
                     // Only update if something changed
-                    if new_creep_hash != map_res.last_creep_hash 
-                        || new_energy_hash != map_res.last_energy_hash 
-                        || new_visibility_hash != map_res.last_visibility_hash 
+                    // if new_creep_hash != map_res.last_creep_hash 
+                    //     || new_energy_hash != map_res.last_energy_hash 
+                    //     || new_visibility_hash != map_res.last_visibility_hash 
                     {
                         update_tilemap_colors(
                             &map_res.tile_storage,
