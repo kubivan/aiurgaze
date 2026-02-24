@@ -15,6 +15,7 @@ use sc2_proto::sc2api::{Request, Request_oneof_request, Response, PortSet};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Notify};
 use tokio_tungstenite::{accept_async, connect_async, WebSocketStream};
+use tokio_stream::wrappers::BroadcastStream;
 use tungstenite;
 use protobuf::{Message, RepeatedField};
 use std::sync::Arc;
@@ -337,6 +338,17 @@ impl ProxyDataChannel {
     /// Subscribe to this channel's response stream.
     pub fn subscribe(&self) -> broadcast::Receiver<TaggedResponse> {
         self.sender.subscribe()
+    }
+
+    /// Get a typed response stream (BroadcastStream) from this channel.
+    ///
+    /// Converts the raw broadcast receiver into a filtered stream of
+    /// `TaggedResponse`, ready for reactive composition in the pipeline.
+    pub fn response_stream(&self) -> impl tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin {
+        tokio_stream::StreamExt::filter_map(
+            BroadcastStream::new(self.sender.subscribe()),
+            |r| r.ok(),
+        )
     }
 
     // ── Run modes ───────────────────────────────────────────────────────
