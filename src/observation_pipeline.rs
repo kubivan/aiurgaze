@@ -104,15 +104,15 @@ fn merge_p2_into_p1_obs(
 /// Create the merged observation pipeline.
 ///
 /// ```text
-/// p1$ ─┐                                                    ┌─► PipelineEvent
-///      ├─ merge ─► filter_map(mode, withLatestFrom(p2_obs)) ┤
-/// p2$ ─┘              │                                     └─► PipelineEvent
-///               send(p2_obs_tx)
+/// p2_rx ──► hold(latest_p2) + game_info ─────────────────┐
+///                    │                                    ├──► PipelineEvent
+/// p1_rx ──► obs.withLatestFrom(latest_p2) + game_info ───┘
 /// ```
 ///
-/// `VisionMode::All`: P2 observations feed the watch slot (withLatestFrom source);
-/// P1 observations read it via `.borrow()` and call `merge_p2_into_p1_obs`.
-/// Other modes: standard accept/reject per player.
+/// Two independent pipelines connected by a `watch` channel (the reactive
+/// "hold-latest" primitive — Rust's BehaviorSubject).  P2 pipeline writes
+/// each observation into the slot; P1 pipeline reads it via `.borrow()` on
+/// every emission and calls `merge_p2_into_p1_obs` when in `All` mode.
 pub fn create_observation_pipeline(
     player1_rx: broadcast::Receiver<TaggedResponse>,
     player2_rx: Option<broadcast::Receiver<TaggedResponse>>,
@@ -120,43 +120,67 @@ pub fn create_observation_pipeline(
 ) -> impl tokio_stream::Stream<Item = PipelineEvent> {
     use sc2_proto::sc2api::Response_oneof_response::*;
 
-    let s1 = BroadcastStream::new(player1_rx).filter_map(|r| r.ok());
-    let (p2_obs_tx, p2_obs_rx) = watch::channel::<Option<ResponseObservation>>(None);
+    // withLatestFrom bridge: P2 writes, P1 reads.
+    let (hold_p2, latest_p2) = watch::channel::<Option<ResponseObservation>>(None);
 
-    let merged: Box<dyn tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin> =
+    // ── P2: update hold slot; emit obs only in Player2 mode ──
+    let mode_p2 = vision_mode_rx.clone();
+    let p2_events: Box<dyn tokio_stream::Stream<Item = PipelineEvent> + Send + Unpin> =
         match player2_rx {
-            Some(rx2) => Box::new(s1.merge(BroadcastStream::new(rx2).filter_map(|r| r.ok()))),
-            None => Box::new(s1),
+            Some(rx) => Box::new(
+                BroadcastStream::new(rx)
+                    .filter_map(|r| r.ok())
+                    .filter_map(move |tagged| {
+                        let mode = *mode_p2.borrow();
+                        match tagged.response.response.as_ref()? {
+                            observation(obs) => {
+                                let _ = hold_p2.send(Some(obs.clone()));
+                                (mode == VisionMode::Player2).then(|| {
+                                    PipelineEvent::Observation(TaggedObservation {
+                                        player_id: tagged.player_id,
+                                        observation: obs.clone(),
+                                        vision_mode: mode,
+                                    })
+                                })
+                            }
+                            game_info(gi) => Some(PipelineEvent::GameInfo(TaggedGameInfo {
+                                player_id: tagged.player_id,
+                                game_info: gi.clone(),
+                            })),
+                            _ => None,
+                        }
+                    }),
+            ),
+            None => Box::new(tokio_stream::iter(std::iter::empty())),
         };
 
-    merged.filter_map(move |tagged| {
-        let mode = *vision_mode_rx.borrow();
-        match tagged.response.response.as_ref()? {
-            observation(obs) => {
-                if mode == VisionMode::All && tagged.player_id == PlayerId::Player2 {
-                    let _ = p2_obs_tx.send(Some(obs.clone())); // drive withLatestFrom slot
-                    return None;
+    // ── P1: obs.withLatestFrom(latest_p2) → complement in All mode ──
+    let p1_events = BroadcastStream::new(player1_rx)
+        .filter_map(|r| r.ok())
+        .filter_map(move |tagged| {
+            let mode = *vision_mode_rx.borrow();
+            match tagged.response.response.as_ref()? {
+                observation(obs) if mode.accepts(tagged.player_id) => {
+                    let obs_out = match (mode, latest_p2.borrow().as_ref()) {
+                        (VisionMode::All, Some(p2)) => merge_p2_into_p1_obs(obs, p2),
+                        _ => obs.clone(),
+                    };
+                    Some(PipelineEvent::Observation(TaggedObservation {
+                        player_id: tagged.player_id,
+                        observation: obs_out,
+                        vision_mode: mode,
+                    }))
                 }
-                if !mode.accepts(tagged.player_id) {
-                    return None;
-                }
-                let obs_out = match (mode, p2_obs_rx.borrow().as_ref()) {
-                    (VisionMode::All, Some(p2_obs)) => merge_p2_into_p1_obs(obs, p2_obs),
-                    _ => obs.clone(),
-                };
-                Some(PipelineEvent::Observation(TaggedObservation {
+                game_info(gi) => Some(PipelineEvent::GameInfo(TaggedGameInfo {
                     player_id: tagged.player_id,
-                    observation: obs_out,
-                    vision_mode: mode,
-                }))
+                    game_info: gi.clone(),
+                })),
+                _ => None,
             }
-            game_info(gi) => Some(PipelineEvent::GameInfo(TaggedGameInfo {
-                player_id: tagged.player_id,
-                game_info: gi.clone(),
-            })),
-            _ => None,
-        }
-    })
+        });
+
+    // ── merge typed event streams ──
+    p1_events.merge(p2_events)
 }
 
 /// Create a vision mode watch channel.
