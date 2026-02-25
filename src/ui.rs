@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::observation_pipeline::VisionMode;
@@ -74,8 +75,8 @@ pub struct CameraPanState {
 pub fn camera_controls(
     mut state: ResMut<CameraPanState>,
     buttons: Res<ButtonInput<MouseButton>>,
-    mut motion_evr: EventReader<MouseMotion>,
-    mut scroll_evr: EventReader<MouseWheel>,
+    mut motion_evr: MessageReader<MouseMotion>,
+    mut scroll_evr: MessageReader<MouseWheel>,
     mut q_camera: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
 ) {
     if let Ok((mut transform, mut projection)) = q_camera.single_mut() {
@@ -103,6 +104,7 @@ pub fn camera_controls(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn ui_system(
     mut contexts: EguiContexts,
     mut app_state: ResMut<AppState>,

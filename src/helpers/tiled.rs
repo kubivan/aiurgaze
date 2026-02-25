@@ -1,4 +1,6 @@
 // How to use this:
+#![allow(dead_code)]
+#![allow(clippy::match_ref_pats)]
 //   You should copy/paste this into your project and use it much like examples/tiles.rs uses this
 //   file. When you do so you will need to adjust the code based on whether you're using the
 //   'atlas` feature in bevy_ecs_tilemap. The bevy_ecs_tilemap uses this as an example of how to
@@ -12,7 +14,7 @@
 //   * When the 'atlas' feature is enabled tilesets using a collection of images will be skipped.
 //   * Only finite tile layers are loaded. Infinite tile layers and object layers will be skipped.
 
-use std::io::{Cursor, ErrorKind};
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,7 +24,7 @@ use bevy::{
     platform::collections::HashMap,
     prelude::{
         Added, Asset, AssetApp, AssetEvent, AssetId, Assets, Bundle, Commands, Component, Entity,
-        EventReader, GlobalTransform, Handle, Image, Plugin, Query, Res, Transform, Update,
+        MessageReader, GlobalTransform, Handle, Image, Plugin, Query, Res, Transform, Update,
     },
     reflect::TypePath,
 };
@@ -119,7 +121,7 @@ impl AssetLoader for TiledLoader {
             BytesResourceReader::new(&bytes),
         );
         let map = loader.load_tmx_map(load_context.path()).map_err(|e| {
-            std::io::Error::new(ErrorKind::Other, format!("Could not load TMX map: {e}"))
+            std::io::Error::other(format!("Could not load TMX map: {e}"))
         })?;
 
         let mut tilemap_textures = HashMap::default();
@@ -201,7 +203,7 @@ impl AssetLoader for TiledLoader {
 
 pub fn process_loaded_maps(
     mut commands: Commands,
-    mut map_events: EventReader<AssetEvent<TiledMap>>,
+    mut map_events: MessageReader<AssetEvent<TiledMap>>,
     maps: Res<Assets<TiledMap>>,
     tile_storage_query: Query<(Entity, &TileStorage)>,
     mut map_query: Query<(
@@ -349,13 +351,22 @@ pub fn process_loaded_maps(
                                     };
 
                                 let texture_index = match tilemap_texture {
-                                    TilemapTexture::Single(_) => layer_tile.id(),
-                                    #[cfg(not(feature = "atlas"))]
-                                    TilemapTexture::Vector(_) =>
-                                        *tiled_map.tile_image_offsets.get(&(tileset_index, layer_tile.id()))
-                                        .expect("The offset into to image vector should have been saved during the initial load."),
-                                    #[cfg(not(feature = "atlas"))]
-                                    _ => unreachable!()
+                                    &TilemapTexture::Single(_) => layer_tile.id(),
+                                    &TilemapTexture::Vector(_) => {
+                                        #[cfg(not(feature = "atlas"))]
+                                        {
+                                            *tiled_map
+                                                .tile_image_offsets
+                                                .get(&(tileset_index, layer_tile.id()))
+                                                .expect("The offset into to image vector should have been saved during the initial load.")
+                                        }
+                                        #[cfg(feature = "atlas")]
+                                        {
+                                            // When using atlas feature we don't have per-image offsets; fall back to tile id
+                                            layer_tile.id()
+                                        }
+                                    }
+                                    &TilemapTexture::TextureContainer(_) => layer_tile.id(),
                                 };
 
                                 let tile_pos = TilePos { x, y };

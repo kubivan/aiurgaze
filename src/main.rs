@@ -47,7 +47,7 @@ use clap::{Parser, Subcommand};
 use sc2_proto::common::Race;
 use std::process::exit;
 use std::process::Command;
-use tap::prelude::*;
+ 
 
 fn parse_game_type(mode: &str) -> Option<GameType> {
     match mode.to_lowercase().as_str() {
@@ -98,7 +98,7 @@ fn start_server_container(
 
     // Remove any existing container with the same name
     let _ = Command::new("docker")
-        .args(["rm", "-f", &container_name])
+        .args(["rm", "-f", container_name])
         .status();
 
     // Pull configured image so release users only need Docker + binary tarball
@@ -177,7 +177,7 @@ fn startup_docker_blocking(config: &StarcraftConfig, multiplayer: bool) -> Resul
         "[startup_docker_blocking] Starting Docker container (multiplayer={})...",
         multiplayer
     );
-    let result = start_server_container(&config, multiplayer);
+    let result = start_server_container(config, multiplayer);
     match &result {
         Ok(_) => println!("[startup_docker_blocking] Docker container started successfully."),
         Err(e) => eprintln!("[startup_docker_blocking] Failed to start Docker: {e}"),
@@ -258,6 +258,7 @@ fn emit_pending_bot_start(
 
 /// System to start proxy connections when Docker is running and game is created.
 /// Sets up one or two proxy channels depending on game mode (VsAI = 1 proxy, VsBot = 2 proxies).
+#[allow(clippy::too_many_arguments)]
 fn proxy_connect_on_docker_ready(
     docker_status: Res<DockerStatus>,
     mut has_connected: Local<bool>,

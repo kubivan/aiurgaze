@@ -11,7 +11,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::app_settings::get_data_dir;
-use crate::proxy_channel::ProxyReadySignal;
 use crate::ProxyReadyResource;
 
 /// Format a SystemTime as a simple timestamp string
@@ -238,7 +237,7 @@ async fn run_bot_command(
         let timestamp = format_timestamp();
         writeln!(file, "=== Bot '{}' started at {} ===", bot_name, timestamp).ok();
         writeln!(file, "Command: {}", command).ok();
-        writeln!(file, "").ok();
+        writeln!(file).ok();
     }
 
     let mut child = Command::new("bash")
@@ -324,7 +323,7 @@ async fn run_bot_command(
     {
         let mut file = log_file.lock().unwrap();
         let timestamp = format_timestamp();
-        writeln!(file, "").ok();
+        writeln!(file).ok();
         writeln!(
             file,
             "=== Bot '{}' finished at {} with status: {:?} ===",

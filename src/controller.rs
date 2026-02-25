@@ -29,6 +29,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// Event emitted when an observation is received from the pipeline.
+#[allow(dead_code)]
 #[derive(Message, Clone)]
 pub struct ObservationEvent {
     pub player_id: PlayerId,
@@ -37,6 +38,7 @@ pub struct ObservationEvent {
 }
 
 /// Event emitted when game info is received.
+#[allow(dead_code)]
 #[derive(Message, Clone)]
 pub struct GameInfoEvent {
     pub player_id: PlayerId,
@@ -116,9 +118,9 @@ pub fn setup_proxies(
                 game_info: tagged_gi.game_info,
             };
             tokio::spawn(async move {
-                ctx_clone
+                        ctx_clone
                     .run_on_main_thread(move |ctx| {
-                        ctx.world.send_event(gi_event);
+                        ctx.world.write_message(gi_event);
                     })
                     .await;
             });
@@ -140,9 +142,9 @@ pub fn setup_proxies(
                 vision_mode: tagged_obs.vision_mode,
             };
             tokio::spawn(async move {
-                ctx_clone
+                        ctx_clone
                     .run_on_main_thread(move |ctx| {
-                        ctx.world.send_event(obs_event);
+                        ctx.world.write_message(obs_event);
                     })
                     .await;
             });
@@ -316,12 +318,12 @@ fn update_map_from_observation(
     let creep_layer = map_state
         .creep
         .as_ref()
-        .map(|creep_data| TerrainLayer::from_image_data(creep_data));
+        .map(TerrainLayer::from_image_data);
 
     let visibility_layer = map_state
         .visibility
         .as_ref()
-        .map(|vis_data| TerrainLayer::from_image_data(vis_data));
+        .map(TerrainLayer::from_image_data);
 
     let new_creep_hash = calculate_layer_hash(&creep_layer);
     let new_visibility_hash = calculate_layer_hash(&visibility_layer);
@@ -349,6 +351,7 @@ fn update_map_from_observation(
     Some(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_units_for_observation(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
@@ -395,7 +398,7 @@ pub fn map_init_system(
 
     let gi = &event.game_info;
     let start_raw = gi.start_raw.as_ref().unwrap();
-    let start_pos = start_raw.start_locations.get(0);
+    let start_pos = start_raw.start_locations.first();
 
     let path_layer = TerrainLayer::from_image_data(start_raw.pathing_grid.as_ref().unwrap());
     let placement_layer = TerrainLayer::from_image_data(start_raw.placement_grid.as_ref().unwrap());
@@ -427,6 +430,7 @@ pub fn map_init_system(
 }
 
 /// System to handle observation events from the pipeline.
+#[allow(clippy::too_many_arguments)]
 pub fn response_controller_system(
     mut obs_events: MessageReader<ObservationEvent>,
     mut last_vision_mode: ResMut<LastVisionMode>,

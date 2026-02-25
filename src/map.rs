@@ -33,8 +33,8 @@ impl TerrainLayer {
 
     pub fn from_image_data(img: &ImageData) -> Self {
         let img_size = img.size.clone().unwrap();
-        let width = img_size.x.unwrap().clone() as u32;
-        let height = img_size.y.unwrap().clone() as u32;
+        let width = img_size.x.unwrap() as u32;
+        let height = img_size.y.unwrap() as u32;
         let bits = img.bits_per_pixel.unwrap();
         if bits == 1 {
             Self::from_image_data1(img.data.as_ref().unwrap(), width, height)
@@ -50,8 +50,8 @@ impl TerrainLayer {
             "Only 8 bits per pixel supported for now (got {bits})"
         );
         let img_size = img.size.clone().unwrap();
-        let width = img_size.x.unwrap().clone() as u32;
-        let height = img_size.y.unwrap().clone() as u32;
+        let width = img_size.x.unwrap() as u32;
+        let height = img_size.y.unwrap() as u32;
         assert_eq!(
             img.data.as_ref().unwrap().len(),
             (width * height) as usize,
@@ -203,5 +203,5 @@ pub fn spawn_tilemap(
             ..Default::default()
         });
     }
-    return tile_storage;
+    tile_storage
 }

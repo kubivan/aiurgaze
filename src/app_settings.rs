@@ -32,13 +32,13 @@ pub fn get_data_dir() -> PathBuf {
     // If the user explicitly wants to use local repo resources, prefer the
     // repository `data/` directory. This is useful during development and can
     // be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("data").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join("data");
-            }
-            return PathBuf::from("data");
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1"
+        && std::path::Path::new("data").exists()
+    {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd.join("data");
         }
+        return PathBuf::from("data");
     }
 
     let base = xdg_or_fallback(false);
@@ -50,13 +50,13 @@ pub fn get_assets_dir() -> PathBuf {
     // If the user explicitly wants to use local repo resources, prefer the
     // repository `assets/` directory. This is useful during development and
     // can be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("assets").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join("assets");
-            }
-            return PathBuf::from("assets");
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1"
+        && std::path::Path::new("assets").exists()
+    {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd.join("assets");
         }
+        return PathBuf::from("assets");
     }
 
     let base = xdg_or_fallback(false);
@@ -68,13 +68,13 @@ pub fn get_maps_dir() -> PathBuf {
     // If the user explicitly wants to use local repo resources, prefer the
     // repository `maps/` directory. This is useful during development and can
     // be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("maps").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join("maps");
-            }
-            return PathBuf::from("maps");
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1"
+        && std::path::Path::new("maps").exists()
+    {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd.join("maps");
         }
+        return PathBuf::from("maps");
     }
 
     let base = xdg_or_fallback(false);
@@ -86,19 +86,20 @@ pub fn get_config_dir() -> PathBuf {
     // If the user explicitly wants to use local repo resources, prefer the
     // repository root for configuration. This is useful during development and
     // can be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("config.toml").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd;
-            }
-            return PathBuf::from(".");
+    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1"
+        && std::path::Path::new("config.toml").exists()
+    {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd;
         }
+        return PathBuf::from(".");
     }
 
     let base = xdg_or_fallback(true);
     base.join("aiurgaze")
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Resource, Deserialize, Serialize)]
 pub struct AppSettings {
     pub window: WindowConfig,
@@ -112,12 +113,14 @@ pub struct AppSettings {
     pub game_config_panel: GameConfigPanelDefaults,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct AbilityData {
     pub id: u32,
     pub name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct UnitData {
     pub id: u32,

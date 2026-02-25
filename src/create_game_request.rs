@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum GameType {
     #[default]
@@ -5,6 +6,7 @@ pub enum GameType {
     VsBot,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct CreateGameRequest {
     pub game_type: GameType,

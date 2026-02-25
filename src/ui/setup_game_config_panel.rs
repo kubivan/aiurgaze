@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::ui::game_config_panel::GameConfigPanel;
 use bevy::prelude::*;
 

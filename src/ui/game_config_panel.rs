@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::app_settings::{get_maps_dir, GameConfigPanelDefaults};
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -39,7 +40,7 @@ impl GameConfigPanel {
         let map_name = defaults
             .map_name
             .clone()
-            .or_else(|| available_maps.get(0).cloned());
+            .or_else(|| available_maps.first().cloned());
         let player_name = defaults
             .player_name
             .clone()
@@ -49,7 +50,7 @@ impl GameConfigPanel {
             Some("Terran") => Some(Race::Terran),
             Some("Protoss") => Some(Race::Protoss),
             Some("Zerg") => Some(Race::Zerg),
-            Some("Random") | _ => Some(Race::Random),
+            Some("Random") | None | Some(_) => Some(Race::Random),
         };
         let bot_name = defaults.bot_name.clone();
         let disable_fog = defaults.disable_fog.unwrap_or(false);

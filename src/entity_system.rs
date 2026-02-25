@@ -1,10 +1,10 @@
+#![allow(dead_code)]
 use crate::app_settings::{get_data_dir, MapConfig};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::collections::HashMap;
 use std::fs::File;
-use std::path::Path;
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
@@ -90,8 +90,8 @@ impl EntitySystem {
 
         // Load data.json
         let data_json_path = data_dir.join("data.json");
-        let data_json_file =
-            File::open(&data_json_path).expect(&format!("Failed to open {:?}", data_json_path));
+        let data_json_file = File::open(&data_json_path)
+            .unwrap_or_else(|_| panic!("Failed to open {:?}", data_json_path));
 
         let data: DataJson = from_reader(data_json_file).expect("Failed to parse data.json");
 
@@ -107,13 +107,13 @@ impl EntitySystem {
             abilities.insert(ability.id, ability);
         }
 
-        /// Display configuration by unit ID (from entities.toml)
+        // Display configuration by unit ID (from entities.toml)
         let mut map_config = MapConfig::default();
         let mut display_config: HashMap<u32, EntityDisplayInfo> = HashMap::new();
 
         let entities_path = data_dir.join("entities.toml");
         let toml_content = std::fs::read_to_string(&entities_path)
-            .expect(&format!("Failed to read {:?}", entities_path));
+            .unwrap_or_else(|_| panic!("Failed to read {:?}", entities_path));
         let config = toml::de::from_str::<EntitiesConfig>(&toml_content)
             .expect("Failed to parse entities.toml");
 
@@ -123,10 +123,11 @@ impl EntitySystem {
         }
 
         for entity in config.entity {
-            let mut info = EntityDisplayInfo::default();
-            info.name = Some(entity.name.clone());
-            info.icon = entity.icon;
-            info.tile_size = entity.tile_size;
+            let info = EntityDisplayInfo {
+                name: Some(entity.name.clone()),
+                icon: entity.icon,
+                tile_size: entity.tile_size,
+            };
             display_config.insert(entity.id, info);
         }
         info!(
