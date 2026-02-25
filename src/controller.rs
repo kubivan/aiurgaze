@@ -428,12 +428,18 @@ pub fn response_controller_system(
             &mut seen_tags,
         );
 
-        let _ = update_map_from_observation(
+        if update_map_from_observation(
             obs,
             &mut map_res,
             &mut tile_color_query,
             &entity_system,
-        );
+        )
+        .is_none()
+        {
+            eprintln!(
+                "[response_controller_system] Skipped map update: missing map resource or observation raw map_state"
+            );
+        }
 
         handle_units_for_observation(
             &mut commands,
