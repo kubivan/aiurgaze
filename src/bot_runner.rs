@@ -32,7 +32,7 @@ pub struct BotProcessStatus {
     pub opponent_bot_error: Option<String>,
 }
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct StartBotProcessesEvent {
     pub player_bot_command: Option<String>,
     pub opponent_bot_command: Option<String>,
@@ -51,7 +51,7 @@ fn get_bot_log_path(name: &str) -> PathBuf {
 
 /// System to handle starting bot processes when the event is triggered
 pub fn bot_process_system(
-    mut events: EventReader<StartBotProcessesEvent>,
+    mut events: MessageReader<StartBotProcessesEvent>,
     runtime: Res<TokioTasksRuntime>,
     mut bot_status: ResMut<BotProcessStatus>,
     proxy_ready: Res<ProxyReadyResource>,

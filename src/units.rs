@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
-use bevy::sprite::Anchor;
 use sc2_proto::sc2api::ResponseObservation;
+
 use protobuf::reflect::ReflectFieldRef;
 use protobuf::Message;
 use crate::entity_system::EntitySystem;
@@ -198,7 +198,6 @@ pub fn handle_observation(
                     image: image_handle,
                     custom_size: Some(size),
                     color: sprite_color,
-                    anchor: Anchor::Center,
                     ..default()
                 },
                 Transform::from_xyz(world_x, world_y, 1.0),

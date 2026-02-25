@@ -6,7 +6,7 @@
 //! 3. Emits Bevy events for observations and game info
 
 use bevy::asset::AssetServer;
-use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Event, EventReader, resource_exists};
+use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Message, MessageReader};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
@@ -24,7 +24,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// Event emitted when an observation is received from the pipeline.
-#[derive(Event, Clone)]
+#[derive(Message, Clone)]
 pub struct ObservationEvent {
     pub player_id: PlayerId,
     pub observation: ResponseObservation,
@@ -32,7 +32,7 @@ pub struct ObservationEvent {
 }
 
 /// Event emitted when game info is received.
-#[derive(Event, Clone)]
+#[derive(Message, Clone)]
 pub struct GameInfoEvent {
     pub player_id: PlayerId,
     pub game_info: ResponseGameInfo,
@@ -259,7 +259,7 @@ fn update_tilemap_colors(
 /// `run_if` condition.  In vsBot mode two GameInfoEvents arrive in the same
 /// tick; we drain them all but only act on the first one with `start_raw`.
 pub fn map_init_system(
-    mut gi_events: EventReader<GameInfoEvent>,
+    mut gi_events: MessageReader<GameInfoEvent>,
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
     entity_system: Res<EntitySystem>,
@@ -303,7 +303,7 @@ pub fn map_init_system(
 
 /// System to handle observation events from the pipeline.
 pub fn response_controller_system(
-    mut obs_events: EventReader<ObservationEvent>,
+    mut obs_events: MessageReader<ObservationEvent>,
     mut last_vision_mode: ResMut<LastVisionMode>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,

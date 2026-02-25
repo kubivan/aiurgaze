@@ -208,7 +208,7 @@ pub struct ProxyReadyResource(pub Option<ProxyReadySignal>);
 fn emit_pending_bot_start(
     proxy_ready: Res<ProxyReadyResource>,
     mut pending_bot_start: ResMut<PendingBotStart>,
-    mut bot_events: EventWriter<StartBotProcessesEvent>,
+    mut bot_events: MessageWriter<StartBotProcessesEvent>,
 ) {
     if proxy_ready.0.is_some() {
         if let Some(event) = pending_bot_start.0.take() {
@@ -307,9 +307,9 @@ fn main() {
     let assets_dir = get_assets_dir();
 
     App::new()
-        .add_event::<StartBotProcessesEvent>()
-        .add_event::<GameInfoEvent>()
-        .add_event::<ObservationEvent>()
+        .add_message::<StartBotProcessesEvent>()
+        .add_message::<GameInfoEvent>()
+        .add_message::<ObservationEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -323,7 +323,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "aiurgaze - SC2 AI Observer".to_string(),
-                        resolution: (app_settings.window.width, app_settings.window.height).into(),
+                        resolution: (app_settings.window.width as u32, app_settings.window.height as u32).into(),
                         resizable: app_settings.window.resizable,
                         ..default()
                     }),

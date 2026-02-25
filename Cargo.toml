@@ -22,13 +22,13 @@ bytes = "1"
 log = "0.4"
 
 # --- Rendering / UI ---
-bevy = { version = "0.16.1", features = ["default", "webp"]}
-bevy_egui = "0.36.0"
-bevy_ecs_tilemap = "0.16"
-bevy-tokio-tasks = "0.16"
+bevy = { version = "0.17.3", features = ["default", "webp"]}
+bevy_egui = "0.38.0"
+bevy_ecs_tilemap = "0.17.0"
+bevy-tokio-tasks = "0.17.0"
 
 #bevy_health_bar3d = "*"
-bevy_health_bar3d = { version = "3.6.0", default-features = false, features = ["2d"] }
+bevy_health_bar3d = { version = "3.7.0", default-features = false, features = ["2d"] }
 
 tiled = { version = "0.15.0", default-features = false }
 
