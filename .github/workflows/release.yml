@@ -1,0 +1,130 @@
+---
+name: Release
+
+"on":
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-push-sc2-image:
+    name: Build & Push SC2 Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tag version
+        id: vars
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Build and push SC2 image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker
+          file: ./docker/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/aiurgaze-sc2:${{ env.VERSION
+            }}
+            ghcr.io/${{ github.repository_owner }}/aiurgaze-sc2:latest
+
+  build-linux:
+    name: Build Linux Binary
+    needs: build-and-push-sc2-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create distribution package
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          BINARY_NAME=aiurgaze-${VERSION}-linux-x86_64
+          IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY_OWNER}/aiurgaze-sc2:${VERSION}
+          mkdir -p "$BINARY_NAME"
+
+          # Copy binary
+          cp target/release/aiurgaze "$BINARY_NAME/"
+
+          # Copy assets (required for UI)
+          mkdir -p "$BINARY_NAME/assets/units"
+          cp assets/tiles.png "$BINARY_NAME/assets/" 2>/dev/null || true
+          cp assets/units/*.png "$BINARY_NAME/assets/units/" 2>/dev/null || true
+          cp assets/units/*.webp "$BINARY_NAME/assets/units/" \
+            2>/dev/null || true
+
+          # Copy data (required for game entities)
+          mkdir -p "$BINARY_NAME/data"
+          cp data/data.json "$BINARY_NAME/data/"
+          cp data/entities.toml "$BINARY_NAME/data/"
+
+          # Copy maps (required for games)
+          mkdir -p "$BINARY_NAME/maps"
+          cp maps/*.SC2Map "$BINARY_NAME/maps/" 2>/dev/null || true
+
+          # Copy config files
+          cp config.toml "$BINARY_NAME/"
+          sed -i \
+            "s|^image = \\".*\\"|image = \\"${IMAGE_NAME}\\"|" \
+            "$BINARY_NAME/config.toml"
+          mkdir -p "$BINARY_NAME/config"
+          cp config/* "$BINARY_NAME/config/" 2>/dev/null || true
+
+          # Copy documentation and setup files
+          cp README.md "$BINARY_NAME/"
+          cp docker/run-sc2.sh "$BINARY_NAME/"
+          cp docker/healthcheck-sc2.sh "$BINARY_NAME/"
+          test -f INSTALL_BINARY.md \
+            && cp INSTALL_BINARY.md "$BINARY_NAME/" \
+            || true
+
+          # Create setup instructions for Docker
+          cat > "$BINARY_NAME/DOCKER_SETUP.md" << 'EOF'
+          # Docker Setup for aiurgaze
+
+          Install Docker and run `./aiurgaze`.
+          The app automatically pulls the configured hosted image at startup.
+
+          Optional pre-pull:
+
+          ```bash
+          docker pull ghcr.io/kubivan/aiurgaze-sc2:latest
+          ```
+
+          If Docker permission fails on Linux:
+
+          ```bash
+          sudo usermod -aG docker $USER
+          newgrp docker
+          ```
+          EOF
+
+          # Create tarball
+          tar czf "$BINARY_NAME.tar.gz" "$BINARY_NAME"
+          echo "BINARY_ARTIFACT=$BINARY_NAME.tar.gz" >> $GITHUB_ENV
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./${{ env.BINARY_ARTIFACT }}

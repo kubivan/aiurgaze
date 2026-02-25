@@ -56,6 +56,16 @@ The application follows the [XDG Base Directory Specification](https://specifica
 
 **Note**: Make sure `~/.cargo/bin` is in your `PATH` to run `aiurgaze` from anywhere.
 
+### Pull the SC2 Docker image (hosted)
+
+The app expects a hosted SC2 headless image and pulls it on startup. You can also pre-pull manually:
+
+```bash
+docker pull ghcr.io/kubivan/aiurgaze-sc2:latest
+```
+
+You can customize the image name/tag in `config.toml` (see `[starcraft]` section below).
+
 ### Build the SC2 Docker image
 
 The app expects a minimal SC2 headless image called `minimal-sc2` by default. Build it from the `docker/` directory:
@@ -142,13 +152,13 @@ upstream_url = "ws://127.0.0.1"
 upstream_port = 5555
 listen_url = "127.0.0.1"
 listen_port = 5000
-image = "minimal-sc2:latest"
+image = "ghcr.io/kubivan/aiurgaze-sc2:latest"
 container_name = "aiurgaze-sc2"
 ```
 
 - `upstream_url`, `upstream_port`: Where `aiurgaze` connects to the SC2 WebSocket API inside the container.
 - `listen_url`, `listen_port`: Local address the proxy listens on.
-- `image`: Name (and tag) of the SC2 Docker image. Defaults to `minimal-sc2:latest`.
+- `image`: Name (and tag) of the SC2 Docker image. Defaults to `ghcr.io/kubivan/aiurgaze-sc2:latest`.
 - `container_name`: Name for the SC2 container, used when starting/stopping.
 
 The app will:

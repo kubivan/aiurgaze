@@ -86,10 +86,15 @@ fn start_server_container(docker_config : &StarcraftConfig, multiplayer: bool) -
         .args(["rm", "-f", &container_name])
         .status();
 
-    // // Pull image
-    // let _ = Command::new("docker")
-    //     .args(["pull", &image])
-    //     .status();
+    // Pull configured image so release users only need Docker + binary tarball
+    let pull_status = Command::new("docker")
+        .args(["pull", image])
+        .status()
+        .map_err(|e| format!("Failed to execute docker pull: {e}"))?;
+
+    if !pull_status.success() {
+        return Err(format!("docker pull failed with status: {pull_status}"));
+    }
 
     // Get absolute path to maps directory
     let maps_dir = get_maps_dir();

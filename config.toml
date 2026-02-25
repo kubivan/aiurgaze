@@ -10,7 +10,7 @@ upstream_url = "ws://127.0.0.1"
 upstream_port = 5555
 listen_url = "127.0.0.1"
 listen_port = 5000
-image = "minimal-sc2:latest"
+image = "ghcr.io/kubivan/aiurgaze-sc2:latest"
 container_name = "aiurgaze-sc2"
 
 # Game config panel defaults
