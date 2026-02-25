@@ -1,11 +1,11 @@
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
 use sc2_proto::sc2api::ResponseObservation;
+use std::collections::{HashMap, HashSet};
 
-use protobuf::reflect::ReflectFieldRef;
-use protobuf::Message;
 use crate::entity_system::EntitySystem;
 use bevy_health_bar3d::prelude::*;
+use protobuf::reflect::ReflectFieldRef;
+use protobuf::Message;
 use sc2_proto::raw::Alliance;
 
 /// === Resources ===
@@ -39,7 +39,6 @@ impl Percentage for UnitHealth {
         self.current / self.max
     }
 }
-
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -143,7 +142,7 @@ pub fn handle_observation(
         let tag = unit.tag.unwrap();
         seen_tags.seen_tags.insert(tag);
         let pos = unit.pos.as_ref().unwrap();
-        let (x, y, _z ) = (pos.x.unwrap(), pos.y.unwrap(), pos.z.unwrap());
+        let (x, y, _z) = (pos.x.unwrap(), pos.y.unwrap(), pos.z.unwrap());
         let health = unit.health.unwrap_or(1.0);
         let max_health = unit.health_max.unwrap_or(1.0); //TODO: check zero division
         let shield = unit.shield.unwrap_or(0.0);
@@ -161,7 +160,7 @@ pub fn handle_observation(
         //Apply reddish tint for enemy units
         let sprite_color = match unit.alliance.as_ref().unwrap() {
             Alliance::Enemy => Color::srgb(1.0, 0.5, 0.5),
-            _ =>  Color::WHITE
+            _ => Color::WHITE,
         };
 
         // Get display info from an entity system
@@ -176,8 +175,14 @@ pub fn handle_observation(
         if let Some(&entity) = registry.map.get(&tag) {
             commands.entity(entity).insert((
                 Transform::from_xyz(world_x, world_y, 1.0),
-                UnitHealth { current: health, max: max_health },
-                UnitShield { current: shield, max: max_shield },
+                UnitHealth {
+                    current: health,
+                    max: max_health,
+                },
+                UnitShield {
+                    current: shield,
+                    max: max_shield,
+                },
                 UnitProto(unit.clone()),
                 CurrentOrderAbility(first_order_ability),
             ));
@@ -185,9 +190,13 @@ pub fn handle_observation(
             // Prevent flickering: only insert/remove build progress bar if needed
             let has_build_progress = unit_query.get(entity).is_ok();
             if build_progress < 1.0 {
-                commands.entity(entity).insert(UnitBuildProgress(build_progress));
+                commands
+                    .entity(entity)
+                    .insert(UnitBuildProgress(build_progress));
             } else if has_build_progress {
-                commands.entity(entity).remove::<BarSettings<UnitBuildProgress>>();
+                commands
+                    .entity(entity)
+                    .remove::<BarSettings<UnitBuildProgress>>();
                 commands.entity(entity).remove::<UnitBuildProgress>();
             }
         } else {
@@ -203,7 +212,10 @@ pub fn handle_observation(
                 Transform::from_xyz(world_x, world_y, 1.0),
                 UnitTag(tag),
                 UnitType(unit_type),
-                UnitHealth { current: health, max: max_health },
+                UnitHealth {
+                    current: health,
+                    max: max_health,
+                },
                 BarSettings::<UnitHealth> {
                     offset: -size.y / 2.,
                     height: BarHeight::Static(1.),
@@ -217,7 +229,10 @@ pub fn handle_observation(
             // Conditionally add shield bar
             if max_shield > 0.0 {
                 entity_commands.insert((
-                    UnitShield { current: shield, max: max_shield },
+                    UnitShield {
+                        current: shield,
+                        max: max_shield,
+                    },
                     BarSettings::<UnitShield> {
                         offset: -size.y / 2. - 2.0,
                         height: BarHeight::Static(1.),
@@ -257,7 +272,7 @@ pub fn get_set_fields(unit: &sc2_proto::raw::Unit) -> Vec<(String, String)> {
                         result.push((field.name().to_string(), format!("{:?}", val)));
                     }
                 }
-            },
+            }
             ReflectFieldRef::Repeated(r) => {
                 if r.len() > 0 {
                     let mut items = Vec::new();
@@ -267,7 +282,7 @@ pub fn get_set_fields(unit: &sc2_proto::raw::Unit) -> Vec<(String, String)> {
                     }
                     result.push((field.name().to_string(), format!("[{}]", items.join(", "))));
                 }
-            },
+            }
             _ => continue,
         }
     }
@@ -282,24 +297,24 @@ pub fn unit_selection_system(
     unit_query: Query<(Entity, &Transform, &UnitTag)>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut selected: ResMut<SelectedUnit>,
-    entity_system: Res<EntitySystem>
+    entity_system: Res<EntitySystem>,
 ) {
     if !mouse_button_input.just_pressed(MouseButton::Left) {
         return;
     }
-    
+
     let window = windows.single().unwrap();
     let (camera, camera_transform) = camera_query.single().unwrap();
-    
+
     let Some(cursor_pos) = window.cursor_position() else {
         return;
     };
-    
+
     // Convert cursor position to world coordinates
     let Ok(world_pos) = camera.viewport_to_world(camera_transform, cursor_pos) else {
         return;
     };
-    
+
     let world_pos = world_pos.origin.truncate();
     // Check for unit under cursor
     for (_entity, transform, tag) in unit_query.iter() {
@@ -323,7 +338,10 @@ pub fn draw_unit_orders(
     let map_size = (200.0, 176.0);
     let tile_size = entity_system.map_config.tile_size;
 
-    for (transform, proto) in unit_query.iter().filter(|(_ , proto)| { proto.0.orders.len() > 0}) {
+    for (transform, proto) in unit_query
+        .iter()
+        .filter(|(_, proto)| proto.0.orders.len() > 0)
+    {
         // Get the first order if it exists
         let order = proto.0.orders.get(0).unwrap();
         let start_pos = Vec2::new(transform.translation.x, transform.translation.y);
@@ -343,7 +361,12 @@ pub fn draw_unit_orders(
                 let end_pos = Vec2::new(world_x, world_y);
 
                 // Draw dashed line to position target
-                draw_dashed_line(&mut gizmos, start_pos, end_pos, Color::srgba(0.8, 0.8, 0.2, 0.6));
+                draw_dashed_line(
+                    &mut gizmos,
+                    start_pos,
+                    end_pos,
+                    Color::srgba(0.8, 0.8, 0.2, 0.6),
+                );
 
                 // Draw small circle at target position
                 gizmos.circle_2d(end_pos, 4.0, Color::srgba(1.0, 1.0, 0.3, 0.7));
@@ -353,18 +376,26 @@ pub fn draw_unit_orders(
                 let Some(&target_entity) = registry.map.get(target_tag) else {
                     continue;
                 };
-                
+
                 let Ok((target_transform, _)) = unit_query.get(target_entity) else {
                     continue;
                 };
-                
-                let end_pos = Vec2::new(target_transform.translation.x, target_transform.translation.y);
+
+                let end_pos = Vec2::new(
+                    target_transform.translation.x,
+                    target_transform.translation.y,
+                );
 
                 // Draw solid line to unit target
                 gizmos.line_2d(start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
 
                 // Draw a small arrow head
-                draw_arrow_head(&mut gizmos, start_pos, end_pos, Color::srgba(0.2, 0.8, 0.8, 0.7));
+                draw_arrow_head(
+                    &mut gizmos,
+                    start_pos,
+                    end_pos,
+                    Color::srgba(0.2, 0.8, 0.8, 0.7),
+                );
             }
             _ => continue,
         }

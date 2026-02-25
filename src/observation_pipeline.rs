@@ -5,12 +5,12 @@
 //! - `create_observation_stream` — hot, continuous, vision-mode–aware
 //! - `create_game_info_stream`   — cold, fires once per player at start
 
-use sc2_proto::sc2api::ResponseObservation;
+use crate::proxy_channel::{PlayerId, TaggedResponse};
 use sc2_proto::raw::Alliance;
+use sc2_proto::sc2api::ResponseObservation;
 use std::pin::Pin;
 use tokio::sync::watch;
 use tokio_stream::StreamExt;
-use crate::proxy_channel::{PlayerId, TaggedResponse};
 
 pub type TaggedResponseStream = Pin<Box<dyn tokio_stream::Stream<Item = TaggedResponse> + Send>>;
 
@@ -130,12 +130,11 @@ fn merge_p2_into_p1_obs(
 ///
 /// Visibility values per cell: 0 = Hidden, 1 = Fogged, 2 = Visible.
 /// Taking the max gives the union of both players' explored areas.
-fn merge_p2_visibility_into_p1_obs(
-    merged: &mut ResponseObservation,
-    p2_obs: &ResponseObservation,
-) {
+fn merge_p2_visibility_into_p1_obs(merged: &mut ResponseObservation, p2_obs: &ResponseObservation) {
     // Drill down to P2's raw visibility bytes.
-    let Some(p2_data) = p2_obs.observation.as_ref()
+    let Some(p2_data) = p2_obs
+        .observation
+        .as_ref()
         .and_then(|o| o.raw_data.as_ref())
         .and_then(|r| r.map_state.as_ref())
         .and_then(|ms| ms.visibility.as_ref())
@@ -146,7 +145,9 @@ fn merge_p2_visibility_into_p1_obs(
     };
 
     // Drill down to P1's mutable visibility bytes.
-    let Some(p1_data) = merged.observation.as_mut()
+    let Some(p1_data) = merged
+        .observation
+        .as_mut()
         .and_then(|o| o.raw_data.as_mut())
         .and_then(|r| r.map_state.as_mut())
         .and_then(|ms| ms.visibility.as_mut())
@@ -180,11 +181,10 @@ pub fn create_game_info_stream(
 ) -> impl tokio_stream::Stream<Item = TaggedGameInfo> {
     let gi1 = game_info_only_stream(p1_stream);
 
-    let gi2: Box<dyn tokio_stream::Stream<Item = TaggedGameInfo> + Send + Unpin> =
-        match p2_stream {
-            Some(s2) => Box::new(game_info_only_stream(s2)),
-            None => Box::new(tokio_stream::iter(std::iter::empty())),
-        };
+    let gi2: Box<dyn tokio_stream::Stream<Item = TaggedGameInfo> + Send + Unpin> = match p2_stream {
+        Some(s2) => Box::new(game_info_only_stream(s2)),
+        None => Box::new(tokio_stream::iter(std::iter::empty())),
+    };
 
     gi1.merge(gi2)
 }
@@ -212,8 +212,8 @@ pub fn create_observation_stream(
     let mode_p2 = vision_mode_rx.clone();
     let p2_obs: Box<dyn tokio_stream::Stream<Item = TaggedObservation> + Send + Unpin> =
         match p2_stream {
-            Some(s2) => Box::new(
-                observation_only_stream(s2).filter_map(move |(player_id, obs)| {
+            Some(s2) => Box::new(observation_only_stream(s2).filter_map(
+                move |(player_id, obs)| {
                     let mode = *mode_p2.borrow();
                     let _ = hold_p2.send(Some(obs.clone()));
                     (mode == VisionMode::Player2).then(|| TaggedObservation {
@@ -221,27 +221,27 @@ pub fn create_observation_stream(
                         observation: obs,
                         vision_mode: mode,
                     })
-                }),
-            ),
+                },
+            )),
             None => Box::new(tokio_stream::iter(std::iter::empty())),
         };
 
     // ── P1: obs.withLatestFrom(latest_p2) → complement in All mode ──
     let p1_obs = p1_obs_source.filter_map(move |(player_id, obs)| {
-            let mode = *vision_mode_rx.borrow();
-            if !mode.accepts(player_id) {
-                return None;
-            }
-            let obs_out = match (mode, latest_p2.borrow().as_ref()) {
-                (VisionMode::All, Some(p2)) => merge_p2_into_p1_obs(&obs, p2),
-                _ => obs,
-            };
-            Some(TaggedObservation {
-                player_id,
-                observation: obs_out,
-                vision_mode: mode,
-            })
-        });
+        let mode = *vision_mode_rx.borrow();
+        if !mode.accepts(player_id) {
+            return None;
+        }
+        let obs_out = match (mode, latest_p2.borrow().as_ref()) {
+            (VisionMode::All, Some(p2)) => merge_p2_into_p1_obs(&obs, p2),
+            _ => obs,
+        };
+        Some(TaggedObservation {
+            player_id,
+            observation: obs_out,
+            vision_mode: mode,
+        })
+    });
 
     p1_obs.merge(p2_obs)
 }
@@ -261,10 +261,10 @@ mod tests {
     fn test_vision_mode_accepts() {
         assert!(VisionMode::Player1.accepts(PlayerId::Player1));
         assert!(!VisionMode::Player1.accepts(PlayerId::Player2));
-        
+
         assert!(!VisionMode::Player2.accepts(PlayerId::Player1));
         assert!(VisionMode::Player2.accepts(PlayerId::Player2));
-        
+
         assert!(VisionMode::All.accepts(PlayerId::Player1));
         assert!(VisionMode::All.accepts(PlayerId::Player2));
     }

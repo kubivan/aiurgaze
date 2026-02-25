@@ -11,15 +11,15 @@
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use sc2_proto::sc2api::{Request, Request_oneof_request, Response, PortSet};
+use protobuf::{Message, RepeatedField};
+use sc2_proto::sc2api::{PortSet, Request, Request_oneof_request, Response};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Notify};
-use tokio_tungstenite::{accept_async, connect_async, WebSocketStream};
 use tokio_stream::wrappers::BroadcastStream;
+use tokio_tungstenite::{accept_async, connect_async, WebSocketStream};
 use tungstenite;
-use protobuf::{Message, RepeatedField};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 type WsStream = WebSocketStream<tokio::net::TcpStream>;
 type UpstreamWs = WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -47,8 +47,11 @@ impl ProxyReadySignal {
 
     pub fn signal_ready(&self) {
         let prev = self.ready_count.fetch_add(1, Ordering::SeqCst);
-        println!("[ProxyReadySignal] Proxy ready ({}/{})",
-            prev + 1, self.expected_count.load(Ordering::SeqCst));
+        println!(
+            "[ProxyReadySignal] Proxy ready ({}/{})",
+            prev + 1,
+            self.expected_count.load(Ordering::SeqCst)
+        );
     }
 
     pub fn is_ready(&self) -> bool {
@@ -178,12 +181,16 @@ impl MultiplayerPorts {
 
     /// Build the repeated `PortSet` list for client ports.
     fn client_port_sets(&self) -> RepeatedField<PortSet> {
-        let sets: Vec<PortSet> = self.client_ports.iter().map(|&(gp, bp)| {
-            let mut ps = PortSet::new();
-            ps.set_game_port(gp);
-            ps.set_base_port(bp);
-            ps
-        }).collect();
+        let sets: Vec<PortSet> = self
+            .client_ports
+            .iter()
+            .map(|&(gp, bp)| {
+                let mut ps = PortSet::new();
+                ps.set_game_port(gp);
+                ps.set_base_port(bp);
+                ps
+            })
+            .collect();
         RepeatedField::from_vec(sets)
     }
 
@@ -192,8 +199,10 @@ impl MultiplayerPorts {
         if let Some(Request_oneof_request::join_game(ref mut jg)) = req.request {
             jg.set_server_ports(self.server_port_set());
             jg.set_client_ports(self.client_port_sets());
-            println!("[MultiplayerPorts] Injected server=({},{}) clients={:?}",
-                self.server_game_port, self.server_base_port, self.client_ports);
+            println!(
+                "[MultiplayerPorts] Injected server=({},{}) clients={:?}",
+                self.server_game_port, self.server_base_port, self.client_ports
+            );
         }
     }
 }
@@ -246,7 +255,8 @@ fn is_join_game(req: &Request) -> bool {
 fn make_game_info_request() -> Result<Vec<u8>, String> {
     let mut req = Request::new();
     req.mut_game_info();
-    req.write_to_bytes().map_err(|e| format!("Protobuf encode: {e}"))
+    req.write_to_bytes()
+        .map_err(|e| format!("Protobuf encode: {e}"))
 }
 
 /// Connect to SC2 upstream with retries.
@@ -261,7 +271,9 @@ async fn connect_upstream(url: &str) -> Result<UpstreamWs, tungstenite::Error> {
                 return Ok(ws);
             }
             Err(e) => {
-                if retries == 0 { return Err(e); }
+                if retries == 0 {
+                    return Err(e);
+                }
                 println!("[connect_upstream] Retry ({retries} left): {e}");
                 retries -= 1;
                 tokio::time::sleep(delay).await;
@@ -272,7 +284,8 @@ async fn connect_upstream(url: &str) -> Result<UpstreamWs, tungstenite::Error> {
 
 /// Accept exactly one WebSocket client on the listener.
 async fn accept_one_client(
-    listener: &TcpListener, player_id: PlayerId,
+    listener: &TcpListener,
+    player_id: PlayerId,
 ) -> Result<WsStream, Box<dyn std::error::Error + Send + Sync>> {
     println!("[{player_id}] Waiting for client...");
     loop {
@@ -291,15 +304,19 @@ async fn roundtrip(
     read: &mut futures_util::stream::SplitStream<UpstreamWs>,
     data: Vec<u8>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    write.send(tungstenite::Message::Binary(Bytes::from(data))).await?;
-    let msg = read.next().await
-        .ok_or("SC2 closed connection")??;
+    write
+        .send(tungstenite::Message::Binary(Bytes::from(data)))
+        .await?;
+    let msg = read.next().await.ok_or("SC2 closed connection")??;
     Ok(msg.into_data().to_vec())
 }
 
 /// Publish a response to the broadcast channel (best-effort).
 fn publish(sender: &broadcast::Sender<TaggedResponse>, player_id: PlayerId, res: Response) {
-    let _ = sender.send(TaggedResponse { player_id, response: res });
+    let _ = sender.send(TaggedResponse {
+        player_id,
+        response: res,
+    });
 }
 
 // ─── ProxyDataChannel ───────────────────────────────────────────────────────
@@ -344,11 +361,12 @@ impl ProxyDataChannel {
     ///
     /// Converts the raw broadcast receiver into a filtered stream of
     /// `TaggedResponse`, ready for reactive composition in the pipeline.
-    pub fn response_stream(&self) -> impl tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin {
-        tokio_stream::StreamExt::filter_map(
-            BroadcastStream::new(self.sender.subscribe()),
-            |r| r.ok(),
-        )
+    pub fn response_stream(
+        &self,
+    ) -> impl tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin {
+        tokio_stream::StreamExt::filter_map(BroadcastStream::new(self.sender.subscribe()), |r| {
+            r.ok()
+        })
     }
 
     // ── Run modes ───────────────────────────────────────────────────────
@@ -376,7 +394,8 @@ impl ProxyDataChannel {
 
         // 2. CreateGame
         println!("[{pid}] Sending CreateGame");
-        let cg_bytes = create_game_request.write_to_bytes()
+        let cg_bytes = create_game_request
+            .write_to_bytes()
             .map_err(|e| format!("Protobuf encode: {e}"))?;
         let cg_resp = roundtrip(&mut up_w, &mut up_r, cg_bytes).await?;
 
@@ -384,7 +403,11 @@ impl ProxyDataChannel {
             if res.has_create_game() {
                 let cg = res.get_create_game();
                 if cg.has_error() {
-                    eprintln!("[{pid}] CreateGame error: {:?} - {}", cg.get_error(), cg.get_error_details());
+                    eprintln!(
+                        "[{pid}] CreateGame error: {:?} - {}",
+                        cg.get_error(),
+                        cg.get_error_details()
+                    );
                 } else {
                     println!("[{pid}] CreateGame succeeded");
                 }
@@ -401,7 +424,16 @@ impl ProxyDataChannel {
         ready_signal.signal_ready();
         let client_ws = accept_one_client(&listener, pid).await?;
 
-        Self::accept_and_bridge(pid, client_ws, &mut up_w, &mut up_r, &sender, join_barrier, multiplayer_ports).await
+        Self::accept_and_bridge(
+            pid,
+            client_ws,
+            &mut up_w,
+            &mut up_r,
+            &sender,
+            join_barrier,
+            multiplayer_ports,
+        )
+        .await
     }
 
     /// Guest mode (Player2 in VsBot):
@@ -434,7 +466,16 @@ impl ProxyDataChannel {
         ready_signal.signal_ready();
         let client_ws = accept_one_client(&listener, pid).await?;
 
-        Self::accept_and_bridge(pid, client_ws, &mut up_w, &mut up_r, &sender, join_barrier, multiplayer_ports).await
+        Self::accept_and_bridge(
+            pid,
+            client_ws,
+            &mut up_w,
+            &mut up_r,
+            &sender,
+            join_barrier,
+            multiplayer_ports,
+        )
+        .await
     }
 
     /// Solo mode (VsAI — single bot):
@@ -455,7 +496,8 @@ impl ProxyDataChannel {
 
         // CreateGame
         println!("[{pid}] Sending CreateGame");
-        let cg_bytes = create_game_request.write_to_bytes()
+        let cg_bytes = create_game_request
+            .write_to_bytes()
             .map_err(|e| format!("Protobuf encode: {e}"))?;
         let cg_resp = roundtrip(&mut up_w, &mut up_r, cg_bytes).await?;
 
@@ -463,7 +505,11 @@ impl ProxyDataChannel {
             if res.has_create_game() {
                 let cg = res.get_create_game();
                 if cg.has_error() {
-                    eprintln!("[{pid}] CreateGame error: {:?} - {}", cg.get_error(), cg.get_error_details());
+                    eprintln!(
+                        "[{pid}] CreateGame error: {:?} - {}",
+                        cg.get_error(),
+                        cg.get_error_details()
+                    );
                 } else {
                     println!("[{pid}] CreateGame succeeded");
                 }
@@ -518,14 +564,14 @@ impl ProxyDataChannel {
                 raw
             };
 
-
             println!("[{pid}] Forwarding JoinGame");
             let resp = roundtrip(up_w, up_r, raw).await?;
 
             if let Some(res) = try_parse_response(&resp) {
                 publish(sender, pid, res);
             }
-            cw.send(tungstenite::Message::Binary(Bytes::from(resp))).await?;
+            cw.send(tungstenite::Message::Binary(Bytes::from(resp)))
+                .await?;
 
             if let Some(ref barrier) = join_barrier {
                 barrier.mark_joined();
@@ -546,7 +592,8 @@ impl ProxyDataChannel {
             if let Some(res) = try_parse_response(&resp) {
                 publish(sender, pid, res);
             }
-            cw.send(tungstenite::Message::Binary(Bytes::from(resp))).await?;
+            cw.send(tungstenite::Message::Binary(Bytes::from(resp)))
+                .await?;
         }
 
         println!("[{pid}] Proxy finished.");

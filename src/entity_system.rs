@@ -1,10 +1,10 @@
+use crate::app_settings::{get_data_dir, MapConfig};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::from_reader;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
-use serde_json::from_reader;
-use crate::app_settings::{MapConfig, get_data_dir};
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
@@ -90,15 +90,17 @@ impl EntitySystem {
 
         // Load data.json
         let data_json_path = data_dir.join("data.json");
-        let data_json_file = File::open(&data_json_path)
-            .expect(&format!("Failed to open {:?}", data_json_path));
+        let data_json_file =
+            File::open(&data_json_path).expect(&format!("Failed to open {:?}", data_json_path));
 
-        let data: DataJson = from_reader(data_json_file)
-            .expect("Failed to parse data.json");
+        let data: DataJson = from_reader(data_json_file).expect("Failed to parse data.json");
 
         // Build unit and ability maps
-        let units = data.unit.into_iter()
-            .map( |u| (u.id, u)).collect::<HashMap<u32, UnitData>>();
+        let units = data
+            .unit
+            .into_iter()
+            .map(|u| (u.id, u))
+            .collect::<HashMap<u32, UnitData>>();
 
         let mut abilities = HashMap::new();
         for ability in data.ability {
@@ -114,7 +116,7 @@ impl EntitySystem {
             .expect(&format!("Failed to read {:?}", entities_path));
         let config = toml::de::from_str::<EntitiesConfig>(&toml_content)
             .expect("Failed to parse entities.toml");
-        
+
         // Load map config from [map] section
         if let Some(map) = config.map {
             map_config = map;
@@ -127,7 +129,10 @@ impl EntitySystem {
             info.tile_size = entity.tile_size;
             display_config.insert(entity.id, info);
         }
-        info!("Loaded {} entities from entities.toml", display_config.len());
+        info!(
+            "Loaded {} entities from entities.toml",
+            display_config.len()
+        );
 
         // Pre-load icons
         let mut icon_handles = HashMap::new();
@@ -171,14 +176,16 @@ impl EntitySystem {
         if let Some(handle) = self.icon_handles.get(&unit_id) {
             return handle.clone();
         }
-        
+
         //TODO: another default icon?
         asset_server.load("icons/default.png")
     }
 
     /// Get a custom tile size for a unit type [width, height], if specified in config
     pub fn get_custom_tile_size(&self, unit_id: u32) -> Option<[f32; 2]> {
-        self.display_config.get(&unit_id).and_then(|info| info.tile_size)
+        self.display_config
+            .get(&unit_id)
+            .and_then(|info| info.tile_size)
     }
     pub fn unit_name(&self, unit_id: u32) -> Option<&str> {
         self.unit_traits.get(&unit_id).map(|u| u.name.as_str())

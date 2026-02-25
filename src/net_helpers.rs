@@ -2,15 +2,20 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use protobuf::Message;
 use sc2_proto::sc2api::{Request, Response};
-use tokio_tungstenite::connect_async;
+use std::net::TcpStream;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use std::time::Duration;
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::WebSocketStream;
-use std::net::TcpStream;
 
-pub fn send_create_game_request(request: Request, ws_url: &str, max_retries: u32, retry_delay: u64) -> Result<(), String> {
+pub fn send_create_game_request(
+    request: Request,
+    ws_url: &str,
+    max_retries: u32,
+    retry_delay: u64,
+) -> Result<(), String> {
     // Run async code in a blocking context
     let rt = Runtime::new().map_err(|e| format!("Tokio runtime error: {}", e))?;
     rt.block_on(async move {
@@ -28,14 +33,22 @@ pub fn send_create_game_request(request: Request, ws_url: &str, max_retries: u32
                     if attempt < max_retries {
                         sleep(Duration::from_secs(retry_delay)).await;
                     } else {
-                        return Err(format!("WebSocket connect error after {} attempts: {}", max_retries, e));
+                        return Err(format!(
+                            "WebSocket connect error after {} attempts: {}",
+                            max_retries, e
+                        ));
                     }
                 }
             }
         }
         let mut ws_stream = ws_stream_opt.ok_or_else(|| "WebSocket connect failed".to_string())?;
-        let bytes = request.write_to_bytes().map_err(|e| format!("Protobuf serialization error: {}", e))?;
-        ws_stream.send(tungstenite::Message::Binary(Bytes::from(bytes))).await.map_err(|e| format!("WebSocket send error: {}", e))?;
+        let bytes = request
+            .write_to_bytes()
+            .map_err(|e| format!("Protobuf serialization error: {}", e))?;
+        ws_stream
+            .send(tungstenite::Message::Binary(Bytes::from(bytes)))
+            .await
+            .map_err(|e| format!("WebSocket send error: {}", e))?;
         // Wait for a response
         if let Some(msg) = ws_stream.next().await {
             match msg {
@@ -59,8 +72,11 @@ pub fn send_create_game_request(request: Request, ws_url: &str, max_retries: u32
                             } else {
                                 "No details"
                             };
-                            return Err(format!("CreateGame failed: {:?} - {}", 
-                                create_game_resp.get_error(), error_details));
+                            return Err(format!(
+                                "CreateGame failed: {:?} - {}",
+                                create_game_resp.get_error(),
+                                error_details
+                            ));
                         }
                     }
 

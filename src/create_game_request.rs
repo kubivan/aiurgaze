@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum GameType {
     #[default]
@@ -15,4 +14,3 @@ pub struct CreateGameRequest {
     pub bot_name: Option<String>,
     // Add more fields as needed
 }
-

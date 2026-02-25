@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use tokio::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 
 use crate::app_settings::get_data_dir;
 use crate::proxy_channel::ProxyReadySignal;
@@ -65,12 +65,18 @@ pub fn bot_process_system(
             if cmd.is_empty() {
                 continue;
             }
-            
-            let player_name = event.player_name.clone().unwrap_or_else(|| "player".to_string());
+
+            let player_name = event
+                .player_name
+                .clone()
+                .unwrap_or_else(|| "player".to_string());
             let log_path = get_bot_log_path(&player_name);
             let player_port = event.listen_port;
-            
-            println!("[bot_runner] Queueing player bot '{}': {}", player_name, cmd);
+
+            println!(
+                "[bot_runner] Queueing player bot '{}': {}",
+                player_name, cmd
+            );
             println!("[bot_runner] Logging to: {:?}", log_path);
             bot_status.player_bot_running = true;
             bot_status.player_bot_error = None;
@@ -82,30 +88,45 @@ pub fn bot_process_system(
             runtime.spawn_background_task(move |mut ctx| async move {
                 // Wait for Player1 proxy to be ready (count >= 1)
                 if let Some(signal) = &ready_signal_clone {
-                    println!("[bot_runner] Waiting for Player1 proxy before starting '{}'...", player_name_clone);
+                    println!(
+                        "[bot_runner] Waiting for Player1 proxy before starting '{}'...",
+                        player_name_clone
+                    );
                     signal.wait_for_count(1).await;
-                    println!("[bot_runner] Player1 proxy ready, starting '{}'", player_name_clone);
+                    println!(
+                        "[bot_runner] Player1 proxy ready, starting '{}'",
+                        player_name_clone
+                    );
                 }
 
-                let result = run_bot_command(&cmd_clone, &player_name_clone, &log_path, player_port).await;
+                let result =
+                    run_bot_command(&cmd_clone, &player_name_clone, &log_path, player_port).await;
 
                 ctx.run_on_main_thread(move |world| {
-                    let Some(mut status) = world.world.get_resource_mut::<BotProcessStatus>() else {
+                    let Some(mut status) = world.world.get_resource_mut::<BotProcessStatus>()
+                    else {
                         return;
                     };
-                    
+
                     status.player_bot_running = false;
                     match result {
                         Ok(output) => {
-                            println!("[bot_runner] Player bot '{}' completed successfully", player_name_clone);
+                            println!(
+                                "[bot_runner] Player bot '{}' completed successfully",
+                                player_name_clone
+                            );
                             status.player_bot_output = output;
                         }
                         Err(e) => {
-                            eprintln!("[bot_runner] Player bot '{}' failed: {}", player_name_clone, e);
+                            eprintln!(
+                                "[bot_runner] Player bot '{}' failed: {}",
+                                player_name_clone, e
+                            );
                             status.player_bot_error = Some(e);
                         }
                     }
-                }).await;
+                })
+                .await;
             });
         }
 
@@ -114,12 +135,18 @@ pub fn bot_process_system(
             if cmd.is_empty() {
                 continue;
             }
-            
-            let opponent_name = event.opponent_name.clone().unwrap_or_else(|| "opponent".to_string());
+
+            let opponent_name = event
+                .opponent_name
+                .clone()
+                .unwrap_or_else(|| "opponent".to_string());
             let log_path = get_bot_log_path(&opponent_name);
             let opponent_port = event.listen_port + 1;
-            
-            println!("[bot_runner] Queueing opponent bot '{}': {}", opponent_name, cmd);
+
+            println!(
+                "[bot_runner] Queueing opponent bot '{}': {}",
+                opponent_name, cmd
+            );
             println!("[bot_runner] Logging to: {:?}", log_path);
             bot_status.opponent_bot_running = true;
             bot_status.opponent_bot_error = None;
@@ -131,30 +158,46 @@ pub fn bot_process_system(
             runtime.spawn_background_task(move |mut ctx| async move {
                 // Wait for Player2 proxy to be ready (count >= 2, both proxies)
                 if let Some(signal) = &ready_signal_clone {
-                    println!("[bot_runner] Waiting for Player2 proxy before starting '{}'...", opponent_name_clone);
+                    println!(
+                        "[bot_runner] Waiting for Player2 proxy before starting '{}'...",
+                        opponent_name_clone
+                    );
                     signal.wait_for_count(2).await;
-                    println!("[bot_runner] Player2 proxy ready, starting '{}'", opponent_name_clone);
+                    println!(
+                        "[bot_runner] Player2 proxy ready, starting '{}'",
+                        opponent_name_clone
+                    );
                 }
 
-                let result = run_bot_command(&cmd_clone, &opponent_name_clone, &log_path, opponent_port).await;
+                let result =
+                    run_bot_command(&cmd_clone, &opponent_name_clone, &log_path, opponent_port)
+                        .await;
 
                 ctx.run_on_main_thread(move |world| {
-                    let Some(mut status) = world.world.get_resource_mut::<BotProcessStatus>() else {
+                    let Some(mut status) = world.world.get_resource_mut::<BotProcessStatus>()
+                    else {
                         return;
                     };
-                    
+
                     status.opponent_bot_running = false;
                     match result {
                         Ok(output) => {
-                            println!("[bot_runner] Opponent bot '{}' completed successfully", opponent_name_clone);
+                            println!(
+                                "[bot_runner] Opponent bot '{}' completed successfully",
+                                opponent_name_clone
+                            );
                             status.opponent_bot_output = output;
                         }
                         Err(e) => {
-                            eprintln!("[bot_runner] Opponent bot '{}' failed: {}", opponent_name_clone, e);
+                            eprintln!(
+                                "[bot_runner] Opponent bot '{}' failed: {}",
+                                opponent_name_clone, e
+                            );
                             status.opponent_bot_error = Some(e);
                         }
                     }
-                }).await;
+                })
+                .await;
             });
         }
     }
@@ -162,10 +205,18 @@ pub fn bot_process_system(
 
 /// Run a bash command asynchronously, capture output and write to log file.
 /// Replaces `{port}` in command with the proxy port, and sets `SC2_PROXY_PORT` env var.
-async fn run_bot_command(command: &str, bot_name: &str, log_path: &PathBuf, proxy_port: u16) -> Result<Vec<String>, String> {
+async fn run_bot_command(
+    command: &str,
+    bot_name: &str,
+    log_path: &PathBuf,
+    proxy_port: u16,
+) -> Result<Vec<String>, String> {
     // Replace {port} placeholder in command with actual proxy port.
     let command = command.replace("{port}", &proxy_port.to_string());
-    println!("[bot_runner] Executing '{}' bot command: {} (port={})", bot_name, command, proxy_port);
+    println!(
+        "[bot_runner] Executing '{}' bot command: {} (port={})",
+        bot_name, command, proxy_port
+    );
 
     // Wait for proxies to be ready (give them 2 seconds to start listening)
     //println!("[bot_runner] Waiting 2 seconds for proxy to be ready...");
@@ -178,9 +229,9 @@ async fn run_bot_command(command: &str, bot_name: &str, log_path: &PathBuf, prox
         .truncate(true)
         .open(log_path)
         .map_err(|e| format!("Failed to create log file {:?}: {}", log_path, e))?;
-    
+
     let log_file = Arc::new(Mutex::new(log_file));
-    
+
     // Write header to log
     {
         let mut file = log_file.lock().unwrap();
@@ -199,11 +250,19 @@ async fn run_bot_command(command: &str, bot_name: &str, log_path: &PathBuf, prox
         .spawn()
         .map_err(|e| format!("Failed to spawn '{}' bot process: {}", bot_name, e))?;
 
-    println!("[bot_runner] '{}' process spawned with PID: {:?}", bot_name, child.id());
+    println!(
+        "[bot_runner] '{}' process spawned with PID: {:?}",
+        bot_name,
+        child.id()
+    );
 
-    let stdout = child.stdout.take()
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| format!("Failed to capture stdout for '{}' bot", bot_name))?;
-    let stderr = child.stderr.take()
+    let stderr = child
+        .stderr
+        .take()
         .ok_or_else(|| format!("Failed to capture stderr for '{}' bot", bot_name))?;
 
     let mut output_lines = Vec::new();
@@ -245,13 +304,17 @@ async fn run_bot_command(command: &str, bot_name: &str, log_path: &PathBuf, prox
     });
 
     // Wait for process to complete
-    let status = child.wait().await
+    let status = child
+        .wait()
+        .await
         .map_err(|e| format!("Failed to wait for '{}' bot process: {}", bot_name, e))?;
 
     // Collect output
-    let stdout_lines = stdout_handle.await
+    let stdout_lines = stdout_handle
+        .await
         .map_err(|e| format!("Failed to join stdout task: {}", e))?;
-    let stderr_lines = stderr_handle.await
+    let stderr_lines = stderr_handle
+        .await
         .map_err(|e| format!("Failed to join stderr task: {}", e))?;
 
     output_lines.extend(stdout_lines);
@@ -262,14 +325,24 @@ async fn run_bot_command(command: &str, bot_name: &str, log_path: &PathBuf, prox
         let mut file = log_file.lock().unwrap();
         let timestamp = format_timestamp();
         writeln!(file, "").ok();
-        writeln!(file, "=== Bot '{}' finished at {} with status: {:?} ===", bot_name, timestamp, status).ok();
+        writeln!(
+            file,
+            "=== Bot '{}' finished at {} with status: {:?} ===",
+            bot_name, timestamp, status
+        )
+        .ok();
     }
 
     if !status.success() {
-        return Err(format!("'{}' bot process exited with status: {:?}", bot_name, status));
+        return Err(format!(
+            "'{}' bot process exited with status: {:?}",
+            bot_name, status
+        ));
     }
-    
-    println!("[bot_runner] '{}' bot process completed with status: {:?}", bot_name, status);
+
+    println!(
+        "[bot_runner] '{}' bot process completed with status: {:?}",
+        bot_name, status
+    );
     Ok(output_lines)
 }
-

@@ -1,8 +1,8 @@
-use std::fs;
+use crate::app_settings::{get_maps_dir, GameConfigPanelDefaults};
 use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::common::Race;
-use crate::app_settings::{GameConfigPanelDefaults, get_maps_dir};
+use std::fs;
 
 #[derive(Resource, Default)]
 pub struct GameConfigPanel {
@@ -36,8 +36,14 @@ impl GameConfigPanel {
             Some("VsBot") => GameType::VsBot,
             _ => GameType::VsAI,
         };
-        let map_name = defaults.map_name.clone().or_else(|| available_maps.get(0).cloned());
-        let player_name = defaults.player_name.clone().unwrap_or_else(|| "Player1".to_string());
+        let map_name = defaults
+            .map_name
+            .clone()
+            .or_else(|| available_maps.get(0).cloned());
+        let player_name = defaults
+            .player_name
+            .clone()
+            .unwrap_or_else(|| "Player1".to_string());
         let ai_difficulty = defaults.ai_difficulty.clone();
         let ai_race = match defaults.ai_race.as_deref() {
             Some("Terran") => Some(Race::Terran),
@@ -115,7 +121,12 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
             panel.map_name = Some(panel.available_maps[0].clone());
         }
         egui::ComboBox::from_id_salt("map_name_combo")
-            .selected_text(panel.map_name.clone().unwrap_or_else(|| "Select map".to_string()))
+            .selected_text(
+                panel
+                    .map_name
+                    .clone()
+                    .unwrap_or_else(|| "Select map".to_string()),
+            )
             .show_ui(ui, |ui| {
                 for map in &panel.available_maps {
                     ui.selectable_value(&mut panel.map_name, Some(map.clone()), map);
@@ -130,7 +141,12 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         GameType::VsAI => {
             ui.label("AI Difficulty:");
             egui::ComboBox::from_id_salt("ai_difficulty_combo")
-                .selected_text(panel.ai_difficulty.clone().unwrap_or_else(|| "Select difficulty".to_string()))
+                .selected_text(
+                    panel
+                        .ai_difficulty
+                        .clone()
+                        .unwrap_or_else(|| "Select difficulty".to_string()),
+                )
                 .show_ui(ui, |ui| {
                     for diff in ["Easy", "Medium", "Hard", "Cheat"] {
                         ui.selectable_value(&mut panel.ai_difficulty, Some(diff.to_string()), diff);
@@ -139,7 +155,12 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
 
             ui.label("AI Race:");
             egui::ComboBox::from_id_salt("ai_race_combo")
-                .selected_text(panel.ai_race.map(|r| format!("{:?}", r)).unwrap_or_else(|| "Select race".to_string()))
+                .selected_text(
+                    panel
+                        .ai_race
+                        .map(|r| format!("{:?}", r))
+                        .unwrap_or_else(|| "Select race".to_string()),
+                )
                 .show_ui(ui, |ui| {
                     for &race in &[Race::Random, Race::Terran, Race::Zerg, Race::Protoss] {
                         ui.selectable_value(&mut panel.ai_race, Some(race), format!("{:?}", race));
@@ -149,7 +170,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         GameType::VsBot => {
             ui.label("Bot Name:");
             ui.text_edit_singleline(panel.bot_name.get_or_insert_with(String::new));
-            
+
             ui.label("Bot Opponent Command:");
             ui.text_edit_singleline(&mut panel.bot_opponent_command);
             ui.label("(Bash command to run opponent bot)");
@@ -160,7 +181,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     ui.label("Bot Command:");
     ui.text_edit_singleline(&mut panel.bot_command);
     ui.label("(Optional: Bash command to run player bot)");
-    
+
     ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.checkbox(&mut panel.disable_fog, "Disable Fog");
@@ -180,12 +201,18 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     }
 
     let can_create_game = !panel.available_maps.is_empty() && panel.map_name.is_some();
-    if ui.add_enabled(can_create_game, egui::Button::new("Create Game")).clicked() {
+    if ui
+        .add_enabled(can_create_game, egui::Button::new("Create Game"))
+        .clicked()
+    {
         panel.error_message = None; // Clear previous error on new attempt
         start_game = true;
     }
     if !can_create_game {
-        ui.colored_label(egui::Color32::YELLOW, "Cannot create game: no maps available in ./maps");
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            "Cannot create game: no maps available in ./maps",
+        );
     }
     start_game
 }

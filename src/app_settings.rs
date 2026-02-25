@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use bevy::prelude::{Resource, Color};
-use serde::{Deserialize, Serialize};
+use bevy::prelude::{Color, Resource};
 use directories::BaseDirs;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // Return an XDG-style data/config base dir, falling back to HOME if BaseDirs is unavailable.
 fn xdg_or_fallback(is_config: bool) -> PathBuf {
@@ -113,10 +113,17 @@ pub struct AppSettings {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct AbilityData { pub id: u32, pub name: String }
+pub struct AbilityData {
+    pub id: u32,
+    pub name: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct UnitData { pub id: u32, pub name: String, pub radius: Option<f32> }
+pub struct UnitData {
+    pub id: u32,
+    pub name: String,
+    pub radius: Option<f32>,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct EntityDisplayConfig {
@@ -168,7 +175,12 @@ impl MapConfig {
             - normalized_height * (self.height_intensity[0] - self.height_intensity[1]);
 
         let rgba = color.to_srgba();
-        Color::srgba(rgba.red * intensity, rgba.green * intensity, rgba.blue * intensity, rgba.alpha)
+        Color::srgba(
+            rgba.red * intensity,
+            rgba.green * intensity,
+            rgba.blue * intensity,
+            rgba.alpha,
+        )
     }
 }
 
@@ -209,7 +221,10 @@ pub fn load_settings() -> AppSettings {
         .build()
         .and_then(|c| c.try_deserialize())
         .unwrap_or_else(|e| {
-            eprintln!("[config] Failed to load {}: {}, using defaults", config_path_str, e);
+            eprintln!(
+                "[config] Failed to load {}: {}, using defaults",
+                config_path_str, e
+            );
             AppSettings::default()
         });
 

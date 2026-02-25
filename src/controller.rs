@@ -6,20 +6,25 @@
 //! 3. Emits Bevy events for observations and game info
 
 use bevy::asset::AssetServer;
-use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Message, MessageReader};
+use bevy::prelude::{Commands, Message, MessageReader, Query, Res, ResMut, Resource};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use sc2_proto::sc2api::{Request, ResponseObservation, ResponseGameInfo};
+use sc2_proto::sc2api::{Request, ResponseGameInfo, ResponseObservation};
 use tokio::sync::watch;
 use tokio_stream::StreamExt;
 
-use crate::proxy_channel::{ProxyDataChannel, PlayerId, ProxyReadySignal, CreateGameSignal, JoinResponseBarrier, MultiplayerPorts};
-use crate::observation_pipeline::{VisionMode, TaggedResponseStream, create_observation_stream, create_game_info_stream};
-use crate::map::{spawn_tilemap, TerrainLayers, TerrainLayer, blend_tile_color};
-use crate::entity_system::EntitySystem;
-use crate::units::{handle_observation, UnitBuildProgress, UnitRegistry, ObservationUnitTags};
 use crate::app_settings::AppSettings;
+use crate::entity_system::EntitySystem;
+use crate::map::{blend_tile_color, spawn_tilemap, TerrainLayer, TerrainLayers};
+use crate::observation_pipeline::{
+    create_game_info_stream, create_observation_stream, TaggedResponseStream, VisionMode,
+};
+use crate::proxy_channel::{
+    CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, PlayerId, ProxyDataChannel,
+    ProxyReadySignal,
+};
+use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -89,11 +94,8 @@ pub fn setup_proxies(
     // Create Player2 proxy channel if VsBot mode — connects to the 2nd SC2 instance
     let (channel2, p2_gi_stream, p2_obs_stream) = if is_vs_bot {
         let listen_addr2 = format!("{}:{}", listen_url, base_port + 1);
-        let (ch, _rx) = ProxyDataChannel::new(
-            PlayerId::Player2,
-            listen_addr2,
-            upstream_addr2.clone(),
-        );
+        let (ch, _rx) =
+            ProxyDataChannel::new(PlayerId::Player2, listen_addr2, upstream_addr2.clone());
         let gi: TaggedResponseStream = Box::pin(ch.response_stream());
         let obs: TaggedResponseStream = Box::pin(ch.response_stream());
         (Some(ch), Some(gi), Some(obs))
@@ -114,9 +116,11 @@ pub fn setup_proxies(
                 game_info: tagged_gi.game_info,
             };
             tokio::spawn(async move {
-                ctx_clone.run_on_main_thread(move |ctx| {
-                    ctx.world.send_event(gi_event);
-                }).await;
+                ctx_clone
+                    .run_on_main_thread(move |ctx| {
+                        ctx.world.send_event(gi_event);
+                    })
+                    .await;
             });
         }
         println!("GameInfo stream finished");
@@ -136,9 +140,11 @@ pub fn setup_proxies(
                 vision_mode: tagged_obs.vision_mode,
             };
             tokio::spawn(async move {
-                ctx_clone.run_on_main_thread(move |ctx| {
-                    ctx.world.send_event(obs_event);
-                }).await;
+                ctx_clone
+                    .run_on_main_thread(move |ctx| {
+                        ctx.world.send_event(obs_event);
+                    })
+                    .await;
             });
         }
         println!("Observation stream finished");
@@ -175,14 +181,20 @@ pub fn setup_proxies(
                 eprintln!("[Player1] No CreateGame request for host mode");
                 return;
             };
-            if let Err(e) = channel1.run_host(ready_signal1, cg_signal1, barrier1, cg_req, mp1).await {
+            if let Err(e) = channel1
+                .run_host(ready_signal1, cg_signal1, barrier1, cg_req, mp1)
+                .await
+            {
                 eprintln!("[Player1] Proxy failed: {e}");
             }
         });
 
         // Guest (Player2): wait signal → JoinGame → bridge
         runtime.spawn_background_task(move |_ctx| async move {
-            if let Err(e) = channel2.run_guest(ready_signal2, cg_signal2, barrier2, mp2).await {
+            if let Err(e) = channel2
+                .run_guest(ready_signal2, cg_signal2, barrier2, mp2)
+                .await
+            {
                 eprintln!("[Player2] Proxy failed: {e}");
             }
         });
@@ -229,11 +241,11 @@ fn update_tilemap_colors(
             let Some(tile_entity) = tile_storage.get(&tile_pos) else {
                 continue;
             };
-            
+
             let Ok(mut tile_color) = tile_color_query.get_mut(tile_entity) else {
                 continue;
             };
-            
+
             // Get static layer values
             let pathing = static_layers.pathing.get_value(x, y);
             let placement = static_layers.placement.get_value(x, y);
@@ -245,7 +257,15 @@ fn update_tilemap_colors(
             let visibility = visibility_layer.map_or(1, |l| l.get_value(x, y));
 
             // Blend colors using map config from entity system
-            let color = blend_tile_color(pathing, placement, creep, energy, visibility, height_val, &entity_system.map_config);
+            let color = blend_tile_color(
+                pathing,
+                placement,
+                creep,
+                energy,
+                visibility,
+                height_val,
+                &entity_system.map_config,
+            );
 
             // Directly mutate the color component
             tile_color.0 = color;
@@ -377,12 +397,14 @@ pub fn map_init_system(
     let start_raw = gi.start_raw.as_ref().unwrap();
     let start_pos = start_raw.start_locations.get(0);
 
-    let path_layer      = TerrainLayer::from_image_data(start_raw.pathing_grid.as_ref().unwrap());
+    let path_layer = TerrainLayer::from_image_data(start_raw.pathing_grid.as_ref().unwrap());
     let placement_layer = TerrainLayer::from_image_data(start_raw.placement_grid.as_ref().unwrap());
-    let height_layer    = TerrainLayer::from_image_data(start_raw.terrain_height.as_ref().unwrap());
+    let height_layer = TerrainLayer::from_image_data(start_raw.terrain_height.as_ref().unwrap());
 
-    println!("[{}] Got game info: map size {} x {}",
-             event.player_id, path_layer.width, path_layer.height);
+    println!(
+        "[{}] Got game info: map size {} x {}",
+        event.player_id, path_layer.width, path_layer.height
+    );
 
     let static_layers = TerrainLayers::new(path_layer, placement_layer, height_layer);
 
@@ -428,13 +450,8 @@ pub fn response_controller_system(
             &mut seen_tags,
         );
 
-        if update_map_from_observation(
-            obs,
-            &mut map_res,
-            &mut tile_color_query,
-            &entity_system,
-        )
-        .is_none()
+        if update_map_from_observation(obs, &mut map_res, &mut tile_color_query, &entity_system)
+            .is_none()
         {
             eprintln!(
                 "[response_controller_system] Skipped map update: missing map resource or observation raw map_state"

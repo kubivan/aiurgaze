@@ -1,9 +1,9 @@
+use crate::app_settings::MapConfig;
 use bevy::asset::Handle;
 use bevy::image::Image;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 use sc2_proto::common::ImageData;
-use crate::app_settings::MapConfig;
 
 pub struct TerrainLayer {
     pub width: u32,
@@ -23,10 +23,7 @@ impl TerrainLayer {
     pub fn from_image_data1(data: &[u8], width: u32, height: u32) -> Self {
         // 1 bit per pixel: unpack each bit
         let bits = unpack_bits(data);
-        let pixels: Vec<u8> = bits
-            .iter()
-            .map(|&b| if b { 255u8 } else { 0 })
-            .collect();
+        let pixels: Vec<u8> = bits.iter().map(|&b| if b { 255u8 } else { 0 }).collect();
         TerrainLayer {
             width,
             height,
@@ -48,7 +45,10 @@ impl TerrainLayer {
 
     pub fn from_image_data8(img: &ImageData) -> Self {
         let bits = img.bits_per_pixel.unwrap();
-        assert_eq!(bits, 8, "Only 8 bits per pixel supported for now (got {bits})");
+        assert_eq!(
+            bits, 8,
+            "Only 8 bits per pixel supported for now (got {bits})"
+        );
         let img_size = img.size.clone().unwrap();
         let width = img_size.x.unwrap().clone() as u32;
         let height = img_size.y.unwrap().clone() as u32;
@@ -96,13 +96,18 @@ pub fn blend_tile_color(
     // Get discrete color for pathable/placeable combination
     let mut color = map_config.get_terrain_color(pathing > 0, placement > 0);
     color = map_config.apply_height_intensity(color, height);
-    
+
     // Apply fog of war: darken unseen tiles (visibility == 0)
     if visibility == 0 {
         let rgba = color.to_srgba();
-        color = Color::srgba(rgba.red * 0.3, rgba.green * 0.3, rgba.blue * 0.3, rgba.alpha);
+        color = Color::srgba(
+            rgba.red * 0.3,
+            rgba.green * 0.3,
+            rgba.blue * 0.3,
+            rgba.alpha,
+        );
     }
-    
+
     color
 }
 pub struct TerrainLayers {
@@ -157,7 +162,8 @@ pub fn spawn_tilemap(
             let energy = layers.energy.as_ref().map_or(0, |l| l.get_value(x, y));
             // Get color based on all layers using map config
             // Default visibility to 1 (visible) - will be updated from observation
-            let color = blend_tile_color(pathing, placement, creep, energy, 1, height_val, map_config);
+            let color =
+                blend_tile_color(pathing, placement, creep, energy, 1, height_val, map_config);
             let tile_entity = commands
                 .spawn(TileBundle {
                     position: tile_pos,
@@ -170,7 +176,10 @@ pub fn spawn_tilemap(
             tile_storage.set(&tile_pos, tile_entity);
         }
     }
-    let tile_size = TilemapTileSize { x: map_config.tile_size, y: map_config.tile_size };
+    let tile_size = TilemapTileSize {
+        x: map_config.tile_size,
+        y: map_config.tile_size,
+    };
     let grid_size = tile_size.into();
     let map_type = TilemapType::default();
     commands.entity(tilemap_entity).insert(TilemapBundle {

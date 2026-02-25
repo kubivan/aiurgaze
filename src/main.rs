@@ -1,41 +1,53 @@
 // src/main.rs
 //mod proxy_ws;
-mod proxy_channel;
-mod observation_pipeline;
-mod ui;
-mod controller;
-mod map;
-mod helpers;
-mod units;
-mod create_game_request;
-mod net_helpers;
 mod app_settings;
-mod entity_system;
 mod bot_runner;
+mod controller;
+mod create_game_request;
+mod entity_system;
+mod helpers;
+mod map;
+mod net_helpers;
+mod observation_pipeline;
+mod proxy_channel;
+mod ui;
+mod units;
 
 use bevy::prelude::*;
 use bevy_health_bar3d::prelude::*;
 
-use std::process::Command;
-use bevy_ecs_tilemap::{ TilemapPlugin};
+use crate::app_settings::{
+    get_assets_dir, get_maps_dir, load_settings, AppSettings, StarcraftConfig,
+};
+use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
+use crate::controller::{
+    map_init_system, response_controller_system, setup_proxies, GameInfoEvent, LastVisionMode,
+    MapResource, ObservationEvent,
+};
+use crate::entity_system::setup_entity_system;
+use crate::proxy_channel::ProxyReadySignal;
+use crate::ui::game_config_panel::list_maps_folder;
+use crate::ui::GameType;
+use crate::ui::{
+    build_create_game_request, camera_controls, setup_camera, status_bar_system, ui_system,
+    AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
+    PendingCreateGameRequest, VisionModeChannel,
+};
+use crate::units::draw_unit_orders;
+use crate::units::{
+    cleanup_dead_units, unit_selection_system, ObservationUnitTags, SelectedUnit,
+    UnitBuildProgress, UnitHealth, UnitRegistry, UnitShield,
+};
+use bevy::asset::AssetPlugin;
+use bevy::color::palettes::basic::{GREEN, RED};
+use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
-use tap::prelude::*;
-use crate::controller::{map_init_system, response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode, MapResource};
-use crate::proxy_channel::ProxyReadySignal;
-use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
-use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel, PendingBotStart};
-use crate::units::{UnitRegistry, SelectedUnit, unit_selection_system, UnitHealth, UnitShield, UnitBuildProgress, ObservationUnitTags, cleanup_dead_units};
-use crate::units::draw_unit_orders;
 use clap::{Parser, Subcommand};
-use std::process::exit;
-use bevy::color::palettes::basic::{GREEN, RED};
-use bevy::asset::AssetPlugin;
 use sc2_proto::common::Race;
-use crate::ui::GameType;
-use crate::app_settings::{AppSettings, load_settings, StarcraftConfig, get_assets_dir, get_maps_dir};
-use crate::entity_system::setup_entity_system;
-use crate::ui::game_config_panel::list_maps_folder;
+use std::process::exit;
+use std::process::Command;
+use tap::prelude::*;
 
 fn parse_game_type(mode: &str) -> Option<GameType> {
     match mode.to_lowercase().as_str() {
@@ -77,7 +89,10 @@ enum CliCommands {
 /// Start the server inside Docker and wait until it's reachable.
 /// If `multiplayer` is true, sets SC2_MULTIPLAYER=1 inside the container
 /// so that two SC2 instances are started (on upstream_port and upstream_port+1).
-fn start_server_container(docker_config : &StarcraftConfig, multiplayer: bool) -> Result<(), String> {
+fn start_server_container(
+    docker_config: &StarcraftConfig,
+    multiplayer: bool,
+) -> Result<(), String> {
     let image = &docker_config.image;
     let container_name = &docker_config.container_name;
 
@@ -101,8 +116,15 @@ fn start_server_container(docker_config : &StarcraftConfig, multiplayer: bool) -
     let maps_mount = format!("{}:/StarCraftII/maps", maps_dir.display());
 
     // Build port mappings, env vars, and multiplayer ports
-    let port1_map = format!("{}:{}", docker_config.upstream_port, docker_config.upstream_port);
-    let port2_map = format!("{}:{}", docker_config.upstream_port + 1, docker_config.upstream_port + 1);
+    let port1_map = format!(
+        "{}:{}",
+        docker_config.upstream_port, docker_config.upstream_port
+    );
+    let port2_map = format!(
+        "{}:{}",
+        docker_config.upstream_port + 1,
+        docker_config.upstream_port + 1
+    );
 
     // Also map the SC2 internal sync ports (server_ports + client_ports).
     // These are derived from upstream_port + 2..+7 and must be reachable between
@@ -116,8 +138,12 @@ fn start_server_container(docker_config : &StarcraftConfig, multiplayer: bool) -
     }
 
     let mut args: Vec<String> = vec![
-        "run".into(), "-d".into(), "--rm".into(), "-it".into(),
-        "--name".into(), container_name.clone(),
+        "run".into(),
+        "-d".into(),
+        "--rm".into(),
+        "-it".into(),
+        "--name".into(),
+        container_name.clone(),
     ];
     for pm in &port_maps {
         args.push("-p".into());
@@ -147,7 +173,10 @@ fn start_server_container(docker_config : &StarcraftConfig, multiplayer: bool) -
 
 /// Blocking Docker startup for CLI mode
 fn startup_docker_blocking(config: &StarcraftConfig, multiplayer: bool) -> Result<(), String> {
-    println!("[startup_docker_blocking] Starting Docker container (multiplayer={})...", multiplayer);
+    println!(
+        "[startup_docker_blocking] Starting Docker container (multiplayer={})...",
+        multiplayer
+    );
     let result = start_server_container(&config, multiplayer);
     match &result {
         Ok(_) => println!("[startup_docker_blocking] Docker container started successfully."),
@@ -196,11 +225,15 @@ fn docker_startup_system(
             };
 
             status_res.clone_from(&status);
-            println!("[docker_startup_system] Updated DockerStatus to: {:?}", status);
+            println!(
+                "[docker_startup_system] Updated DockerStatus to: {:?}",
+                status
+            );
             if status == DockerStatus::Running {
                 println!("Docker running, should start proxy connection now");
             }
-        }).await;
+        })
+        .await;
     });
 }
 
@@ -243,7 +276,10 @@ fn proxy_connect_on_docker_ready(
         let ready_signal = setup_proxies(&runtime, &settings, is_vs_bot, vision_rx, create_req);
         proxy_ready.0 = Some(ready_signal);
         *has_connected = true;
-        println!("Proxy connection started after Docker became ready and game was created (VsBot={})", is_vs_bot);
+        println!(
+            "Proxy connection started after Docker became ready and game was created (VsBot={})",
+            is_vs_bot
+        );
     }
 }
 
@@ -256,10 +292,17 @@ fn main() {
     let maps_dir = get_maps_dir();
     let config_dir = crate::app_settings::get_config_dir();
     let dev_override = std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default();
-    println!("[startup] assets_dir={} data_dir={} maps_dir={} config_dir={} AIURGAZE_LOCAL_RESOURCES={}",
-        assets_dir.display(), data_dir.display(), maps_dir.display(), config_dir.display(), dev_override);
+    println!(
+        "[startup] assets_dir={} data_dir={} maps_dir={} config_dir={} AIURGAZE_LOCAL_RESOURCES={}",
+        assets_dir.display(),
+        data_dir.display(),
+        maps_dir.display(),
+        config_dir.display(),
+        dev_override
+    );
     let available_maps = list_maps_folder();
-    let mut game_config_panel = GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
+    let mut game_config_panel =
+        GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
 
     let cli = Cli::parse();
 
@@ -285,7 +328,10 @@ fn main() {
             exit(1);
         }
         // Start Docker synchronously in CLI mode
-        if let Err(e) = startup_docker_blocking(&app_settings.starcraft, game_config_panel.game_type == GameType::VsBot) {
+        if let Err(e) = startup_docker_blocking(
+            &app_settings.starcraft,
+            game_config_panel.game_type == GameType::VsBot,
+        ) {
             eprintln!("Error: Could not start Docker container: {e}");
             exit(1);
         }
@@ -328,12 +374,16 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "aiurgaze - SC2 AI Observer".to_string(),
-                        resolution: (app_settings.window.width as u32, app_settings.window.height as u32).into(),
+                        resolution: (
+                            app_settings.window.width as u32,
+                            app_settings.window.height as u32,
+                        )
+                            .into(),
                         resizable: app_settings.window.resizable,
                         ..default()
                     }),
                     ..default()
-                })
+                }),
         )
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
@@ -378,11 +428,17 @@ fn main() {
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
-        .add_systems(Update, map_init_system.run_if(not(resource_exists::<MapResource>)))
+        .add_systems(
+            Update,
+            map_init_system.run_if(not(resource_exists::<MapResource>)),
+        )
         .add_systems(Update, response_controller_system)
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
-        .add_systems(Update, emit_pending_bot_start.after(proxy_connect_on_docker_ready))
+        .add_systems(
+            Update,
+            emit_pending_bot_start.after(proxy_connect_on_docker_ready),
+        )
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
         .add_systems(Update, draw_unit_orders)
         .run();
