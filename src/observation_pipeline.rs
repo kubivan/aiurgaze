@@ -120,7 +120,48 @@ fn merge_p2_into_p1_obs(
             }
         }
     }
+
+    merge_p2_visibility_into_p1_obs(&mut merged, p2_obs);
+
     merged
+}
+
+/// Merge P2 visibility into P1 map_state.visibility in-place (cell-wise max).
+///
+/// Visibility values per cell: 0 = Hidden, 1 = Fogged, 2 = Visible.
+/// Taking the max gives the union of both players' explored areas.
+fn merge_p2_visibility_into_p1_obs(
+    merged: &mut ResponseObservation,
+    p2_obs: &ResponseObservation,
+) {
+    // Drill down to P2's raw visibility bytes.
+    let Some(p2_data) = p2_obs.observation.as_ref()
+        .and_then(|o| o.raw_data.as_ref())
+        .and_then(|r| r.map_state.as_ref())
+        .and_then(|ms| ms.visibility.as_ref())
+        .and_then(|vi| vi.data.as_ref())
+        .filter(|d| !d.is_empty())
+    else {
+        return;
+    };
+
+    // Drill down to P1's mutable visibility bytes.
+    let Some(p1_data) = merged.observation.as_mut()
+        .and_then(|o| o.raw_data.as_mut())
+        .and_then(|r| r.map_state.as_mut())
+        .and_then(|ms| ms.visibility.as_mut())
+        .and_then(|vi| vi.data.as_mut())
+    else {
+        return;
+    };
+
+    if p1_data.len() != p2_data.len() {
+        return;
+    }
+
+    for (p1, p2) in p1_data.iter_mut().zip(p2_data.iter()) {
+        *p1 = (*p1).max(*p2);
+    }
 }
 
 /// Create the game info stream (cold — fires once per player at startup).

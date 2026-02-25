@@ -6,7 +6,7 @@
 //! 3. Emits Bevy events for observations and game info
 
 use bevy::asset::AssetServer;
-use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Event, EventReader};
+use bevy::prelude::{Commands, Local, Res, ResMut, Resource, Query, Event, EventReader};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
@@ -257,6 +257,7 @@ fn update_tilemap_colors(
 pub fn response_controller_system(
     mut obs_events: EventReader<ObservationEvent>,
     mut gi_events: EventReader<GameInfoEvent>,
+    mut tilemap_spawned: Local<bool>,
     mut last_vision_mode: ResMut<LastVisionMode>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
@@ -267,8 +268,13 @@ pub fn response_controller_system(
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
-    // Process game info events first (map initialization)
+    // Process game info events first (map initialization).
+    // In vsBot mode both P1 and P2 emit a GameInfoEvent; only spawn the tilemap once
+    // (commands are deferred so map_res is None for both events in the same tick).
     for event in gi_events.read() {
+        if *tilemap_spawned {
+            continue;
+        }
         let gi = &event.game_info;
         let Some(start_raw) = gi.start_raw.as_ref() else {
             eprintln!("GameInfo missing start_raw");
@@ -307,6 +313,7 @@ pub fn response_controller_system(
             last_energy_hash: 0,
             last_visibility_hash: 0,
         });
+        *tilemap_spawned = true;
 
         println!("Spawned tilemap, start pos: {:?}", start_pos);
     }
