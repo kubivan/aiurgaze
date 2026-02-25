@@ -21,7 +21,7 @@ use bevy_ecs_tilemap::{ TilemapPlugin};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tap::prelude::*;
-use crate::controller::{response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode};
+use crate::controller::{map_init_system, response_controller_system, setup_proxies, GameInfoEvent, ObservationEvent, LastVisionMode, MapResource};
 use crate::proxy_channel::ProxyReadySignal;
 use crate::bot_runner::{BotProcessStatus, StartBotProcessesEvent, bot_process_system};
 use crate::ui::{camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus, status_bar_system, GameConfigPanel, GameCreated, build_create_game_request, PendingCreateGameRequest, VisionModeChannel, PendingBotStart};
@@ -373,6 +373,7 @@ fn main() {
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
+        .add_systems(Update, map_init_system.run_if(not(resource_exists::<MapResource>)))
         .add_systems(Update, response_controller_system)
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
