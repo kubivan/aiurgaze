@@ -253,6 +253,109 @@ fn update_tilemap_colors(
     }
 }
 
+fn handle_vision_mode_change(
+    current_mode: VisionMode,
+    last_vision_mode: &mut ResMut<LastVisionMode>,
+    commands: &mut Commands,
+    registry: &mut ResMut<UnitRegistry>,
+    seen_tags: &mut ResMut<ObservationUnitTags>,
+) {
+    if let Some(prev_mode) = last_vision_mode.0 {
+        if prev_mode != current_mode {
+            println!(
+                "Vision mode changed from {:?} to {:?}, despawning all entities",
+                prev_mode, current_mode
+            );
+
+            for (_tag, entity) in registry.map.drain() {
+                commands.entity(entity).despawn();
+            }
+
+            seen_tags.seen_tags.clear();
+        }
+    }
+
+    last_vision_mode.0 = Some(current_mode);
+}
+
+fn update_map_from_observation(
+    obs: &ResponseObservation,
+    map_res: &mut Option<ResMut<MapResource>>,
+    tile_color_query: &mut Query<&mut TileColor>,
+    entity_system: &Res<EntitySystem>,
+) -> Option<()> {
+    let map_res = map_res.as_mut()?;
+    let map_state = obs
+        .observation
+        .as_ref()?
+        .raw_data
+        .as_ref()?
+        .map_state
+        .as_ref()?;
+
+    let creep_layer = map_state
+        .creep
+        .as_ref()
+        .map(|creep_data| TerrainLayer::from_image_data(creep_data));
+
+    let visibility_layer = map_state
+        .visibility
+        .as_ref()
+        .map(|vis_data| TerrainLayer::from_image_data(vis_data));
+
+    let new_creep_hash = calculate_layer_hash(&creep_layer);
+    let new_visibility_hash = calculate_layer_hash(&visibility_layer);
+    let new_energy_hash = 0;
+
+    if new_creep_hash != map_res.last_creep_hash
+        || new_energy_hash != map_res.last_energy_hash
+        || new_visibility_hash != map_res.last_visibility_hash
+    {
+        update_tilemap_colors(
+            &map_res.tile_storage,
+            &map_res.static_layers,
+            creep_layer.as_ref(),
+            None,
+            visibility_layer.as_ref(),
+            tile_color_query,
+            entity_system,
+        );
+
+        map_res.last_creep_hash = new_creep_hash;
+        map_res.last_energy_hash = new_energy_hash;
+        map_res.last_visibility_hash = new_visibility_hash;
+    }
+
+    Some(())
+}
+
+fn handle_units_for_observation(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    registry: &mut ResMut<UnitRegistry>,
+    entity_system: &Res<EntitySystem>,
+    obs: &ResponseObservation,
+    unit_query: Query<&UnitBuildProgress>,
+    seen_tags: &mut ResMut<ObservationUnitTags>,
+    map_res: &Option<ResMut<MapResource>>,
+) {
+    let map_size = map_res.as_ref().map(|m| {
+        let (width, height) = m.static_layers.get_dimensions();
+        (width as f32, height as f32)
+    });
+
+    handle_observation(
+        commands,
+        asset_server,
+        registry,
+        entity_system,
+        obs,
+        unit_query,
+        seen_tags,
+        map_size,
+    );
+}
+
 /// System to initialise the tilemap from the first valid GameInfoEvent.
 ///
 /// Runs every frame until `MapResource` exists, then is skipped by the
@@ -314,72 +417,25 @@ pub fn response_controller_system(
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
-    // Process observation events
     for event in obs_events.read() {
-        let current_mode = event.vision_mode;
-
-        // Check if vision mode changed - despawn all entities for fresh respawn
-        if let Some(prev_mode) = last_vision_mode.0 {
-            if prev_mode != current_mode {
-                println!("Vision mode changed from {:?} to {:?}, despawning all entities", 
-                         prev_mode, current_mode);
-
-                // Despawn all entities
-                for (_tag, entity) in registry.map.drain() {
-                    commands.entity(entity).despawn();
-                }
-
-                // Reset seen tags
-                seen_tags.seen_tags.clear();
-            }
-        }
-        last_vision_mode.0 = Some(current_mode);
-
         let obs = &event.observation;
 
-        // Update dynamic layers (creep, energy, visibility) only if changed
-        if let Some(ref mut map_res) = map_res {
-            if let Some(obs_data) = obs.observation.as_ref() {
-                if let Some(raw_data) = obs_data.raw_data.as_ref() {
-                    let map_state = raw_data.map_state.as_ref();
+        handle_vision_mode_change(
+            event.vision_mode,
+            &mut last_vision_mode,
+            &mut commands,
+            &mut registry,
+            &mut seen_tags,
+        );
 
-                    let creep_layer = map_state.and_then(|ms| ms.creep.as_ref()).map(|creep_data| {
-                        TerrainLayer::from_image_data(creep_data)
-                    });
+        let _ = update_map_from_observation(
+            obs,
+            &mut map_res,
+            &mut tile_color_query,
+            &entity_system,
+        );
 
-                    let visibility_layer = map_state.and_then(|ms| ms.visibility.as_ref()).map(|vis_data| {
-                        TerrainLayer::from_image_data(vis_data)
-                    });
-
-                    // Calculate hashes to check if layers changed
-                    let new_creep_hash = calculate_layer_hash(&creep_layer);
-                    let new_visibility_hash = calculate_layer_hash(&visibility_layer);
-                    let new_energy_hash = 0;
-
-                    // Only update if something changed
-                    if new_creep_hash != map_res.last_creep_hash 
-                        || new_energy_hash != map_res.last_energy_hash 
-                        || new_visibility_hash != map_res.last_visibility_hash 
-                    {
-                        update_tilemap_colors(
-                            &map_res.tile_storage,
-                            &map_res.static_layers,
-                            creep_layer.as_ref(),
-                            None, // energy_layer
-                            visibility_layer.as_ref(),
-                            &mut tile_color_query,
-                            &entity_system,
-                        );
-
-                        map_res.last_creep_hash = new_creep_hash;
-                        map_res.last_energy_hash = new_energy_hash;
-                        map_res.last_visibility_hash = new_visibility_hash;
-                    }
-                }
-            }
-        }
-
-        handle_observation(
+        handle_units_for_observation(
             &mut commands,
             &asset_server,
             &mut registry,
@@ -387,10 +443,7 @@ pub fn response_controller_system(
             obs,
             unit_query,
             &mut seen_tags,
-            map_res.as_ref().map(|m| {
-                let (w, h) = m.static_layers.get_dimensions();
-                (w as f32, h as f32)
-            }),
+            &map_res,
         );
     }
 }
