@@ -6,7 +6,7 @@
 //! 3. Emits Bevy events for observations and game info
 
 use bevy::asset::AssetServer;
-use bevy::prelude::{Commands, Local, Res, ResMut, Resource, Query, Event, EventReader};
+use bevy::prelude::{Commands, Res, ResMut, Resource, Query, Event, EventReader, resource_exists};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
@@ -253,86 +253,82 @@ fn update_tilemap_colors(
     }
 }
 
+/// System to initialise the tilemap from the first valid GameInfoEvent.
+///
+/// Runs every frame until `MapResource` exists, then is skipped by the
+/// `run_if` condition.  In vsBot mode two GameInfoEvents arrive in the same
+/// tick; we drain them all but only act on the first one with `start_raw`.
+pub fn map_init_system(
+    mut gi_events: EventReader<GameInfoEvent>,
+    mut commands: Commands,
+    mut asset_server: Res<AssetServer>,
+    entity_system: Res<EntitySystem>,
+) {
+    // Drain all events in this batch; only process the first valid one.
+    let events: Vec<_> = gi_events.read().collect();
+    let Some(event) = events.iter().find(|e| e.game_info.start_raw.is_some()) else {
+        return;
+    };
+
+    let gi = &event.game_info;
+    let start_raw = gi.start_raw.as_ref().unwrap();
+    let start_pos = start_raw.start_locations.get(0);
+
+    let path_layer      = TerrainLayer::from_image_data(start_raw.pathing_grid.as_ref().unwrap());
+    let placement_layer = TerrainLayer::from_image_data(start_raw.placement_grid.as_ref().unwrap());
+    let height_layer    = TerrainLayer::from_image_data(start_raw.terrain_height.as_ref().unwrap());
+
+    println!("[{}] Got game info: map size {} x {}",
+             event.player_id, path_layer.width, path_layer.height);
+
+    let static_layers = TerrainLayers::new(path_layer, placement_layer, height_layer);
+
+    let tile_storage = spawn_tilemap(
+        &mut commands,
+        &static_layers,
+        &mut asset_server,
+        &entity_system.map_config,
+    );
+
+    commands.insert_resource(MapResource {
+        static_layers,
+        tile_storage,
+        last_creep_hash: 0,
+        last_energy_hash: 0,
+        last_visibility_hash: 0,
+    });
+
+    println!("Spawned tilemap, start pos: {:?}", start_pos);
+}
+
 /// System to handle observation events from the pipeline.
 pub fn response_controller_system(
     mut obs_events: EventReader<ObservationEvent>,
-    mut gi_events: EventReader<GameInfoEvent>,
-    mut tilemap_spawned: Local<bool>,
     mut last_vision_mode: ResMut<LastVisionMode>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
-    mut asset_server: Res<AssetServer>,
+    asset_server: Res<AssetServer>,
     mut registry: ResMut<UnitRegistry>,
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
-    // Process game info events first (map initialization).
-    // In vsBot mode both P1 and P2 emit a GameInfoEvent; only spawn the tilemap once
-    // (commands are deferred so map_res is None for both events in the same tick).
-    for event in gi_events.read() {
-        if *tilemap_spawned {
-            continue;
-        }
-        let gi = &event.game_info;
-        let Some(start_raw) = gi.start_raw.as_ref() else {
-            eprintln!("GameInfo missing start_raw");
-            continue;
-        };
-
-        let start_pos = start_raw.start_locations.get(0);
-
-        // Create static layers
-        let path_layer = TerrainLayer::from_image_data(
-            start_raw.pathing_grid.as_ref().unwrap());
-        let placement_layer = TerrainLayer::from_image_data(
-            start_raw.placement_grid.as_ref().unwrap());
-        let height_layer = TerrainLayer::from_image_data(
-            start_raw.terrain_height.as_ref().unwrap());
-
-        println!("[{}] Got game info: map size {} x {}", 
-                 event.player_id, path_layer.width, path_layer.height);
-
-        // Build static layers container
-        let static_layers = TerrainLayers::new(path_layer, placement_layer, height_layer);
-
-        // Spawn the tilemap with initial static layers only
-        let tile_storage = spawn_tilemap(
-            &mut commands,
-            &static_layers,
-            &mut asset_server,
-            &entity_system.map_config,
-        );
-
-        // Store the static layers and tile storage as a resource
-        commands.insert_resource(MapResource {
-            static_layers,
-            tile_storage,
-            last_creep_hash: 0,
-            last_energy_hash: 0,
-            last_visibility_hash: 0,
-        });
-        *tilemap_spawned = true;
-
-        println!("Spawned tilemap, start pos: {:?}", start_pos);
-    }
-
     // Process observation events
     for event in obs_events.read() {
         let current_mode = event.vision_mode;
-        
+
         // Check if vision mode changed - despawn all entities for fresh respawn
         if let Some(prev_mode) = last_vision_mode.0 {
             if prev_mode != current_mode {
                 println!("Vision mode changed from {:?} to {:?}, despawning all entities", 
                          prev_mode, current_mode);
-                
+
                 // Despawn all entities
                 for (_tag, entity) in registry.map.drain() {
                     commands.entity(entity).despawn();
                 }
-                
+
                 // Reset seen tags
                 seen_tags.seen_tags.clear();
             }
@@ -361,9 +357,9 @@ pub fn response_controller_system(
                     let new_energy_hash = 0;
 
                     // Only update if something changed
-                    // if new_creep_hash != map_res.last_creep_hash 
-                    //     || new_energy_hash != map_res.last_energy_hash 
-                    //     || new_visibility_hash != map_res.last_visibility_hash 
+                    if new_creep_hash != map_res.last_creep_hash 
+                        || new_energy_hash != map_res.last_energy_hash 
+                        || new_visibility_hash != map_res.last_visibility_hash 
                     {
                         update_tilemap_colors(
                             &map_res.tile_storage,
