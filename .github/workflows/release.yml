@@ -67,9 +67,8 @@ jobs:
 
           # Copy config files
           cp config.toml "$BINARY_NAME/"
-          sed -i \
-            "s|^image = \\".*\\"|image = \\"${IMAGE_NAME}\\"|" \
-            "$BINARY_NAME/config.toml"
+            # Replace image line safely (avoid sed quoting issues)
+            sed -i 's|^image = "[^"]*"|image = "'"${IMAGE_NAME}"'"|' "$BINARY_NAME/config.toml"
           mkdir -p "$BINARY_NAME/config"
           cp config/* "$BINARY_NAME/config/" 2>/dev/null || true
 
