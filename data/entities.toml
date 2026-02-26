@@ -1055,6 +1055,11 @@ name = "VespeneGeyser"
 icon = "units/VespeneGeyser.webp"
 
 [[entity]]
+id = 880
+name = "VespeneGeyser"
+icon = "units/VespeneGeyser.webp"
+
+[[entity]]
 id = 344
 name = "RichVespeneGeyser"
 icon = "units/VespeneGeyser.webp"
