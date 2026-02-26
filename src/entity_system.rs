@@ -177,8 +177,8 @@ impl EntitySystem {
             return handle.clone();
         }
 
-        //TODO: another default icon?
-        asset_server.load("icons/default.png")
+        // Use units/default.png as the fallback default icon
+        asset_server.load("units/default.png")
     }
 
     /// Get a custom tile size for a unit type [width, height], if specified in config
