@@ -1,10 +1,11 @@
+---
 name: CI
 
-on:
+"on":
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
@@ -19,7 +20,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libasound2-dev \
+            libudev-dev \
+            libgl1-mesa-dev
 
       - name: Check formatting
         run: cargo fmt -- --check

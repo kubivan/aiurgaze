@@ -8,40 +8,10 @@ name: Release
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
-  build-and-push-sc2-image:
-    name: Build & Push SC2 Image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract tag version
-        id: vars
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-
-      - name: Build and push SC2 image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./docker
-          file: ./docker/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/aiurgaze-sc2:${{ env.VERSION
-            }}
-            ghcr.io/${{ github.repository_owner }}/aiurgaze-sc2:latest
-
   build-linux:
     name: Build Linux Binary
-    needs: build-and-push-sc2-image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +22,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libasound2-dev \
+            libudev-dev \
+            libgl1-mesa-dev
 
       - name: Build release binary
         run: cargo build --release
@@ -61,7 +43,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           BINARY_NAME=aiurgaze-${VERSION}-linux-x86_64
-          IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY_OWNER}/aiurgaze-sc2:${VERSION}
+          IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY_OWNER}/aiurgaze-sc2:latest
           mkdir -p "$BINARY_NAME"
 
           # Copy binary
