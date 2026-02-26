@@ -231,18 +231,6 @@ For example, after installation:
 
 The Docker container mounts the maps directory into its SC2 installation and the UI lists these map files by name. To change the default map, update `map_name` in `config.toml` to one of the filenames in your maps directory.
 
-### Development note
-
-- When developing from the repository root you can run the app with a development override to use the repo-local `assets/`, `data/`, `maps/`, and `config.toml` instead of the XDG-installed copies:
-
-```bash
-AIURGAZE_LOCAL_RESOURCES=1 aiurgaze
-```
-
-- This keeps the code simple: the runtime respects XDG locations when installed, and the `AIURGAZE_LOCAL_RESOURCES` environment variable is the supported way to opt into repo-local resources during development.
-
-**Note**: When running from the workspace directory during development, place maps in `./maps/`. After installation via `install.sh`, the script copies maps to `~/.local/share/aiurgaze/maps/`.
-
 ---
 
 ## Roadmap / Future Work
