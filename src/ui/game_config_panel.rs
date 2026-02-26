@@ -36,10 +36,10 @@ impl GameConfigPanel {
             Some("VsBot") => GameType::VsBot,
             _ => GameType::VsAI,
         };
-        let map_name = defaults
-            .map_name
-            .clone()
-            .or_else(|| available_maps.get(0).cloned());
+        let map_name = match &defaults.map_name {
+            Some(name) if available_maps.contains(name) => Some(name.clone()),
+            _ => available_maps.get(0).cloned(),
+        };
         let player_name = defaults
             .player_name
             .clone()
