@@ -290,15 +290,13 @@ fn main() {
     let assets_dir = get_assets_dir();
     let data_dir = crate::app_settings::get_data_dir();
     let maps_dir = get_maps_dir();
-    let config_dir = crate::app_settings::get_config_dir();
-    let dev_override = std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default();
+    let config_path = crate::app_settings::get_config_path();
     println!(
-        "[startup] assets_dir={} data_dir={} maps_dir={} config_dir={} AIURGAZE_LOCAL_RESOURCES={}",
+        "[startup] assets_dir={} data_dir={} maps_dir={} config_path={}",
         assets_dir.display(),
         data_dir.display(),
         maps_dir.display(),
-        config_dir.display(),
-        dev_override
+        config_path.display(),
     );
     let available_maps = list_maps_folder();
     let mut game_config_panel =

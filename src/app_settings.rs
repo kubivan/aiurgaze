@@ -1,102 +1,53 @@
 use bevy::prelude::{Color, Resource};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-// Return an XDG-style data/config base dir, falling back to HOME if BaseDirs is unavailable.
-fn xdg_or_fallback(is_config: bool) -> PathBuf {
-    if let Some(bd) = BaseDirs::new() {
-        return if is_config {
-            bd.config_dir().to_path_buf()
+/// Returns a path, preferring a local file/dir if it exists, otherwise falling back to XDG or HOME-based locations.
+fn local_or_xdg_fallback<P: AsRef<Path>>(path: P) -> PathBuf {
+    let path = path.as_ref();
+    if path.exists() {
+        // If it's absolute, just return it; if relative, join with cwd
+        if path.is_absolute() {
+            return path.to_path_buf();
+        } else if let Ok(cwd) = std::env::current_dir() {
+            return cwd.join(path);
         } else {
-            bd.data_dir().to_path_buf()
-        };
-    }
-
-    // Fallback to HOME-based defaults
-    if let Ok(home) = std::env::var("HOME") {
-        let home = PathBuf::from(home);
-        return if is_config {
-            home.join(".config")
-        } else {
-            home.join(".local/share")
-        };
-    }
-
-    // Last resort: current directory
-    PathBuf::from(".")
-}
-
-/// Get the data directory path, checking XDG_DATA_HOME first, then ~/.local/share/aiurgaze
-pub fn get_data_dir() -> PathBuf {
-    // If the user explicitly wants to use local repo resources, prefer the
-    // repository `data/` directory. This is useful during development and can
-    // be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("data").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join("data");
-            }
-            return PathBuf::from("data");
+            return path.to_path_buf();
         }
     }
 
-    let base = xdg_or_fallback(false);
-    base.join("aiurgaze/data")
+    // Fallback: XDG data dir or HOME/.local/share
+    let base = if let Some(bd) = BaseDirs::new() {
+        bd.data_dir().to_path_buf()
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".local/share")
+    } else {
+        PathBuf::from(".")
+    };
+
+    // Compose fallback path: aiurgaze/<path>
+    base.join("aiurgaze").join(path)
+}
+
+/// Get the data directory path
+pub fn get_data_dir() -> PathBuf {
+    local_or_xdg_fallback("data")
 }
 
 /// Get the assets directory path
 pub fn get_assets_dir() -> PathBuf {
-    // If the user explicitly wants to use local repo resources, prefer the
-    // repository `assets/` directory. This is useful during development and
-    // can be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("assets").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join("assets");
-            }
-            return PathBuf::from("assets");
-        }
-    }
-
-    let base = xdg_or_fallback(false);
-    base.join("aiurgaze/assets")
+    local_or_xdg_fallback("assets")
 }
 
 /// Get the maps directory path
 pub fn get_maps_dir() -> PathBuf {
-    // If the user explicitly wants to use local repo resources, prefer the
-    // repository `maps/` directory. This is useful during development and can
-    // be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("maps").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join("maps");
-            }
-            return PathBuf::from("maps");
-        }
-    }
-
-    let base = xdg_or_fallback(false);
-    base.join("aiurgaze/maps")
+    local_or_xdg_fallback("maps")
 }
 
-/// Get the config directory path
-pub fn get_config_dir() -> PathBuf {
-    // If the user explicitly wants to use local repo resources, prefer the
-    // repository root for configuration. This is useful during development and
-    // can be forced by setting AIURGAZE_LOCAL_RESOURCES=1 in the environment.
-    if std::env::var("AIURGAZE_LOCAL_RESOURCES").unwrap_or_default() == "1" {
-        if std::path::Path::new("config.toml").exists() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd;
-            }
-            return PathBuf::from(".");
-        }
-    }
-
-    let base = xdg_or_fallback(true);
-    base.join("aiurgaze")
+/// Get the config file path (for config.toml next to binary, not in config/)
+pub fn get_config_path() -> PathBuf {
+    local_or_xdg_fallback("config.toml")
 }
 
 #[derive(Debug, Clone, Resource, Deserialize, Serialize)]
@@ -210,8 +161,7 @@ impl Default for AppSettings {
 
 pub fn load_settings() -> AppSettings {
     // Determine config file path
-    let config_dir = get_config_dir();
-    let config_file = config_dir.join("config.toml");
+    let config_file = get_config_path();
     println!("!!! config_file {}", config_file.display());
     let config_path_str = config_file.to_str().unwrap_or("config.toml");
 
