@@ -4944,8 +4944,7 @@ dependencies = [
 [[package]]
 name = "sc2-proto"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "713e85c4d21bc7dc7fdabf7caace7bfe21adfd4a3960446a09d8a8c03ef655a5"
+source = "git+https://github.com/kubivan/sc2-proto-rs.git?branch=master#053ee8eb74d3884d4e962ddadb2c8208a817108c"
 dependencies = [
  "protobuf",
 ]

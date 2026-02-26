@@ -33,7 +33,7 @@ bevy_health_bar3d = { version = "3.7.0", default-features = false, features = ["
 tiled = { version = "0.15.0", default-features = false }
 
 tap = "*"
-sc2-proto = "*"
+sc2-proto = { git = "https://github.com/kubivan/sc2-proto-rs.git", branch = "master" }
 
 #-- ecs tiled map
 serde_json = "*"
