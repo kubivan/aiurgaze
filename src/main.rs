@@ -12,8 +12,11 @@ mod observation_pipeline;
 mod proxy_channel;
 mod ui;
 mod units;
-
+mod fog_material;
+use fog_material::FogOfWarMaterial;
 use bevy::prelude::*;
+use bevy::mesh::Mesh2d;
+use bevy::sprite_render::{Material2dPlugin, MeshMaterial2d};
 use bevy_health_bar3d::prelude::*;
 
 use crate::app_settings::{
@@ -21,10 +24,10 @@ use crate::app_settings::{
 };
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
 use crate::controller::{
-    map_init_system, response_controller_system, setup_proxies, GameInfoEvent, LastVisionMode,
-    MapResource, ObservationEvent,
+    map_init_system, response_controller_system, setup_proxies, FogMaterialHandle, FogOfWarData,
+    FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent,
 };
-use crate::entity_system::setup_entity_system;
+use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::proxy_channel::ProxyReadySignal;
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
@@ -386,6 +389,7 @@ fn main() {
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
+        .add_plugins(Material2dPlugin::<FogOfWarMaterial>::default())
         .add_plugins(HealthBarPlugin::<UnitHealth>::default())
         .add_plugins(HealthBarPlugin::<UnitShield>::default())
         .add_plugins(HealthBarPlugin::<UnitBuildProgress>::default())
@@ -419,6 +423,7 @@ fn main() {
         .insert_resource(LastVisionMode::default())
         .insert_resource(ProxyReadyResource::default())
         .insert_resource(PendingBotStart::default())
+        .insert_resource(FogOfWarData::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -439,5 +444,81 @@ fn main() {
         )
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
         .add_systems(Update, draw_unit_orders)
+        .add_systems(
+            Update,
+            spawn_fog_overlay
+                .run_if(resource_added::<FogOfWarHandle>)
+                .after(map_init_system),
+        )
+        .add_systems(
+            Update,
+            update_fog_texture.after(response_controller_system),
+        )
         .run();
+}
+
+/// Spawns the fog-of-war overlay mesh once the FogOfWarHandle resource exists
+/// (i.e., on the frame after map_init_system inserts it).
+fn spawn_fog_overlay(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<FogOfWarMaterial>>,
+    fog_handle: Res<FogOfWarHandle>,
+    map_res: Res<MapResource>,
+    entity_system: Res<EntitySystem>,
+) {
+    let (width, height) = map_res.static_layers.get_dimensions();
+    let tile_size = entity_system.map_config.tile_size;
+    let w = width as f32 * tile_size;
+    let h = height as f32 * tile_size;
+
+    let material = materials.add(FogOfWarMaterial {
+        fog_texture: fog_handle.handle.clone(),
+    });
+
+    // Store the material handle so update_fog_texture can invalidate
+    // the material's bind group when the underlying Image changes.
+    commands.insert_resource(FogMaterialHandle {
+        handle: material.clone(),
+    });
+
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(w, h))),
+        MeshMaterial2d(material),
+        Transform::from_xyz(0.0, 0.0, 1.0),
+    ));
+    println!(
+        "[fog] spawned fog overlay: {}x{} px, texture {}x{}",
+        w, h, width, height
+    );
+}
+
+/// Flush pending fog-of-war CPU data to the GPU texture asset.
+///
+/// After writing new pixel data to the `Image`, we also touch the
+/// `FogOfWarMaterial` asset so Bevy re-creates its bind group with
+/// the freshly-uploaded `GpuImage`.  Without this the material keeps
+/// sampling the texture that was current when its bind group was
+/// first built.
+fn update_fog_texture(
+    fog_handle: Option<Res<FogOfWarHandle>>,
+    mat_handle: Option<Res<FogMaterialHandle>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<FogOfWarMaterial>>,
+    mut fog_data: Option<ResMut<FogOfWarData>>,
+) {
+    let Some(fog_handle) = fog_handle else { return };
+    let Some(fog_data) = fog_data.as_mut() else { return };
+    if !fog_data.dirty {
+        return;
+    }
+    if let Some(image) = images.get_mut(&fog_handle.handle) {
+        image.data = Some(fog_data.data.clone());
+    }
+    // Invalidate the material so its bind group is rebuilt with the new GpuImage.
+    if let Some(ref mat_handle) = mat_handle {
+        // get_mut marks the asset as Modified → triggers re-extraction + re-preparation.
+        let _ = materials.get_mut(&mat_handle.handle);
+    }
+    fog_data.dirty = false;
 }
