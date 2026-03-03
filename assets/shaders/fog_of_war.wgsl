@@ -151,13 +151,24 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let world_pos = mesh.world_position.xy;
 
     // ── Convert world position → fog texture UV ──
-    // The fog quad is centered at world_origin with extent world_size.
-    let uv_raw = (world_pos - fog.world_origin + fog.world_size * 0.5) / fog.world_size;
-    // Y-flip: tile coordinates are Y-up, texture UVs are Y-down.
-    let uv = vec2<f32>(uv_raw.x, 1.0 - uv_raw.y);
+    // Use map-min origin explicitly to avoid center/anchor ambiguity:
+    //   world_min = world_origin - world_size * 0.5
+    //   uv_raw    = (world_pos - world_min) / world_size
+    let world_min = fog.world_origin - fog.world_size * 0.5;
+    let uv_raw = (world_pos - world_min) / fog.world_size;
 
     let dims = vec2<f32>(textureDimensions(fog_tex));
     let texel = 1.0 / max(dims, vec2<f32>(1.0));
+
+    // Outside fog texture domain → fully clear.
+    if any(uv_raw < vec2<f32>(0.0)) || any(uv_raw > vec2<f32>(1.0)) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    // Orientation: sample using direct world-aligned UVs.
+    var uv = vec2<f32>(uv_raw.x, uv_raw.y);
+    // Clamp to texel centers to avoid edge bleeding and half-pixel shifts.
+    uv = clamp(uv, texel * 0.5, vec2<f32>(1.0) - texel * 0.5);
 
     // ── World-space noise coordinate (sticks to terrain) ──
     // Use actual world position so noise doesn't shift with camera.
@@ -203,14 +214,21 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     let density = saturate(value_blend * voronoi_blend);
 
+    // ── Macro mass layer (very low-frequency density variation) ──
+    // Adds large cloud-body perception so fog feels like volumetric mass.
+    let macro_noise = vnoise(world_pos * 0.005 + vec2<f32>(t * 0.0015, -t * 0.0012));
+    let macro_density = mix(0.85, 1.15, macro_noise);
+
     // Fine detail noise for micro-texture (faster animation).
     let detail = fbm4(wp * 9.0 + vec2<f32>(50.0, 50.0) + drift * 2.0);
 
-    // ── Camera depth fade ──
-    // ortho.scale lives in camera_pos.z. Higher scale = more zoomed out → denser fog.
-    let cam_scale = max(fog.camera_pos.z, 0.5);
-    // Normalize: scale=1 → factor 1.0, scale=3 → factor ~1.15 (subtle).
-    let depth_fade = mix(0.92, 1.08, saturate((cam_scale - 0.5) / 4.0));
+    // ── Camera distance attenuation (atmospheric depth fade) ──
+    // Distance in world-space from camera XY to fragment world position.
+    // This avoids zoom-coupled fog and creates natural edge thickening.
+    let cam_xy = fog.camera_pos.xy;
+    let dist = distance(cam_xy, world_pos);
+    let depth_fade_edge = 1.0 - exp(-dist * 0.012);
+    let depth_fade = mix(0.35, 1.0, depth_fade_edge);
 
     // ── Height-based falloff ──
     // In top-down 2D, simulate height as world Y position.
@@ -225,6 +243,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let alpha_unexplored = unexplored * base_unexplored * depth_fade * height_fade;
     let alpha_explored   = explored * base_explored * depth_fade;
     var alpha = clamp(alpha_unexplored + alpha_explored, 0.0, 0.90);
+    alpha = clamp(alpha * macro_density, 0.0, 0.92);
 
     // ── Per-band color ──
     // Deep desaturated blue-black for unexplored.
@@ -242,13 +261,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Fine detail wisps.
     tint += vec3<f32>(0.05, 0.06, 0.09) * detail * fog_mask * 0.22;
 
-    // ── Directional light tinting ──
-    // Simulate faint warm highlight on fog facing the light.
-    // In 2D: dot(light_dir.xy, normalize(world_pos - camera_pos.xy)) gives
-    // a directional gradient across the visible fog.
-    let to_frag = normalize(world_pos - fog.camera_pos.xy + vec2<f32>(0.001));
-    let light_dot = dot(fog.light_dir.xy, to_frag) * 0.5 + 0.5; // [0,1]
-    let light_tint = vec3<f32>(0.12, 0.10, 0.06) * light_dot * fog_mask * 0.18;
+    // ── Directional light tinting (soft wrap) ──
+    let to_frag = normalize(world_pos - cam_xy + vec2<f32>(0.001));
+    let wrap = 0.5 + 0.5 * dot(normalize(fog.light_dir.xy + vec2<f32>(0.001)), to_frag);
+    let light_boost = smoothstep(0.2, 1.0, wrap);
+    let light_tint = vec3<f32>(0.06, 0.07, 0.10) * light_boost * fog_mask * 0.40;
     tint += light_tint;
 
     // ── Boundary glow (light scatter at fog edge) ──
@@ -259,6 +276,13 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Clamp tint to valid range.
     tint = clamp(tint, vec3<f32>(0.0), vec3<f32>(1.0));
 
-    // ── Output: straight alpha (compatible with Bevy's Blend mode) ──
-    return vec4<f32>(tint, alpha);
+    // ── Output: transmittance-based fog (atmospheric approximation) ──
+    // Fakes Beer-Lambert attenuation in a single pass.
+    let fog_density = alpha * 1.4;
+    let transmittance = exp(-fog_density);
+    let out_alpha = 1.0 - transmittance;
+    // Standard alpha blend expects straight color, not premultiplied.
+    // final = src.rgb * src.a + dst * (1 - src.a)
+    // so src.rgb should be the fog color itself.
+    return vec4<f32>(tint, out_alpha);
 }
