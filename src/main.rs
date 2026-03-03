@@ -13,7 +13,7 @@ mod proxy_channel;
 mod ui;
 mod units;
 mod fog_material;
-use fog_material::FogOfWarMaterial;
+use fog_material::{FogOfWarMaterial, FogUniforms};
 use bevy::prelude::*;
 use bevy::mesh::Mesh2d;
 use bevy::sprite_render::{Material2dPlugin, MeshMaterial2d};
@@ -454,6 +454,12 @@ fn main() {
             Update,
             update_fog_texture.after(response_controller_system),
         )
+        .add_systems(
+            Update,
+            update_fog_uniforms
+                .after(update_fog_texture)
+                .run_if(resource_exists::<FogMaterialHandle>),
+        )
         .run();
 }
 
@@ -473,6 +479,15 @@ fn spawn_fog_overlay(
     let h = height as f32 * tile_size;
 
     let material = materials.add(FogOfWarMaterial {
+        uniforms: FogUniforms {
+            camera_pos: Vec3::new(0.0, 0.0, 1.0),
+            time: 0.0,
+            // Default sun direction: upper-right, slightly from above.
+            light_dir: Vec3::new(0.6, 0.7, -0.4).normalize(),
+            _pad0: 0.0,
+            world_size: Vec2::new(w, h),
+            world_origin: Vec2::ZERO,
+        },
         fog_texture: fog_handle.handle.clone(),
     });
 
@@ -521,4 +536,34 @@ fn update_fog_texture(
         let _ = materials.get_mut(&mat_handle.handle);
     }
     fog_data.dirty = false;
+}
+
+/// Update fog material uniforms every frame (time, camera position).
+///
+/// Runs only when FogMaterialHandle exists. Updates the uniform block
+/// so the shader has current time for animation and camera position
+/// for depth fade. This marks the material as Modified.
+fn update_fog_uniforms(
+    mat_handle: Res<FogMaterialHandle>,
+    mut materials: ResMut<Assets<FogOfWarMaterial>>,
+    time: Res<Time>,
+    camera_query: Query<(&Transform, &Projection), With<Camera>>,
+) {
+    let Some(mat) = materials.get_mut(&mat_handle.handle) else {
+        return;
+    };
+
+    mat.uniforms.time = time.elapsed_secs();
+
+    // Read camera transform + ortho scale.
+    if let Ok((cam_tf, projection)) = camera_query.single() {
+        mat.uniforms.camera_pos = Vec3::new(
+            cam_tf.translation.x,
+            cam_tf.translation.y,
+            match projection {
+                Projection::Orthographic(ortho) => ortho.scale,
+                _ => 1.0,
+            },
+        );
+    }
 }
