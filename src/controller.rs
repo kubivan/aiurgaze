@@ -388,31 +388,63 @@ fn update_map_from_observation(
 
     // Always write latest visibility to fog texture (independent of hash gate)
     // so fog updates reliably each observation tick.
+    //
+    // MVP tri-state encoding (stored in R8 texture):
+    //   0   = unexplored / hidden
+    //   128 = explored but currently not visible
+    //   255 = currently visible
     if let Some(fog) = fog_data {
         match &visibility_layer {
             Some(vis_layer) => {
                 let (w, h) = (vis_layer.width, vis_layer.height);
                 let mut data = Vec::with_capacity((w * h) as usize);
-                let mut n_fogged = 0u32;
+                let mut n_unexplored = 0u32;
+                let mut n_explored = 0u32;
                 let mut n_visible = 0u32;
+                let mut n_other = 0u32;
                 for y in 0..h {
                     for x in 0..w {
                         let v = vis_layer.get_value(x, y);
-                        if v > 0 {
-                            data.push(255u8);
-                            n_visible += 1;
-                        } else {
-                            data.push(0u8);
-                            n_fogged += 1;
+                        let encoded = match v {
+                            0 => {
+                                n_unexplored += 1;
+                                0u8
+                            }
+                            1 => {
+                                n_explored += 1;
+                                128u8
+                            }
+                            2 => {
+                                n_visible += 1;
+                                255u8
+                            }
+                            _ => {
+                                // Treat unknown values as visible but track them.
+                                n_other += 1;
+                                255u8
+                            }
+                        };
+                        data.push(encoded);
+                    }
+                }
+
+                // 1bpp fallback: values may arrive as 0/255 only (no explored state).
+                if n_visible == 0 && n_explored == 0 && n_unexplored > 0 {
+                    for px in &mut data {
+                        if *px > 0 {
+                            *px = 255;
                         }
                     }
                 }
+
                 // One-time summary so we can verify data has variation.
                 static LOGGED_FOG_SUMMARY: AtomicBool = AtomicBool::new(false);
                 if !LOGGED_FOG_SUMMARY.swap(true, Ordering::Relaxed) {
                     eprintln!(
-                        "[fog] first fog write: {}x{}, fogged={n_fogged}, visible={n_visible}, total={}",
-                        w, h, data.len()
+                        "[fog] first fog write: {}x{}, unexplored={n_unexplored}, explored={n_explored}, visible={n_visible}, other={n_other}, total={}",
+                        w,
+                        h,
+                        data.len()
                     );
                 }
                 fog.data = data;
