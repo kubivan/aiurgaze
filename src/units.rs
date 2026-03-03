@@ -130,8 +130,13 @@ pub fn handle_observation(
     let obs = obs_msg.observation.as_ref().unwrap();
     let raw_data = obs.raw_data.as_ref().unwrap();
 
-    // Clear and rebuild seen tags for this observation
-    seen_tags.seen_tags.clear();
+    // NOTE: Do not clear `seen_tags` here.
+    // It is cleared once per response_controller_system frame and then
+    // accumulated across all ObservationEvents (e.g. VisionMode::All
+    // can receive multiple player observations in the same frame).
+    // Clearing here causes later observations to drop entities from
+    // earlier observations, leading to despawn races with deferred
+    // bar-spawn commands.
 
     // Skip unit processing if map size not yet available
     let Some(map_size) = map_size else {

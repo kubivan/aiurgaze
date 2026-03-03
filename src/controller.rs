@@ -439,6 +439,10 @@ pub fn response_controller_system(
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
 ) {
+    // Rebuild seen tags once per frame across all observation events.
+    // This prevents cross-event despawn races in VisionMode::All.
+    seen_tags.seen_tags.clear();
+
     for event in obs_events.read() {
         let obs = &event.observation;
 
