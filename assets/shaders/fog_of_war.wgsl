@@ -181,8 +181,8 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // curl organically instead of following the hard pixel grid.
     let warp_strength = 2.5 * texel;
     let warp = vec2<f32>(
-        fbm4(wp * 3.5 + vec2<f32>(0.0, 4.7) + vec2<f32>(t * 0.008, 0.0)) - 0.5,
-        fbm4(wp * 3.5 + vec2<f32>(8.3, 0.0) + vec2<f32>(0.0, t * 0.006)) - 0.5
+        fbm4(wp * 3.5 + vec2<f32>(0.0, 4.7) + vec2<f32>(t * 0.020, 0.0)) - 0.5,
+        fbm4(wp * 3.5 + vec2<f32>(8.3, 0.0) + vec2<f32>(0.0, t * 0.016)) - 0.5
     ) * warp_strength;
     let uv_w = clamp(uv + warp, vec2<f32>(0.0), vec2<f32>(1.0));
 
@@ -202,7 +202,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── Layered noise (value × voronoi, GPU-Fog-Particles style) ──
     // Time offset gives subtle animated drift.
-    let drift = vec2<f32>(t * 0.012, t * -0.008);
+    let drift = vec2<f32>(t * 0.028, t * -0.018);
 
     let value_raw = fbm4(wp * 1.5 + drift);
     let value_n = remap01(value_raw, 0.50);
@@ -216,7 +216,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── Macro mass layer (very low-frequency density variation) ──
     // Adds large cloud-body perception so fog feels like volumetric mass.
-    let macro_noise = vnoise(world_pos * 0.005 + vec2<f32>(t * 0.0015, -t * 0.0012));
+    let macro_noise = vnoise(world_pos * 0.005 + vec2<f32>(t * 0.0040, -t * 0.0030));
     let macro_density = mix(0.85, 1.15, macro_noise);
 
     // Fine detail noise for micro-texture (faster animation).
@@ -227,8 +227,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // This avoids zoom-coupled fog and creates natural edge thickening.
     let cam_xy = fog.camera_pos.xy;
     let dist = distance(cam_xy, world_pos);
-    let depth_fade_edge = 1.0 - exp(-dist * 0.012);
-    let depth_fade = mix(0.35, 1.0, depth_fade_edge);
+    let depth_fog = 1.0 - exp(-dist * 0.01);
 
     // ── Height-based falloff ──
     // In top-down 2D, simulate height as world Y position.
@@ -240,10 +239,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let base_unexplored = 0.72 + density * 0.20;
     let base_explored   = 0.16 + density * 0.20 + detail * 0.06;
 
-    let alpha_unexplored = unexplored * base_unexplored * depth_fade * height_fade;
-    let alpha_explored   = explored * base_explored * depth_fade;
+    let alpha_unexplored = unexplored * base_unexplored * height_fade;
+    let alpha_explored   = explored * base_explored;
     var alpha = clamp(alpha_unexplored + alpha_explored, 0.0, 0.90);
     alpha = clamp(alpha * macro_density, 0.0, 0.92);
+    alpha = clamp(alpha * depth_fog, 0.0, 0.92);
 
     // ── Per-band color ──
     // Deep desaturated blue-black for unexplored.
@@ -278,11 +278,9 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── Output: transmittance-based fog (atmospheric approximation) ──
     // Fakes Beer-Lambert attenuation in a single pass.
-    let fog_density = alpha * 1.4;
+    let fog_density = alpha * 1.3;
     let transmittance = exp(-fog_density);
-    let out_alpha = 1.0 - transmittance;
-    // Standard alpha blend expects straight color, not premultiplied.
-    // final = src.rgb * src.a + dst * (1 - src.a)
-    // so src.rgb should be the fog color itself.
-    return vec4<f32>(tint, out_alpha);
+    let final_alpha = 1.0 - transmittance;
+    let final_rgb = tint * final_alpha;
+    return vec4<f32>(final_rgb, final_alpha);
 }

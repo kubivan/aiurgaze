@@ -500,7 +500,7 @@ fn spawn_fog_overlay(
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(w, h))),
         MeshMaterial2d(material),
-        Transform::from_xyz(0.0, 0.0, 1.0),
+        Transform::from_xyz(0.0, 0.0, 1000.0),
     ));
     println!(
         "[fog] spawned fog overlay: {}x{} px, texture {}x{}",
