@@ -173,7 +173,8 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // ── World-space noise coordinate (sticks to terrain) ──
     // Use actual world position so noise doesn't shift with camera.
     // Scale into a nice noise-tile range (~0.01-0.05 per world unit).
-    let wp = world_pos * 0.03;
+    //let wp = world_pos * 0.03;
+    let wp = world_pos * 0.06;
     let t = fog.time;
 
     // ── UV warp (organic boundary distortion) ──
@@ -194,25 +195,37 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let visible    = smoothstep(0.76, 0.95, vis);
     let explored   = saturate(1.0 - unexplored - visible);
 
-    // Early-out: fully visible area → zero fog.
+    // Soft reveal edge (no hard snap in clarity transitions).
+    // Keep a tiny residual haze in visible regions for RTS atmosphere.
+    let reveal_soft = smoothstep(0.0, 0.2, vis);
+    let fog_presence = 1.0 - reveal_soft;
     let fog_mask = unexplored + explored;
-    if fog_mask < 0.003 {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
 
     // ── Layered noise (value × voronoi, GPU-Fog-Particles style) ──
     // Time offset gives subtle animated drift.
-    let drift = vec2<f32>(t * 0.028, t * -0.018);
+    //let drift = vec2<f32>(t * 0.015, t * 0.008);
+    let drift = vec2<f32>(t * 0.15, t * 0.08);
+    //let drift = vec2<f32>(t * 0.04, t * 0.02);
 
-    let value_raw = fbm4(wp * 1.5 + drift);
+    let value_raw = fbm4(wp * 1.35 + drift);
     let value_n = remap01(value_raw, 0.50);
-    let value_blend = mix(1.0, value_n, 0.80);
+    let value_blend = mix(1.0, value_n, 0.86);
 
     let voronoi_raw = voronoi(wp * 1.0 + drift * 0.5);
-    let voronoi_n = remap01(voronoi_raw, 0.20);
-    let voronoi_blend = mix(1.0, voronoi_n, 0.60);
+    let voronoi_soft = smoothstep(0.08, 0.75, voronoi_raw);
+    let voronoi_n = remap01(voronoi_soft, 0.08);
+    let voronoi_blend = mix(1.0, voronoi_n, 0.32);
 
-    let density = saturate(value_blend * voronoi_blend);
+    let cloud_mass = fbm4(wp * 0.55 + drift * 0.35);
+    let mass_blend = mix(0.80, 1.15, cloud_mass);
+
+    // Billowy smoke shaping (absolute FBM ridges inverted to soft puffs).
+    let billow_large = 1.0 - abs(fbm4(wp * 0.75 + drift * 0.22) * 2.0 - 1.0);
+    let billow_mid = 1.0 - abs(fbm4(wp * 1.25 + drift * 0.38 + vec2<f32>(12.0, 7.0)) * 2.0 - 1.0);
+    let puff_field = mix(billow_large, billow_mid, 0.45);
+
+    let density_raw = value_blend * voronoi_blend * mass_blend;
+    let density = saturate(mix(density_raw, density_raw * puff_field * 1.15, 0.62));
 
     // ── Macro mass layer (very low-frequency density variation) ──
     // Adds large cloud-body perception so fog feels like volumetric mass.
@@ -220,7 +233,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let macro_density = mix(0.85, 1.15, macro_noise);
 
     // Fine detail noise for micro-texture (faster animation).
-    let detail = fbm4(wp * 9.0 + vec2<f32>(50.0, 50.0) + drift * 2.0);
+    let detail = fbm4(wp * 5.6 + vec2<f32>(50.0, 50.0) + drift * 1.25);
+
+    // Micro-detail layer (very small scale) to avoid procedural flatness.
+    //let micro = vnoise(world_pos * 0.45 + vec2<f32>(t * 0.028, t * 0.022)) * 0.14;
+    let micro = vnoise(world_pos * 0.45 + vec2<f32>(t * 0.06, t * 0.05)) * 0.18;
 
     // ── Camera distance attenuation (atmospheric depth fade) ──
     // Distance in world-space from camera XY to fragment world position.
@@ -229,21 +246,28 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let dist = distance(cam_xy, world_pos);
     let depth_fog = 1.0 - exp(-dist * 0.01);
 
-    // ── Height-based falloff ──
-    // In top-down 2D, simulate height as world Y position.
-    // Fog is slightly denser at bottom of map (lower Y), thinner at top.
-    let height_norm = saturate(uv_raw.y); // 0 at bottom, 1 at top
-    let height_fade = mix(1.05, 0.92, height_norm);
+    // ── Height-based parallax fake ──
+    let height_norm = saturate((world_pos.y - world_min.y) / max(fog.world_size.y, 0.001));
+    let height_fade = mix(0.9, 1.1, height_norm);
 
     // ── Per-band alpha ──
-    let base_unexplored = 0.72 + density * 0.20;
-    let base_explored   = 0.16 + density * 0.20 + detail * 0.06;
+    let base_unexplored = 0.70 + density * 0.26;
+    let base_explored   = 0.17 + density * 0.22 + detail * 0.04;
 
     let alpha_unexplored = unexplored * base_unexplored * height_fade;
     let alpha_explored   = explored * base_explored;
-    var alpha = clamp(alpha_unexplored + alpha_explored, 0.0, 0.90);
+    // Slight atmospheric haze even when currently visible.
+    let alpha_visible = visible * (0.032 + micro * 0.05);
+    var alpha = clamp(alpha_unexplored + alpha_explored + alpha_visible, 0.0, 0.90);
     alpha = clamp(alpha * macro_density, 0.0, 0.92);
     alpha = clamp(alpha * depth_fog, 0.0, 0.92);
+    alpha = clamp(alpha * fog_presence + alpha_visible, 0.0, 0.92);
+    alpha = clamp(alpha + micro * 0.03, 0.0, 1.0);
+
+    // Early-out only when truly negligible after all atmospheric terms.
+    if alpha < 0.002 {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
 
     // ── Per-band color ──
     // Deep desaturated blue-black for unexplored.
@@ -255,17 +279,19 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── Atmospheric color variation from noise ──
     // Voronoi cellular highlights (explored band): cloud-like luminosity.
-    tint += vec3<f32>(0.08, 0.10, 0.15) * voronoi_n * explored * 0.35;
+    tint += vec3<f32>(0.08, 0.10, 0.15) * voronoi_n * explored * 0.18;
     // Dark swirl deepening (unexplored band).
-    tint -= vec3<f32>(0.003, 0.005, 0.012) * (1.0 - density) * unexplored * 0.45;
+    tint -= vec3<f32>(0.003, 0.005, 0.012) * (1.0 - density) * unexplored * 0.34;
     // Fine detail wisps.
-    tint += vec3<f32>(0.05, 0.06, 0.09) * detail * fog_mask * 0.22;
+    tint += vec3<f32>(0.05, 0.06, 0.09) * detail * fog_mask * 0.14;
 
     // ── Directional light tinting (soft wrap) ──
     let to_frag = normalize(world_pos - cam_xy + vec2<f32>(0.001));
     let wrap = 0.5 + 0.5 * dot(normalize(fog.light_dir.xy + vec2<f32>(0.001)), to_frag);
     let light_boost = smoothstep(0.2, 1.0, wrap);
-    let light_tint = vec3<f32>(0.06, 0.07, 0.10) * light_boost * fog_mask * 0.40;
+    // Forward-scatter phase approximation for puff volume perception.
+    let phase = pow(wrap, 2.4);
+    let light_tint = vec3<f32>(0.07, 0.085, 0.12) * (light_boost * 0.45 + phase * 0.55) * fog_mask * 0.46;
     tint += light_tint;
 
     // ── Boundary glow (light scatter at fog edge) ──
@@ -278,9 +304,10 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── Output: transmittance-based fog (atmospheric approximation) ──
     // Fakes Beer-Lambert attenuation in a single pass.
-    let fog_density = alpha * 1.3;
+    let fog_density = alpha * 1.55;
     let transmittance = exp(-fog_density);
     let final_alpha = 1.0 - transmittance;
-    let final_rgb = tint * final_alpha;
+    let cool = vec3<f32>(0.85, 0.9, 1.0);
+    let final_rgb = mix(tint, cool, 0.10) * final_alpha;
     return vec4<f32>(final_rgb, final_alpha);
 }

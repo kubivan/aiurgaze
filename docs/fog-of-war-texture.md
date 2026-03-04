@@ -1,4 +1,4 @@
-# Fog of War Texture Overlay — Implementation Notes
+t a# Fog of War Texture Overlay — Implementation Notes
 
 ## Goal
 

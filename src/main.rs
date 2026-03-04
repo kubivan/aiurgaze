@@ -15,6 +15,7 @@ mod units;
 mod fog_material;
 use fog_material::{FogOfWarMaterial, FogUniforms};
 use bevy::prelude::*;
+use bevy::time::Real;
 use bevy::mesh::Mesh2d;
 use bevy::sprite_render::{Material2dPlugin, MeshMaterial2d};
 use bevy_health_bar3d::prelude::*;
@@ -546,7 +547,7 @@ fn update_fog_texture(
 fn update_fog_uniforms(
     mat_handle: Res<FogMaterialHandle>,
     mut materials: ResMut<Assets<FogOfWarMaterial>>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     camera_query: Query<(&Transform, &Projection), With<Camera>>,
 ) {
     let Some(mat) = materials.get_mut(&mat_handle.handle) else {
