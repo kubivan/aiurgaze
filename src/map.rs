@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 use sc2_proto::common::ImageData;
 
+#[derive(Clone)]
 pub struct TerrainLayer {
     pub width: u32,
     pub height: u32,
@@ -110,6 +111,7 @@ pub fn blend_tile_color(
 
     color
 }
+#[derive(Clone)]
 pub struct TerrainLayers {
     pub pathing: TerrainLayer,
     pub placement: TerrainLayer,
