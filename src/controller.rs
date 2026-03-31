@@ -7,7 +7,10 @@
 
 use bevy::asset::{AssetServer, Assets, RenderAssetUsages};
 use bevy::image::{Image, ImageSampler};
-use bevy::prelude::{Commands, Handle, Local, Message, MessageReader, Query, Res, ResMut, Resource};
+use bevy::prelude::{
+    Commands, DetectChanges, Handle, Local, Message, MessageReader, Query, Res, ResMut,
+    Resource,
+};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
@@ -26,7 +29,10 @@ use crate::proxy_channel::{
     CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, PlayerId, ProxyDataChannel,
     ProxyReadySignal,
 };
-use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
+use crate::render_layers::LayerRegistry;
+use crate::units::{
+    handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry,
+};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -56,6 +62,9 @@ pub struct MapResource {
     pub last_creep_hash: u64,
     pub last_energy_hash: u64,
     pub last_visibility_hash: u64,
+    pub latest_creep_layer: Option<TerrainLayer>,
+    pub latest_energy_layer: Option<TerrainLayer>,
+    pub latest_visibility_layer: Option<TerrainLayer>,
 }
 
 /// Resource to track the last vision mode for detecting changes.
@@ -258,6 +267,7 @@ fn update_tilemap_colors(
     _visibility_layer: Option<&TerrainLayer>,
     tile_color_query: &mut Query<&mut TileColor>,
     entity_system: &EntitySystem,
+    layer_registry: &LayerRegistry,
 ) {
     let (width, height) = static_layers.get_dimensions();
 
@@ -291,6 +301,7 @@ fn update_tilemap_colors(
                 1, // Always visible for base tile color; fog is handled by overlay
                 height_val,
                 &entity_system.map_config,
+                layer_registry,
             );
 
             tile_color.0 = color;
@@ -328,6 +339,7 @@ fn update_map_from_observation(
     map_res: &mut Option<ResMut<MapResource>>,
     tile_color_query: &mut Query<&mut TileColor>,
     entity_system: &Res<EntitySystem>,
+    layer_registry: &Res<LayerRegistry>,
     fog_data: &mut Option<ResMut<FogOfWarData>>,
 ) -> Option<()> {
     let map_res = map_res.as_mut()?;
@@ -367,6 +379,10 @@ fn update_map_from_observation(
     let new_visibility_hash = calculate_layer_hash(&visibility_layer);
     let new_energy_hash = 0;
 
+    map_res.latest_creep_layer = creep_layer.clone();
+    map_res.latest_energy_layer = None;
+    map_res.latest_visibility_layer = visibility_layer.clone();
+
     if new_creep_hash != map_res.last_creep_hash
         || new_energy_hash != map_res.last_energy_hash
         || new_visibility_hash != map_res.last_visibility_hash
@@ -379,6 +395,7 @@ fn update_map_from_observation(
             visibility_layer.as_ref(),
             tile_color_query,
             entity_system,
+            layer_registry,
         );
 
         map_res.last_creep_hash = new_creep_hash;
@@ -457,6 +474,33 @@ fn update_map_from_observation(
     Some(())
 }
 
+/// Repaint the map immediately when map layer toggles change.
+pub fn refresh_map_colors_on_layer_change(
+    layer_registry: Res<LayerRegistry>,
+    map_res: Option<Res<MapResource>>,
+    entity_system: Res<EntitySystem>,
+    mut tile_color_query: Query<&mut TileColor>,
+) {
+    if !layer_registry.is_changed() {
+        return;
+    }
+
+    let Some(map_res) = map_res else {
+        return;
+    };
+
+    update_tilemap_colors(
+        &map_res.tile_storage,
+        &map_res.static_layers,
+        map_res.latest_creep_layer.as_ref(),
+        map_res.latest_energy_layer.as_ref(),
+        map_res.latest_visibility_layer.as_ref(),
+        &mut tile_color_query,
+        &entity_system,
+        &layer_registry,
+    );
+}
+
 fn handle_units_for_observation(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
@@ -494,6 +538,7 @@ pub fn map_init_system(
     mut commands: Commands,
     mut asset_server: Res<AssetServer>,
     entity_system: Res<EntitySystem>,
+    layer_registry: Res<LayerRegistry>,
     mut images: ResMut<Assets<Image>>,
 ) {
     // Drain all events in this batch; only process the first valid one.
@@ -521,6 +566,7 @@ pub fn map_init_system(
         &static_layers,
         &mut asset_server,
         &entity_system.map_config,
+        &layer_registry,
     );
     commands.insert_resource(MapResource {
         static_layers: static_layers.clone(),
@@ -528,6 +574,9 @@ pub fn map_init_system(
         last_creep_hash: 0,
         last_energy_hash: 0,
         last_visibility_hash: 0,
+        latest_creep_layer: None,
+        latest_energy_layer: None,
+        latest_visibility_layer: None,
     });
 
     // Create the fog texture, add it to Assets<Image>, store the handle.
@@ -564,6 +613,7 @@ pub fn response_controller_system(
     mut tile_color_query: Query<&mut TileColor>,
     unit_query: Query<&UnitBuildProgress>,
     mut seen_tags: ResMut<ObservationUnitTags>,
+    layer_registry: Res<LayerRegistry>,
     mut fog_data: Option<ResMut<FogOfWarData>>,
     mut logged_first_obs: Local<bool>,
 ) {
@@ -597,7 +647,14 @@ pub fn response_controller_system(
             &mut seen_tags,
         );
 
-        if update_map_from_observation(obs, &mut map_res, &mut tile_color_query, &entity_system, &mut fog_data)
+        if update_map_from_observation(
+            obs,
+            &mut map_res,
+            &mut tile_color_query,
+            &entity_system,
+            &layer_registry,
+            &mut fog_data,
+        )
             .is_none()
         {
             eprintln!(

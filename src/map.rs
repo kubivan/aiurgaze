@@ -1,4 +1,5 @@
 use crate::app_settings::MapConfig;
+use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker};
 use bevy::asset::Handle;
 use bevy::image::Image;
 use bevy::prelude::*;
@@ -83,7 +84,38 @@ pub fn blend_tile_color(
     visibility: u8,
     height: u8,
     map_config: &MapConfig,
+    layer_registry: &LayerRegistry,
 ) -> Color {
+    if !layer_registry.is_visible(RenderLayerKind::Terrain) {
+        return Color::NONE;
+    }
+
+    let pathing = if layer_registry.is_visible(RenderLayerKind::Pathing) {
+        pathing
+    } else {
+        255
+    };
+    let placement = if layer_registry.is_visible(RenderLayerKind::Placement) {
+        placement
+    } else {
+        255
+    };
+    let height = if layer_registry.is_visible(RenderLayerKind::HeightMap) {
+        height
+    } else {
+        127
+    };
+    let creep = if layer_registry.is_visible(RenderLayerKind::Creep) {
+        creep
+    } else {
+        0
+    };
+    let energy = if layer_registry.is_visible(RenderLayerKind::Energy) {
+        energy
+    } else {
+        0
+    };
+
     // Creep overrides everything with purple
     if creep > 0 {
         let color = map_config.get_creep_color();
@@ -140,6 +172,7 @@ pub fn spawn_tilemap(
     layers: &TerrainLayers,
     asset_server: &mut Res<AssetServer>,
     map_config: &MapConfig,
+    layer_registry: &LayerRegistry,
     #[cfg(all(not(feature = "atlas"), feature = "render"))] array_texture_loader: Res<
         ArrayTextureLoader,
     >,
@@ -164,8 +197,16 @@ pub fn spawn_tilemap(
             let energy = layers.energy.as_ref().map_or(0, |l| l.get_value(x, y));
             // Get color based on all layers using map config
             // Default visibility to 1 (visible) - will be updated from observation
-            let color =
-                blend_tile_color(pathing, placement, creep, energy, 1, height_val, map_config);
+            let color = blend_tile_color(
+                pathing,
+                placement,
+                creep,
+                energy,
+                1,
+                height_val,
+                map_config,
+                layer_registry,
+            );
             let tile_entity = commands
                 .spawn(TileBundle {
                     position: tile_pos,
@@ -174,6 +215,7 @@ pub fn spawn_tilemap(
                     texture_index: TileTextureIndex(5), // Use a single white tile for coloring
                     ..Default::default()
                 })
+                .insert(RenderLayerMarker(RenderLayerKind::Terrain))
                 .id();
             tile_storage.set(&tile_pos, tile_entity);
         }
@@ -195,6 +237,9 @@ pub fn spawn_tilemap(
         transform: Transform::from_xyz(0.0, 0.0, 0.0), //z = 0.0 (background)
         ..Default::default()
     });
+    commands
+        .entity(tilemap_entity)
+        .insert(RenderLayerMarker(RenderLayerKind::Terrain));
     // Add atlas to array texture loader so it's preprocessed before we need to use it.
     // Only used when the atlas feature is off and we are using array textures.
     #[cfg(all(not(feature = "atlas"), feature = "render"))]

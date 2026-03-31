@@ -1,8 +1,10 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::observation_pipeline::VisionMode;
+use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::units::{
-    get_set_fields, CurrentOrderAbility, SelectedUnit, UnitProto, UnitRegistry, UnitTag, UnitType,
+    get_set_fields, CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto,
+    UnitRegistry, UnitTag, UnitType,
 };
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
@@ -115,6 +117,8 @@ pub fn ui_system(
     app_settings: Res<AppSettings>,
     mut pending_bot_start: ResMut<PendingBotStart>,
     mut vision_mode_channel: ResMut<VisionModeChannel>,
+    mut layer_registry: ResMut<LayerRegistry>,
+    mut unit_visibility: ResMut<UnitCompositionVisibility>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -224,6 +228,30 @@ pub fn ui_system(
                         });
 
                     ui.add_space(10.0);
+                    ui.separator();
+                    ui.heading("Map Layers");
+
+                    for layer in [
+                        RenderLayerKind::Pathing,
+                        RenderLayerKind::Placement,
+                        RenderLayerKind::HeightMap,
+                        RenderLayerKind::Creep,
+                        RenderLayerKind::Energy,
+                        RenderLayerKind::DebugOverlay,
+                        RenderLayerKind::Minimap,
+                    ] {
+                        let mut visible = layer_registry.is_visible(layer);
+                        if ui.checkbox(&mut visible, layer.label()).changed() {
+                            layer_registry.set_visible(layer, visible);
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.heading("Unit Composition");
+
+                    ui.checkbox(&mut unit_visibility.show_orders, "Order Indicators");
+
                     ui.separator();
                     ui.heading("Selected Unit Info");
                     ui.separator();

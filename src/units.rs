@@ -20,6 +20,19 @@ pub struct SelectedUnit {
     pub tag: Option<u64>,
 }
 
+#[derive(Resource, Debug, Clone)]
+pub struct UnitCompositionVisibility {
+    pub show_orders: bool,
+}
+
+impl Default for UnitCompositionVisibility {
+    fn default() -> Self {
+        Self {
+            show_orders: true,
+        }
+    }
+}
+
 /// === Components ===
 
 #[derive(Component)]
@@ -192,6 +205,22 @@ pub fn handle_observation(
                 CurrentOrderAbility(first_order_ability),
             ));
 
+            commands.entity(entity).insert(BarSettings::<UnitHealth> {
+                offset: -size.y / 2.,
+                height: BarHeight::Static(1.),
+                width: size.x,
+                ..default()
+            });
+
+            if max_shield > 0.0 {
+                commands.entity(entity).insert(BarSettings::<UnitShield> {
+                    offset: -size.y / 2. - 2.0,
+                    height: BarHeight::Static(1.),
+                    width: size.x,
+                    ..default()
+                });
+            }
+
             // Prevent flickering: only insert/remove build progress bar if needed
             let has_build_progress = unit_query.get(entity).is_ok();
             if build_progress < 1.0 {
@@ -338,7 +367,12 @@ pub fn draw_unit_orders(
     unit_query: Query<(&Transform, &UnitProto)>,
     registry: Res<UnitRegistry>,
     entity_system: Res<EntitySystem>,
+    unit_visibility: Res<UnitCompositionVisibility>,
 ) {
+    if !unit_visibility.show_orders {
+        return;
+    }
+
     //TODO: remove hardcode
     let map_size = (200.0, 176.0);
     let tile_size = entity_system.map_config.tile_size;

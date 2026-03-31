@@ -10,6 +10,7 @@ mod map;
 mod net_helpers;
 mod observation_pipeline;
 mod proxy_channel;
+mod render_layers;
 mod ui;
 mod units;
 mod fog_material;
@@ -25,11 +26,13 @@ use crate::app_settings::{
 };
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
 use crate::controller::{
-    map_init_system, response_controller_system, setup_proxies, FogMaterialHandle, FogOfWarData,
-    FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent,
+    map_init_system, refresh_map_colors_on_layer_change, response_controller_system,
+    setup_proxies, FogMaterialHandle, FogOfWarData, FogOfWarHandle, GameInfoEvent,
+    LastVisionMode, MapResource, ObservationEvent,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::proxy_channel::ProxyReadySignal;
+use crate::render_layers::{layer_visibility_system, LayerRegistry, RenderLayerKind, RenderLayerMarker};
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
@@ -40,6 +43,7 @@ use crate::ui::{
 use crate::units::draw_unit_orders;
 use crate::units::{
     cleanup_dead_units, unit_selection_system, ObservationUnitTags, SelectedUnit,
+    UnitCompositionVisibility,
     UnitBuildProgress, UnitHealth, UnitRegistry, UnitShield,
 };
 use bevy::asset::AssetPlugin;
@@ -425,6 +429,8 @@ fn main() {
         .insert_resource(ProxyReadyResource::default())
         .insert_resource(PendingBotStart::default())
         .insert_resource(FogOfWarData::default())
+        .insert_resource(LayerRegistry::default())
+        .insert_resource(UnitCompositionVisibility::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -437,6 +443,7 @@ fn main() {
             map_init_system.run_if(not(resource_exists::<MapResource>)),
         )
         .add_systems(Update, response_controller_system)
+        .add_systems(Update, refresh_map_colors_on_layer_change.after(response_controller_system))
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(
@@ -445,6 +452,7 @@ fn main() {
         )
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
         .add_systems(Update, draw_unit_orders)
+        .add_systems(PostUpdate, layer_visibility_system)
         .add_systems(
             Update,
             spawn_fog_overlay
@@ -502,6 +510,7 @@ fn spawn_fog_overlay(
         Mesh2d(meshes.add(Rectangle::new(w, h))),
         MeshMaterial2d(material),
         Transform::from_xyz(0.0, 0.0, 1000.0),
+        RenderLayerMarker(RenderLayerKind::Terrain),
     ));
     println!(
         "[fog] spawned fog overlay: {}x{} px, texture {}x{}",
