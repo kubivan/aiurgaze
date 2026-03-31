@@ -2,13 +2,10 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use protobuf::Message;
 use sc2_proto::sc2api::{Request, Response};
-use std::net::TcpStream;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Error as WsError;
-use tokio_tungstenite::WebSocketStream;
 
 pub fn send_create_game_request(
     request: Request,

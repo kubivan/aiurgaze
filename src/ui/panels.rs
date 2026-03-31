@@ -6,9 +6,10 @@ use crate::ui::{
     build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
     GameType, PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
+use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::units::{
-    get_set_fields, CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto,
-    UnitRegistry, UnitTag, UnitType,
+    CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto, UnitRegistry,
+    UnitTag, UnitType,
 };
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
@@ -127,35 +128,7 @@ fn render_game_screen(
             ui.heading("Unit Composition");
 
             ui.checkbox(&mut unit_visibility.show_orders, "Order Indicators");
-
-            ui.separator();
-            ui.heading("Selected Unit Info");
-            ui.separator();
-
-            let Some(tag) = selected.tag else {
-                ui.label("No unit selected.");
-                return;
-            };
-
-            let Some(&entity) = registry.map.get(&tag) else {
-                ui.label("No unit selected.");
-                return;
-            };
-
-            let Ok((unit_proto, unit_tag, _, _)) = unit_query.get(entity) else {
-                ui.label("Unit data not found.");
-                return;
-            };
-
-            egui::CollapsingHeader::new("Unit Details")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.label(format!("Tag: {}", unit_tag.0));
-                    ui.separator();
-                    for (field, value) in get_set_fields(&unit_proto.0) {
-                        ui.label(format!("{}: {}", field, value));
-                    }
-                });
+            render_selected_unit_info(ui, selected, registry, unit_query);
         });
 
     egui::CentralPanel::default()

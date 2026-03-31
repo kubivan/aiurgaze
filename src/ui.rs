@@ -3,6 +3,7 @@ pub(crate) mod create_game;
 pub(crate) mod game_config_panel;
 pub(crate) mod hud;
 pub(crate) mod panels;
+pub(crate) mod selected_unit_info;
 pub(crate) mod state;
 pub(crate) mod vision_mode;
 

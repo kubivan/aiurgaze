@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::from_reader;
 use std::collections::HashMap;
 use std::fs::File;
-use std::path::Path;
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
@@ -107,7 +106,7 @@ impl EntitySystem {
             abilities.insert(ability.id, ability);
         }
 
-        /// Display configuration by unit ID (from entities.toml)
+        // Display configuration by unit ID (from entities.toml)
         let mut map_config = MapConfig::default();
         let mut display_config: HashMap<u32, EntityDisplayInfo> = HashMap::new();
 

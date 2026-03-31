@@ -11,7 +11,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::app_settings::get_data_dir;
-use crate::proxy_channel::ProxyReadySignal;
 use crate::ProxyReadyResource;
 
 /// Format a SystemTime as a simple timestamp string
