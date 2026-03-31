@@ -54,6 +54,29 @@ pub struct GameInfoEvent {
     pub game_info: ResponseGameInfo,
 }
 
+/// Event emitted for each proxied SC2 response to track protocol activity.
+#[derive(Message, Clone)]
+pub struct ProtocolActivityEvent {
+    pub player_id: PlayerId,
+    pub response_kind: String,
+}
+
+/// Latest protocol activity summary for status UI.
+#[derive(Resource, Debug, Clone)]
+pub struct ProtocolActivityState {
+    pub player1_last: String,
+    pub player2_last: String,
+}
+
+impl Default for ProtocolActivityState {
+    fn default() -> Self {
+        Self {
+            player1_last: "idle".to_string(),
+            player2_last: "idle".to_string(),
+        }
+    }
+}
+
 /// Resource to store static terrain layers and tile storage.
 #[derive(Resource)]
 pub struct MapResource {
@@ -185,6 +208,51 @@ pub fn setup_proxies(
         println!("Observation stream finished");
     });
 
+    // Spawn protocol activity consumer (all responses, independent from observation/game_info pipelines).
+    let p1_activity: TaggedResponseStream = Box::pin(channel1.response_stream());
+    runtime.spawn_background_task(move |ctx| async move {
+        tokio::pin!(p1_activity);
+
+        while let Some(tagged) = p1_activity.next().await {
+            let mut ctx_clone = ctx.clone();
+            let activity_event = ProtocolActivityEvent {
+                player_id: tagged.player_id,
+                response_kind: response_kind_name(&tagged.response),
+            };
+
+            tokio::spawn(async move {
+                ctx_clone
+                    .run_on_main_thread(move |ctx| {
+                        ctx.world.send_event(activity_event);
+                    })
+                    .await;
+            });
+        }
+    });
+
+    if let Some(ref channel2_for_activity) = channel2 {
+        let p2_activity: TaggedResponseStream = Box::pin(channel2_for_activity.response_stream());
+        runtime.spawn_background_task(move |ctx| async move {
+            tokio::pin!(p2_activity);
+
+            while let Some(tagged) = p2_activity.next().await {
+                let mut ctx_clone = ctx.clone();
+                let activity_event = ProtocolActivityEvent {
+                    player_id: tagged.player_id,
+                    response_kind: response_kind_name(&tagged.response),
+                };
+
+                tokio::spawn(async move {
+                    ctx_clone
+                        .run_on_main_thread(move |ctx| {
+                            ctx.world.send_event(activity_event);
+                        })
+                        .await;
+                });
+            }
+        });
+    }
+
     // Spawn independent proxy tasks — each with its own upstream WS to SC2.
     // Only coordination: host sends CreateGame first, then signals guest.
     let ready_signal1 = ready_signal.clone();
@@ -248,6 +316,30 @@ pub fn setup_proxies(
 
     println!("====== Proxy tasks spawned ======");
     ready_signal
+}
+
+fn response_kind_name(response: &sc2_proto::sc2api::Response) -> String {
+    let Some(oneof) = response.response.as_ref() else {
+        return "unknown".to_string();
+    };
+
+    let full = format!("{oneof:?}");
+    full.split('(')
+        .next()
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+pub fn protocol_activity_system(
+    mut events: MessageReader<ProtocolActivityEvent>,
+    mut state: ResMut<ProtocolActivityState>,
+) {
+    for event in events.read() {
+        match event.player_id {
+            PlayerId::Player1 => state.player1_last = event.response_kind.clone(),
+            PlayerId::Player2 => state.player2_last = event.response_kind.clone(),
+        }
+    }
 }
 
 fn calculate_layer_hash(layer: &Option<TerrainLayer>) -> u64 {

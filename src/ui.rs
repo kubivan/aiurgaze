@@ -1,5 +1,6 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
+use crate::controller::ProtocolActivityState;
 use crate::observation_pipeline::VisionMode;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::units::{
@@ -301,13 +302,16 @@ pub enum DockerStatus {
     Error(String),
 }
 
-pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerStatus>) {
+pub fn status_bar_system(
+    mut contexts: EguiContexts,
+    docker_status: Res<DockerStatus>,
+    activity: Res<ProtocolActivityState>,
+) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
-    // println!("[StatusBar] DockerStatus: {:?}", *docker_status);
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label("Docker status:");
@@ -320,6 +324,11 @@ pub fn status_bar_system(mut contexts: EguiContexts, docker_status: Res<DockerSt
                     ui.colored_label(egui::Color32::RED, format!("Error: {}", e))
                 }
             };
+
+            ui.separator();
+            ui.label(format!("P1: {}", activity.player1_last));
+            ui.separator();
+            ui.label(format!("P2: {}", activity.player2_last));
         });
     });
 }

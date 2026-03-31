@@ -28,7 +28,8 @@ use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesE
 use crate::controller::{
     map_init_system, refresh_map_colors_on_layer_change, response_controller_system,
     setup_proxies, FogMaterialHandle, FogOfWarData, FogOfWarHandle, GameInfoEvent,
-    LastVisionMode, MapResource, ObservationEvent,
+    LastVisionMode, MapResource, ObservationEvent, ProtocolActivityEvent,
+    ProtocolActivityState, protocol_activity_system,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::proxy_channel::ProxyReadySignal;
@@ -367,6 +368,7 @@ fn main() {
         .add_message::<StartBotProcessesEvent>()
         .add_message::<GameInfoEvent>()
         .add_message::<ObservationEvent>()
+        .add_message::<ProtocolActivityEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -431,6 +433,7 @@ fn main() {
         .insert_resource(FogOfWarData::default())
         .insert_resource(LayerRegistry::default())
         .insert_resource(UnitCompositionVisibility::default())
+        .insert_resource(ProtocolActivityState::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -443,6 +446,7 @@ fn main() {
             map_init_system.run_if(not(resource_exists::<MapResource>)),
         )
         .add_systems(Update, response_controller_system)
+        .add_systems(Update, protocol_activity_system)
         .add_systems(Update, refresh_map_colors_on_layer_change.after(response_controller_system))
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
