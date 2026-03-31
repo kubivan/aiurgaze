@@ -58,3 +58,5 @@ tiled = { version = "0.15.0", default-features = false }
 [features]
 # Build with `--features use-wasm-view` if ever embedding to a webview later
 use-wasm-view = []
+atlas = []
+render = []

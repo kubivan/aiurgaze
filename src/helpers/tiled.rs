@@ -12,7 +12,7 @@
 //   * When the 'atlas' feature is enabled tilesets using a collection of images will be skipped.
 //   * Only finite tile layers are loaded. Infinite tile layers and object layers will be skipped.
 
-use std::io::{Cursor, ErrorKind};
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -119,7 +119,7 @@ impl AssetLoader for TiledLoader {
             BytesResourceReader::new(&bytes),
         );
         let map = loader.load_tmx_map(load_context.path()).map_err(|e| {
-            std::io::Error::new(ErrorKind::Other, format!("Could not load TMX map: {e}"))
+            std::io::Error::other(format!("Could not load TMX map: {e}"))
         })?;
 
         let mut tilemap_textures = HashMap::default();
@@ -354,6 +354,8 @@ pub fn process_loaded_maps(
                                     TilemapTexture::Vector(_) =>
                                         *tiled_map.tile_image_offsets.get(&(tileset_index, layer_tile.id()))
                                         .expect("The offset into to image vector should have been saved during the initial load."),
+                                    #[cfg(feature = "atlas")]
+                                    _ => continue,
                                     #[cfg(not(feature = "atlas"))]
                                     _ => unreachable!()
                                 };

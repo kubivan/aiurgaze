@@ -89,8 +89,8 @@ impl EntitySystem {
 
         // Load data.json
         let data_json_path = data_dir.join("data.json");
-        let data_json_file =
-            File::open(&data_json_path).expect(&format!("Failed to open {:?}", data_json_path));
+        let data_json_file = File::open(&data_json_path)
+            .unwrap_or_else(|_| panic!("Failed to open {:?}", data_json_path));
 
         let data: DataJson = from_reader(data_json_file).expect("Failed to parse data.json");
 
@@ -112,7 +112,7 @@ impl EntitySystem {
 
         let entities_path = data_dir.join("entities.toml");
         let toml_content = std::fs::read_to_string(&entities_path)
-            .expect(&format!("Failed to read {:?}", entities_path));
+            .unwrap_or_else(|_| panic!("Failed to read {:?}", entities_path));
         let config = toml::de::from_str::<EntitiesConfig>(&toml_content)
             .expect("Failed to parse entities.toml");
 
@@ -122,10 +122,11 @@ impl EntitySystem {
         }
 
         for entity in config.entity {
-            let mut info = EntityDisplayInfo::default();
-            info.name = Some(entity.name.clone());
-            info.icon = entity.icon;
-            info.tile_size = entity.tile_size;
+            let info = EntityDisplayInfo {
+                name: Some(entity.name.clone()),
+                icon: entity.icon,
+                tile_size: entity.tile_size,
+            };
             display_config.insert(entity.id, info);
         }
         info!(

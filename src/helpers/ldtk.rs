@@ -4,7 +4,7 @@ use bevy_ecs_tilemap::{
     tiles::{TileBundle, TilePos, TileStorage, TileTextureIndex},
     TilemapBundle,
 };
-use std::{collections::HashMap, io::ErrorKind};
+use std::collections::HashMap;
 use thiserror::Error;
 
 use bevy::{asset::io::Reader, reflect::TypePath};
@@ -71,10 +71,7 @@ impl AssetLoader for LdtkLoader {
         reader.read_to_end(&mut bytes).await?;
 
         let project: ldtk_rust::Project = serde_json::from_slice(&bytes).map_err(|e| {
-            std::io::Error::new(
-                ErrorKind::Other,
-                format!("Could not read contents of Ldtk map: {e}"),
-            )
+            std::io::Error::other(format!("Could not read contents of Ldtk map: {e}"))
         })?;
         let dependencies: Vec<(i64, AssetPath)> = project
             .defs

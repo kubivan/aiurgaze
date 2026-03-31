@@ -38,7 +38,7 @@ impl GameConfigPanel {
         };
         let map_name = match &defaults.map_name {
             Some(name) if available_maps.contains(name) => Some(name.clone()),
-            _ => available_maps.get(0).cloned(),
+            _ => available_maps.first().cloned(),
         };
         let player_name = defaults
             .player_name
@@ -49,7 +49,7 @@ impl GameConfigPanel {
             Some("Terran") => Some(Race::Terran),
             Some("Protoss") => Some(Race::Protoss),
             Some("Zerg") => Some(Race::Zerg),
-            Some("Random") | _ => Some(Race::Random),
+            _ => Some(Race::Random),
         };
         let bot_name = defaults.bot_name.clone();
         let disable_fog = defaults.disable_fog.unwrap_or(false);

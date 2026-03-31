@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(deprecated)]
+#![allow(clippy::too_many_arguments)]
+
 // src/main.rs
 //mod proxy_ws;
 mod app_settings;
@@ -65,7 +69,7 @@ fn start_server_container(
 
     // Remove any existing container with the same name
     let _ = Command::new("docker")
-        .args(["rm", "-f", &container_name])
+        .args(["rm", "-f", container_name])
         .status();
 
     // Pull configured image so release users only need Docker + binary tarball

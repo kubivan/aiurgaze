@@ -19,7 +19,6 @@ use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Notify};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_tungstenite::{accept_async, connect_async, WebSocketStream};
-use tungstenite;
 
 type WsStream = WebSocketStream<tokio::net::TcpStream>;
 type UpstreamWs = WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -551,7 +550,7 @@ impl ProxyDataChannel {
 
             let raw = join_msg.into_data().to_vec();
             let parsed = try_parse_request(&raw);
-            let is_join = parsed.as_ref().map_or(false, is_join_game);
+            let is_join = parsed.as_ref().is_some_and(is_join_game);
             assert!(is_join);
 
             // Inject multiplayer ports if provided

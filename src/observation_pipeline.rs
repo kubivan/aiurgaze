@@ -216,7 +216,7 @@ pub fn create_observation_stream(
                 move |(player_id, obs)| {
                     let mode = *mode_p2.borrow();
                     let _ = hold_p2.send(Some(obs.clone()));
-                    (mode == VisionMode::Player2).then(|| TaggedObservation {
+                    (mode == VisionMode::Player2).then_some(TaggedObservation {
                         player_id,
                         observation: obs,
                         vision_mode: mode,

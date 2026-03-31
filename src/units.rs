@@ -97,7 +97,6 @@ pub struct ShieldBar;
 pub struct BuildProgressBar;
 
 /// === Unit handling logic ===
-
 /// Resource to store unit tags seen in the current observation for cleanup phase
 #[derive(Resource, Default)]
 pub struct ObservationUnitTags {
@@ -173,7 +172,7 @@ pub fn handle_observation(
 
         let unit_radius = unit.radius.unwrap_or(1.0);
 
-        let first_order_ability = unit.orders.get(0).and_then(|o| o.ability_id);
+        let first_order_ability = unit.orders.first().and_then(|o| o.ability_id);
 
         //Apply reddish tint for enemy units
         let sprite_color = match unit.alliance.as_ref().unwrap() {
@@ -379,10 +378,10 @@ pub fn draw_unit_orders(
 
     for (transform, proto) in unit_query
         .iter()
-        .filter(|(_, proto)| proto.0.orders.len() > 0)
+        .filter(|(_, proto)| !proto.0.orders.is_empty())
     {
         // Get the first order if it exists
-        let order = proto.0.orders.get(0).unwrap();
+        let order = proto.0.orders.first().unwrap();
         let start_pos = Vec2::new(transform.translation.x, transform.translation.y);
 
         // Check if the order has a target using the oneof enum

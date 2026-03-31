@@ -482,7 +482,7 @@ fn update_map_from_observation(
     let creep_layer = map_state
         .creep
         .as_ref()
-        .map(|creep_data| TerrainLayer::from_image_data(creep_data));
+        .map(TerrainLayer::from_image_data);
 
     if let Some(vis_data) = map_state.visibility.as_ref() {
         if !LOGGED_VIS_FORMAT.swap(true, Ordering::Relaxed) {
@@ -501,7 +501,7 @@ fn update_map_from_observation(
     let visibility_layer = map_state
         .visibility
         .as_ref()
-        .map(|vis_data| TerrainLayer::from_image_data(vis_data));
+        .map(TerrainLayer::from_image_data);
 
     let new_creep_hash = calculate_layer_hash(&creep_layer);
     let new_visibility_hash = calculate_layer_hash(&visibility_layer);
@@ -539,63 +539,60 @@ fn update_map_from_observation(
     //   128 = explored but currently not visible
     //   255 = currently visible
     if let Some(fog) = fog_data {
-        match &visibility_layer {
-            Some(vis_layer) => {
-                let (w, h) = (vis_layer.width, vis_layer.height);
-                let mut data = Vec::with_capacity((w * h) as usize);
-                let mut n_unexplored = 0u32;
-                let mut n_explored = 0u32;
-                let mut n_visible = 0u32;
-                let mut n_other = 0u32;
-                for y in 0..h {
-                    for x in 0..w {
-                        let v = vis_layer.get_value(x, y);
-                        let encoded = match v {
-                            0 => {
-                                n_unexplored += 1;
-                                0u8
-                            }
-                            1 => {
-                                n_explored += 1;
-                                128u8
-                            }
-                            2 => {
-                                n_visible += 1;
-                                255u8
-                            }
-                            _ => {
-                                // Treat unknown values as visible but track them.
-                                n_other += 1;
-                                255u8
-                            }
-                        };
-                        data.push(encoded);
-                    }
-                }
-
-                // 1bpp fallback: values may arrive as 0/255 only (no explored state).
-                if n_visible == 0 && n_explored == 0 && n_unexplored > 0 {
-                    for px in &mut data {
-                        if *px > 0 {
-                            *px = 255;
+        if let Some(vis_layer) = &visibility_layer {
+            let (w, h) = (vis_layer.width, vis_layer.height);
+            let mut data = Vec::with_capacity((w * h) as usize);
+            let mut n_unexplored = 0u32;
+            let mut n_explored = 0u32;
+            let mut n_visible = 0u32;
+            let mut n_other = 0u32;
+            for y in 0..h {
+                for x in 0..w {
+                    let v = vis_layer.get_value(x, y);
+                    let encoded = match v {
+                        0 => {
+                            n_unexplored += 1;
+                            0u8
                         }
+                        1 => {
+                            n_explored += 1;
+                            128u8
+                        }
+                        2 => {
+                            n_visible += 1;
+                            255u8
+                        }
+                        _ => {
+                            // Treat unknown values as visible but track them.
+                            n_other += 1;
+                            255u8
+                        }
+                    };
+                    data.push(encoded);
+                }
+            }
+
+            // 1bpp fallback: values may arrive as 0/255 only (no explored state).
+            if n_visible == 0 && n_explored == 0 && n_unexplored > 0 {
+                for px in &mut data {
+                    if *px > 0 {
+                        *px = 255;
                     }
                 }
-
-                // One-time summary so we can verify data has variation.
-                static LOGGED_FOG_SUMMARY: AtomicBool = AtomicBool::new(false);
-                if !LOGGED_FOG_SUMMARY.swap(true, Ordering::Relaxed) {
-                    eprintln!(
-                        "[fog] first fog write: {}x{}, unexplored={n_unexplored}, explored={n_explored}, visible={n_visible}, other={n_other}, total={}",
-                        w,
-                        h,
-                        data.len()
-                    );
-                }
-                fog.data = data;
-                fog.dirty = true;
             }
-            None => {}
+
+            // One-time summary so we can verify data has variation.
+            static LOGGED_FOG_SUMMARY: AtomicBool = AtomicBool::new(false);
+            if !LOGGED_FOG_SUMMARY.swap(true, Ordering::Relaxed) {
+                eprintln!(
+                    "[fog] first fog write: {}x{}, unexplored={n_unexplored}, explored={n_explored}, visible={n_visible}, other={n_other}, total={}",
+                    w,
+                    h,
+                    data.len()
+                );
+            }
+            fog.data = data;
+            fog.dirty = true;
         }
     }
 
@@ -677,7 +674,7 @@ pub fn map_init_system(
 
     let gi = &event.game_info;
     let start_raw = gi.start_raw.as_ref().unwrap();
-    let _start_pos = start_raw.start_locations.get(0);
+    let _start_pos = start_raw.start_locations.first();
 
     let path_layer = TerrainLayer::from_image_data(start_raw.pathing_grid.as_ref().unwrap());
     let placement_layer = TerrainLayer::from_image_data(start_raw.placement_grid.as_ref().unwrap());
