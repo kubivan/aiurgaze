@@ -198,8 +198,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Soft reveal edge (no hard snap in clarity transitions).
     // Keep a tiny residual haze in visible regions for RTS atmosphere.
     let reveal_soft = smoothstep(0.0, 0.2, vis);
-    let fog_presence = 1.0 - reveal_soft;
-    let fog_mask = unexplored + explored;
+    let fog_presence_unexplored = 1.0 - reveal_soft;
 
     // ── Layered noise (value × voronoi, GPU-Fog-Particles style) ──
     // Time offset gives subtle animated drift.
@@ -252,17 +251,22 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // ── Per-band alpha ──
     let base_unexplored = 0.70 + density * 0.26;
-    let base_explored   = 0.17 + density * 0.22 + detail * 0.04;
+    // Explored areas: moderate darkening overlay (static, no animation)
+    let base_explored   = 0.14;  // No procedural noise — just static darkening
 
-    let alpha_unexplored = unexplored * base_unexplored * height_fade;
-    let alpha_explored   = explored * base_explored;
-    // Slight atmospheric haze even when currently visible.
-    let alpha_visible = visible * (0.032 + micro * 0.05);
-    var alpha = clamp(alpha_unexplored + alpha_explored + alpha_visible, 0.0, 0.90);
-    alpha = clamp(alpha * macro_density, 0.0, 0.92);
-    alpha = clamp(alpha * depth_fog, 0.0, 0.92);
-    alpha = clamp(alpha * fog_presence + alpha_visible, 0.0, 0.92);
-    alpha = clamp(alpha + micro * 0.03, 0.0, 1.0);
+    let alpha_unexplored_base = unexplored * base_unexplored * height_fade;
+    let alpha_explored        = explored * base_explored;
+    // Visible areas: NO fog overlay at all
+    let alpha_visible = 0.0;
+
+    // Keep explored shading stable and static.
+    // Apply atmospheric modulation only to unexplored fog volume.
+    var alpha_unexplored = clamp(alpha_unexplored_base * macro_density, 0.0, 0.92);
+    alpha_unexplored = clamp(alpha_unexplored * depth_fog, 0.0, 0.92);
+    alpha_unexplored = clamp(alpha_unexplored * fog_presence_unexplored, 0.0, 0.92);
+    alpha_unexplored = clamp(alpha_unexplored + micro * 0.03 * unexplored, 0.0, 0.92);
+
+    var alpha = clamp(alpha_unexplored + alpha_explored + alpha_visible, 0.0, 0.95);
 
     // Early-out only when truly negligible after all atmospheric terms.
     if alpha < 0.002 {
@@ -278,26 +282,27 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     var tint = mix(col_explored, col_unexplored, unexplored);
 
     // ── Atmospheric color variation from noise ──
-    // Voronoi cellular highlights (explored band): cloud-like luminosity.
-    tint += vec3<f32>(0.08, 0.10, 0.15) * voronoi_n * explored * 0.18;
+    // Only apply atmospheric noise to unexplored (fogged) areas
+    // Voronoi cellular highlights (unexplored band): cloud-like luminosity.
+    tint += vec3<f32>(0.08, 0.10, 0.15) * voronoi_n * unexplored * 0.18;
     // Dark swirl deepening (unexplored band).
     tint -= vec3<f32>(0.003, 0.005, 0.012) * (1.0 - density) * unexplored * 0.34;
-    // Fine detail wisps.
-    tint += vec3<f32>(0.05, 0.06, 0.09) * detail * fog_mask * 0.14;
+    // Fine detail wisps (unexplored only).
+    tint += vec3<f32>(0.05, 0.06, 0.09) * detail * unexplored * 0.14;
 
     // ── Directional light tinting (soft wrap) ──
     let to_frag = normalize(world_pos - cam_xy + vec2<f32>(0.001));
     let wrap = 0.5 + 0.5 * dot(normalize(fog.light_dir.xy + vec2<f32>(0.001)), to_frag);
     let light_boost = smoothstep(0.2, 1.0, wrap);
-    // Forward-scatter phase approximation for puff volume perception.
+    // Forward-scatter phase approximation for puff volume perception (unexplored only).
     let phase = pow(wrap, 2.4);
-    let light_tint = vec3<f32>(0.07, 0.085, 0.12) * (light_boost * 0.45 + phase * 0.55) * fog_mask * 0.46;
+    let light_tint = vec3<f32>(0.07, 0.085, 0.12) * (light_boost * 0.45 + phase * 0.55) * unexplored * 0.46;
     tint += light_tint;
 
-    // ── Boundary glow (light scatter at fog edge) ──
+    // ── Boundary glow (light scatter at fog edge, unexplored only) ──
     let edge = smoothstep(0.32, 0.52, vis) * (1.0 - smoothstep(0.52, 0.78, vis));
     let glow_color = vec3<f32>(0.08, 0.10, 0.16) + light_tint * 0.5;
-    tint += glow_color * edge * 0.38;
+    tint += glow_color * edge * unexplored * 0.38;
 
     // Clamp tint to valid range.
     tint = clamp(tint, vec3<f32>(0.0), vec3<f32>(1.0));
