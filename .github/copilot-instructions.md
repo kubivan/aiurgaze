@@ -24,9 +24,6 @@ cd docker && docker build -t minimal-sc2 .
 
 # Production install
 cargo install --path .
-
-# CLI mode: skip UI, launch directly into game
-aiurgaze create_game --mode vsAI --race terran
 ```
 
 **Critical Environment Variables:**
@@ -67,10 +64,9 @@ aiurgaze create_game --mode vsAI --race terran
 
 ## Project-Specific Patterns & Conventions
 
-### 1. **Two-Mode Startup**
-   - **UI Mode**: User configures game in UI, then creates game
-   - **CLI Mode**: Use `create_game --mode --race` to preconfigure; UI opens ready-to-play
-   - Pending requests stored in `PendingCreateGameRequest` resource
+### 1. **UI-Driven Startup**
+   - User configures game in UI, then creates game
+   - Pending requests are produced by UI interactions and stored in `PendingCreateGameRequest`
 
 ### 2. **Async Tasks in Bevy**
    - Spawned via `TokioTasksRuntime::spawn_background_task()`
@@ -100,7 +96,7 @@ aiurgaze create_game --mode vsAI --race terran
 - **Small, standalone functions**: Break logic into focused functions with single responsibilities
   - Prefer functions that fit on one screen (~20-40 lines)
   - Extract complex logic into helper functions with descriptive names
-  - Example: `parse_game_type()`, `parse_race()` in [src/main.rs](src/main.rs)
+   - Example: `start_server_container()` and `docker_startup_system()` in [src/main.rs](src/main.rs)
 
 ### Control Flow
 - **Early returns/termination**: Use guard clauses to avoid deep nesting
@@ -136,7 +132,7 @@ aiurgaze create_game --mode vsAI --race terran
 
 | File | Purpose |
 |------|---------|
-| [src/main.rs](src/main.rs) | CLI parsing, Docker startup, Bevy app setup |
+| [src/main.rs](src/main.rs) | Docker startup, proxy wiring, Bevy app setup |
 | [src/app_settings.rs](src/app_settings.rs) | XDG config loading, path resolution |
 | [src/proxy_ws.rs](src/proxy_ws.rs) | WebSocket proxy for SC2 API traffic |
 | [src/controller.rs](src/controller.rs) | Response event handling, terrain updates |
@@ -166,5 +162,4 @@ aiurgaze create_game --mode vsAI --race terran
 
 **Testing game creation flow:**
 - Use `AIURGAZE_LOCAL_RESOURCES=1 cargo run --release` locally
-- CLI mode: `cargo run --release -- create_game --mode vsAI --race terran`
 - Verify `game_config_panel.rs` (maps, AI difficulty, fog settings)

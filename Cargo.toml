@@ -32,7 +32,6 @@ bevy_health_bar3d = { version = "3.7.0", default-features = false, features = ["
 
 tiled = { version = "0.15.0", default-features = false }
 
-tap = "*"
 sc2-proto = { git = "https://github.com/kubivan/sc2-proto-rs.git", branch = "master" }
 
 #-- ecs tiled map
@@ -52,9 +51,6 @@ config = "0.15"
 serde = "1.0.228"
 toml = "0.9.8"
 directories = "5"
-
-# --- Command-line Argument Parsing ---
-clap = { version = "4.5", features = ["derive"] }
 
 [build-dependencies]
 tiled = { version = "0.15.0", default-features = false }

@@ -81,10 +81,7 @@ You can customize the image name in `config.toml` (see `[starcraft]` section bel
 
 ## Usage
 
-`aiurgaze` can be used in two main ways:
-
-1. **UI mode** - start the app and configure everything in the UI, using `config.toml` as defaults.
-2. **CLI-assisted mode** - use a subcommand to preconfigure game mode and race, then let the UI open directly into a ready-to-play game.
+start the app and configure everything in the UI, using `config.toml` as defaults.
 
 ### 1. UI mode
 
@@ -102,26 +99,7 @@ cargo run --release
 
 You can adjust many settings directly in the UI without touching `config.toml`; the file simply provides the starting defaults.
 
-### 2. CLI-assisted mode (`create_game`)
-
-To skip some manual UI steps and preconfigure the game type and race, use the `create_game` subcommand:
-
-```bash
-aiurgaze create_game --mode vsAI --race terran
-aiurgaze create_game --mode vsBot --race protoss
-```
-
-- `--mode` accepts `vsAI` or `vsBot` (case-insensitive).
-- `--race` accepts `terran`, `zerg`, `protoss`, or `random` (case-insensitive).
-
-Behavior:
-
-1. `aiurgaze` starts the SC2 Docker container using `[starcraft]` settings.
-2. It loads `config.toml` and uses your chosen `mode` and `race` to override `game_type` and player race.
-3. All other settings (map, difficulty, bot commands, etc.) still come from `config.toml`.
-4. The Bevy UI starts and immediately creates a game using this configuration.
-
-This is useful when repeatedly running the same game setup from a script or terminal, while still benefiting from the visualization and UI.
+The app starts on the setup screen. Choose map, mode, race, and optional bot commands there, then click **Create Game**.
 
 ## Configuration
 

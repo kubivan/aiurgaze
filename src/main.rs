@@ -3,7 +3,6 @@
 mod app_settings;
 mod bot_runner;
 mod controller;
-mod create_game_request;
 mod entity_system;
 mod helpers;
 mod map;
@@ -37,7 +36,7 @@ use crate::render_layers::{layer_visibility_system, LayerRegistry, RenderLayerKi
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
-    build_create_game_request, camera_controls, hud_system, setup_camera, status_bar_system,
+    camera_controls, hud_system, setup_camera, status_bar_system,
     ui_system, AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated,
     PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
@@ -52,48 +51,7 @@ use bevy::color::palettes::basic::{GREEN, RED};
 use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
-use clap::{Parser, Subcommand};
-use sc2_proto::common::Race;
-use std::process::exit;
 use std::process::Command;
-use tap::prelude::*;
-
-fn parse_game_type(mode: &str) -> Option<GameType> {
-    match mode.to_lowercase().as_str() {
-        "vsai" => Some(GameType::VsAI),
-        "vsbot" => Some(GameType::VsBot),
-        _ => None,
-    }
-}
-
-fn parse_race(race: &str) -> Option<Race> {
-    match race.to_lowercase().as_str() {
-        "terran" => Some(Race::Terran),
-        "zerg" => Some(Race::Zerg),
-        "protoss" => Some(Race::Protoss),
-        "random" => Some(Race::Random),
-        _ => None,
-    }
-}
-
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<CliCommands>,
-}
-
-#[derive(Subcommand)]
-enum CliCommands {
-    /// Create a new game directly from the command line
-    CreateGame {
-        #[arg(long)]
-        mode: Option<String>,
-        #[arg(long)]
-        race: Option<String>,
-        // Add more options as needed
-    },
-}
 
 /// Start the server inside Docker and wait until it's reachable.
 /// If `multiplayer` is true, sets SC2_MULTIPLAYER=1 inside the container
@@ -178,20 +136,6 @@ fn start_server_container(
 
     // Mark as running immediately, skip port check
     Ok(())
-}
-
-/// Blocking Docker startup for CLI mode
-fn startup_docker_blocking(config: &StarcraftConfig, multiplayer: bool) -> Result<(), String> {
-    println!(
-        "[startup_docker_blocking] Starting Docker container (multiplayer={})...",
-        multiplayer
-    );
-    let result = start_server_container(&config, multiplayer);
-    match &result {
-        Ok(_) => println!("[startup_docker_blocking] Docker container started successfully."),
-        Err(e) => eprintln!("[startup_docker_blocking] Failed to start Docker: {e}"),
-    }
-    result
 }
 
 /// System to check/start Docker and update status.
@@ -308,58 +252,13 @@ fn main() {
         config_path.display(),
     );
     let available_maps = list_maps_folder();
-    let mut game_config_panel =
+    let game_config_panel =
         GameConfigPanel::from_defaults(&app_settings.game_config_panel, available_maps);
 
-    let cli = Cli::parse();
-
     // Default values for resources
-    let mut app_state = AppState::StartScreen;
-    let mut pending_request = PendingCreateGameRequest::default();
-    let mut docker_status = DockerStatus::Idle;
-
-    if let Some(CliCommands::CreateGame { mode, race }) = cli.command {
-        // Check required params
-        if mode.is_none() || race.is_none() {
-            eprintln!("Error: --mode and --race are required for create_game\n");
-            eprintln!("Usage: aiurgaze create_game --mode=<MODE> --race=<RACE>");
-            exit(1);
-        }
-        let mode_val = mode.unwrap();
-        let race_val = race.unwrap();
-        let game_type = parse_game_type(&mode_val);
-        let race_enum = parse_race(&race_val);
-        if game_type.is_none() || race_enum.is_none() {
-            eprintln!("Error: Invalid mode or race value\n");
-            eprintln!("Allowed modes: vsAI, vsBot\nAllowed races: terran, zerg, protoss, random");
-            exit(1);
-        }
-        // Start Docker synchronously in CLI mode
-        if let Err(e) = startup_docker_blocking(
-            &app_settings.starcraft,
-            game_config_panel.game_type == GameType::VsBot,
-        ) {
-            eprintln!("Error: Could not start Docker container: {e}");
-            exit(1);
-        }
-        docker_status = DockerStatus::Running;
-        // Set up resources to skip the start screen
-        app_state = AppState::GameScreen;
-        game_config_panel.game_type = game_type.unwrap();
-        game_config_panel.ai_race = Some(race_enum.unwrap());
-
-        // Build the request and store it in the resource to be sent by ui_system
-        match build_create_game_request(&game_config_panel) {
-            Ok(req) => {
-                println!("[CLI] CreateGame request built, will be sent by ui_system within Bevy");
-                pending_request.0 = Some(req);
-            }
-            Err(e) => {
-                eprintln!("Error: Failed to build create game request: {}", e);
-                exit(1);
-            }
-        }
-    }
+    let app_state = AppState::StartScreen;
+    let pending_request = PendingCreateGameRequest::default();
+    let docker_status = DockerStatus::Idle;
 
     // Get assets directory for Bevy's AssetPlugin
     let assets_dir = get_assets_dir();
