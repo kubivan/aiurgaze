@@ -61,6 +61,19 @@ pub struct ProtocolActivityEvent {
     pub response_kind: String,
 }
 
+/// Live player stats extracted from each observation (minerals, vespene, supply, etc.).
+#[derive(Resource, Default, Clone, Debug)]
+pub struct PlayerResources {
+    pub minerals: u32,
+    pub vespene: u32,
+    pub food_used: u32,
+    pub food_cap: u32,
+    pub army_count: u32,
+    pub worker_count: u32,
+    pub idle_workers: u32,
+    pub game_loop: u32,
+}
+
 /// Latest protocol activity summary for status UI.
 #[derive(Resource, Debug, Clone)]
 pub struct ProtocolActivityState {
@@ -339,6 +352,29 @@ pub fn protocol_activity_system(
             PlayerId::Player1 => state.player1_last = event.response_kind.clone(),
             PlayerId::Player2 => state.player2_last = event.response_kind.clone(),
         }
+    }
+}
+
+/// System: reads the latest ObservationEvent and updates PlayerResources.
+pub fn update_player_resources(
+    mut events: MessageReader<ObservationEvent>,
+    mut res: ResMut<PlayerResources>,
+) {
+    for event in events.read() {
+        let Some(obs) = event.observation.observation.as_ref() else {
+            continue;
+        };
+        res.game_loop = obs.get_game_loop();
+        let Some(pc) = obs.player_common.as_ref() else {
+            continue;
+        };
+        res.minerals = pc.get_minerals();
+        res.vespene = pc.get_vespene();
+        res.food_used = pc.get_food_used();
+        res.food_cap = pc.get_food_cap();
+        res.army_count = pc.get_army_count();
+        res.worker_count = pc.get_food_workers();
+        res.idle_workers = pc.get_idle_worker_count();
     }
 }
 

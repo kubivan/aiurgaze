@@ -28,8 +28,8 @@ use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesE
 use crate::controller::{
     map_init_system, refresh_map_colors_on_layer_change, response_controller_system,
     setup_proxies, FogMaterialHandle, FogOfWarData, FogOfWarHandle, GameInfoEvent,
-    LastVisionMode, MapResource, ObservationEvent, ProtocolActivityEvent,
-    ProtocolActivityState, protocol_activity_system,
+    LastVisionMode, MapResource, ObservationEvent, PlayerResources, ProtocolActivityEvent,
+    ProtocolActivityState, protocol_activity_system, update_player_resources,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::proxy_channel::ProxyReadySignal;
@@ -37,9 +37,9 @@ use crate::render_layers::{layer_visibility_system, LayerRegistry, RenderLayerKi
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
-    build_create_game_request, camera_controls, setup_camera, status_bar_system, ui_system,
-    AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
-    PendingCreateGameRequest, VisionModeChannel,
+    build_create_game_request, camera_controls, hud_system, setup_camera, status_bar_system,
+    ui_system, AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated,
+    PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
 use crate::units::draw_unit_orders;
 use crate::units::{
@@ -434,6 +434,7 @@ fn main() {
         .insert_resource(LayerRegistry::default())
         .insert_resource(UnitCompositionVisibility::default())
         .insert_resource(ProtocolActivityState::default())
+        .insert_resource(PlayerResources::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -441,12 +442,14 @@ fn main() {
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(EguiPrimaryContextPass, status_bar_system)
+        .add_systems(EguiPrimaryContextPass, hud_system)
         .add_systems(
             Update,
             map_init_system.run_if(not(resource_exists::<MapResource>)),
         )
         .add_systems(Update, response_controller_system)
         .add_systems(Update, protocol_activity_system)
+        .add_systems(Update, update_player_resources)
         .add_systems(Update, refresh_map_colors_on_layer_change.after(response_controller_system))
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
