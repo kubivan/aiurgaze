@@ -26,8 +26,8 @@ use crate::observation_pipeline::{
     create_game_info_stream, create_observation_stream, TaggedResponseStream, VisionMode,
 };
 use crate::proxy_channel::{
-    CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, PlayerId, ProxyDataChannel,
-    ProxyReadySignal,
+    CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, PlayerId,
+    ProxyDataChannel, ProxyReadySignal, create_observer_channel, observer_response_stream,
 };
 use crate::render_layers::LayerRegistry;
 use crate::units::{
@@ -174,10 +174,28 @@ pub fn setup_proxies(
         (None, None, None)
     };
 
+    // In VsAI mode, create an observer broadcast channel. The proxy will
+    // interleave `disable_fog` observation requests in its bridge loop and
+    // publish responses here, providing full-visibility data on the same
+    // upstream WS connection (SC2 only allows one WS per port).
+    let (observer_sender, obs_gi_stream, obs_obs_stream) = if !is_vs_bot {
+        let (sender, _rx) = create_observer_channel();
+        let gi: TaggedResponseStream = Box::pin(observer_response_stream(&sender));
+        let obs: TaggedResponseStream = Box::pin(observer_response_stream(&sender));
+        (Some(sender), Some(gi), Some(obs))
+    } else {
+        (None, None, None)
+    };
+
+    // Merge P2 streams: either from VsBot channel2 or from VsAI observer
+    let merged_p2_gi = p2_gi_stream.or(obs_gi_stream);
+    let merged_p2_obs = p2_obs_stream.or(obs_obs_stream);
+    let is_p2_observer = !is_vs_bot; // observer provides P2 data in VsAI mode
+
     // Spawn game_info consumer (cold — fires once per player at startup)
     let p1_gi: TaggedResponseStream = Box::pin(channel1.response_stream());
     runtime.spawn_background_task(move |ctx| async move {
-        let gi_stream = create_game_info_stream(p1_gi, p2_gi_stream);
+        let gi_stream = create_game_info_stream(p1_gi, merged_p2_gi);
         tokio::pin!(gi_stream);
 
         while let Some(tagged_gi) = gi_stream.next().await {
@@ -199,8 +217,10 @@ pub fn setup_proxies(
 
     // Spawn observation consumer (hot — continuous during game)
     let p1_obs: TaggedResponseStream = Box::pin(channel1.response_stream());
+    println!("[setup_proxies] Creating observation stream (is_p2_observer={is_p2_observer}, has_p2={})" , merged_p2_obs.is_some());
     runtime.spawn_background_task(move |ctx| async move {
-        let obs_stream = create_observation_stream(p1_obs, p2_obs_stream, vision_mode_rx);
+        let obs_stream =
+            create_observation_stream(p1_obs, merged_p2_obs, vision_mode_rx, is_p2_observer);
         tokio::pin!(obs_stream);
 
         while let Some(tagged_obs) = obs_stream.next().await {
@@ -249,6 +269,30 @@ pub fn setup_proxies(
             tokio::pin!(p2_activity);
 
             while let Some(tagged) = p2_activity.next().await {
+                let mut ctx_clone = ctx.clone();
+                let activity_event = ProtocolActivityEvent {
+                    player_id: tagged.player_id,
+                    response_kind: response_kind_name(&tagged.response),
+                };
+
+                tokio::spawn(async move {
+                    ctx_clone
+                        .run_on_main_thread(move |ctx| {
+                            ctx.world.send_event(activity_event);
+                        })
+                        .await;
+                });
+            }
+        });
+    }
+
+    if let Some(ref observer_sender_for_activity) = observer_sender {
+        let obs_activity: TaggedResponseStream =
+            Box::pin(observer_response_stream(observer_sender_for_activity));
+        runtime.spawn_background_task(move |ctx| async move {
+            tokio::pin!(obs_activity);
+
+            while let Some(tagged) = obs_activity.next().await {
                 let mut ctx_clone = ctx.clone();
                 let activity_event = ProtocolActivityEvent {
                     player_id: tagged.player_id,
@@ -315,13 +359,19 @@ pub fn setup_proxies(
             }
         });
     } else {
-        // Solo (VsAI): CreateGame → JoinGame → bridge
+        // Solo (VsAI) with interleaved observer:
+        // The proxy sends disable_fog observation requests after each bot
+        // roundtrip and publishes responses on observer_sender as Player2.
+        // No separate WS connection needed — uses the same upstream.
         runtime.spawn_background_task(move |_ctx| async move {
             let Some(cg_req) = create_game_request else {
                 eprintln!("[Player1] No CreateGame request for solo mode");
                 return;
             };
-            if let Err(e) = channel1.run_solo(ready_signal1, cg_req).await {
+            if let Err(e) = channel1
+                .run_solo(ready_signal1, cg_req, observer_sender)
+                .await
+            {
                 eprintln!("[Player1] Proxy failed: {e}");
             }
         });

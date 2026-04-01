@@ -12,6 +12,7 @@
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use protobuf::{Message, RepeatedField};
+use sc2_proto::debug::{DebugCommand, DebugGameState};
 use sc2_proto::sc2api::{PortSet, Request, Request_oneof_request, Response};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -258,6 +259,25 @@ fn make_game_info_request() -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Protobuf encode: {e}"))
 }
 
+/// Build an Observation request with `disable_fog = true` for the observer.
+fn make_disable_fog_observation_request() -> Result<Vec<u8>, String> {
+    let mut req = Request::new();
+    let obs = req.mut_observation();
+    obs.set_disable_fog(true);
+    req.write_to_bytes()
+        .map_err(|e| format!("Protobuf encode: {e}"))
+}
+
+/// Build a Debug request that reveals the full map (`show_map`).
+fn make_reveal_map_debug_request() -> Result<Vec<u8>, String> {
+    let mut req = Request::new();
+    let mut cmd = DebugCommand::new();
+    cmd.set_game_state(DebugGameState::show_map);
+    req.mut_debug().set_debug(RepeatedField::from_vec(vec![cmd]));
+    req.write_to_bytes()
+        .map_err(|e| format!("Protobuf encode: {e}"))
+}
+
 /// Connect to SC2 upstream with retries.
 async fn connect_upstream(url: &str) -> Result<UpstreamWs, tungstenite::Error> {
     let mut retries = 10u32;
@@ -431,6 +451,7 @@ impl ProxyDataChannel {
             &sender,
             join_barrier,
             multiplayer_ports,
+            None,
         )
         .await
     }
@@ -473,6 +494,7 @@ impl ProxyDataChannel {
             &sender,
             join_barrier,
             multiplayer_ports,
+            None,
         )
         .await
     }
@@ -480,12 +502,14 @@ impl ProxyDataChannel {
     /// Solo mode (VsAI — single bot):
     /// 1. Connect upstream WS
     /// 2. Send CreateGame, publish response
-    /// 3. Accept bot client, send JoinGame + silent GameInfo
-    /// 4. Bridge loop
+    /// 3. Optionally signal CreateGameSignal (for observer coordination)
+    /// 4. Accept bot client, send JoinGame + silent GameInfo
+    /// 5. Bridge loop (interleaving observer observations if sender provided)
     pub async fn run_solo(
         self,
         ready_signal: ProxyReadySignal,
         create_game_request: Request,
+        observer_sender: Option<broadcast::Sender<TaggedResponse>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
@@ -516,13 +540,26 @@ impl ProxyDataChannel {
             publish(&sender, pid, res);
         }
 
+        // Signal observer (if present) that CreateGame is done
+        // (Not needed anymore — observer is interleaved in bridge loop)
+
         // Accept client
         let listener = TcpListener::bind(&self.listen_addr).await?;
         println!("[{pid}] Listening on ws://{}", self.listen_addr);
         ready_signal.signal_ready();
         let client_ws = accept_one_client(&listener, pid).await?;
 
-        Self::accept_and_bridge(pid, client_ws, &mut up_w, &mut up_r, &sender, None, None).await
+        Self::accept_and_bridge(
+            pid,
+            client_ws,
+            &mut up_w,
+            &mut up_r,
+            &sender,
+            None,
+            None,
+            observer_sender,
+        )
+        .await
     }
 
     // ── Shared bridge logic ─────────────────────────────────────────────
@@ -533,6 +570,11 @@ impl ProxyDataChannel {
     /// If `multiplayer_ports` is `Some`, the proxy injects `server_ports`
     /// and `client_ports` into the JoinGame request before forwarding it
     /// to SC2. This is required for multiplayer games.
+    ///
+    /// If `observer_sender` is `Some`, the bridge interleaves `disable_fog`
+    /// observation requests after each bot roundtrip. Responses are published
+    /// on the observer sender tagged as `Player2`, providing a full-visibility
+    /// data stream for the observation pipeline.
     async fn accept_and_bridge(
         pid: PlayerId,
         client_ws: WsStream,
@@ -541,6 +583,7 @@ impl ProxyDataChannel {
         sender: &broadcast::Sender<TaggedResponse>,
         join_barrier: Option<JoinResponseBarrier>,
         multiplayer_ports: Option<MultiplayerPorts>,
+        observer_sender: Option<broadcast::Sender<TaggedResponse>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (mut cw, mut cr) = client_ws.split();
 
@@ -583,6 +626,24 @@ impl ProxyDataChannel {
             barrier.wait_ready().await;
         }
 
+        // If observer is present, fetch GameInfo for it (map data for pipeline).
+        if let Some(ref obs_sender) = observer_sender {
+            // Enable reveal-map debug mode in VsAI so observer polling can see
+            // both players and neutrals from the shared Player1 connection.
+            let dbg_req = make_reveal_map_debug_request()?;
+            let _dbg_resp = roundtrip(up_w, up_r, dbg_req).await?;
+            println!("[{pid}] Observer: debug show_map enabled");
+
+            let gi_req = make_game_info_request()?;
+            let gi_resp = roundtrip(up_w, up_r, gi_req).await?;
+            if let Some(res) = try_parse_response(&gi_resp) {
+                publish(obs_sender, PlayerId::Player2, res);
+            }
+            println!("[{pid}] Observer: initial GameInfo published");
+        }
+
+        let mut observer_last_game_loop: u32 = 0;
+
         while let Some(msg) = cr.next().await {
             let msg = msg?;
             let raw = msg.into_data().to_vec();
@@ -593,11 +654,74 @@ impl ProxyDataChannel {
             }
             cw.send(tungstenite::Message::Binary(Bytes::from(resp)))
                 .await?;
+
+            // Interleave observer: send a disable_fog observation after each
+            // bot roundtrip. De-duplicated by game_loop so redundant polls
+            // (e.g. after action requests in the same step) are dropped.
+            if let Some(ref obs_sender) = observer_sender {
+                let obs_req = make_disable_fog_observation_request()?;
+                let obs_resp = roundtrip(up_w, up_r, obs_req).await?;
+                if let Some(res) = try_parse_response(&obs_resp) {
+                    let current_loop = if let Some(
+                        sc2_proto::sc2api::Response_oneof_response::observation(ref obs),
+                    ) = res.response
+                    {
+                        obs.observation
+                            .as_ref()
+                            .map(|inner| inner.get_game_loop())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                    if current_loop > observer_last_game_loop {
+                        let receivers = obs_sender.receiver_count();
+                        if observer_last_game_loop == 0 {
+                            println!(
+                                "[{pid}] Observer: first obs at game_loop={current_loop}, \
+                                 receivers={receivers}, response_type={}",
+                                res.response
+                                    .as_ref()
+                                    .map(|r| format!("{:?}", std::mem::discriminant(r)))
+                                    .unwrap_or_else(|| "None".to_string())
+                            );
+                        }
+                        observer_last_game_loop = current_loop;
+                        publish(obs_sender, PlayerId::Player2, res);
+                    }
+                } else {
+                    static LOGGED_PARSE_FAIL: AtomicBool = AtomicBool::new(false);
+                    if !LOGGED_PARSE_FAIL.swap(true, Ordering::Relaxed) {
+                        eprintln!("[{pid}] Observer: failed to parse disable_fog response");
+                    }
+                }
+            }
         }
 
         println!("[{pid}] Proxy finished.");
         Ok(())
     }
+}
+
+// ─── Observer broadcast channel helper ──────────────────────────────────────
+
+/// Create a broadcast channel for observer data.
+///
+/// Used in VsAI mode: the proxy interleaves `disable_fog` observation requests
+/// in its bridge loop and publishes responses on the observer sender.
+/// Returns (sender for proxy, receiver for subscription).
+pub fn create_observer_channel() -> (
+    broadcast::Sender<TaggedResponse>,
+    broadcast::Receiver<TaggedResponse>,
+) {
+    broadcast::channel(CHANNEL_BUFFER_SIZE)
+}
+
+/// Get a typed response stream from an observer broadcast sender.
+pub fn observer_response_stream(
+    sender: &broadcast::Sender<TaggedResponse>,
+) -> impl tokio_stream::Stream<Item = TaggedResponse> + Send + Unpin {
+    tokio_stream::StreamExt::filter_map(BroadcastStream::new(sender.subscribe()), |r| r.ok())
 }
 
 #[cfg(test)]

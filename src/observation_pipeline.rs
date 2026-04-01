@@ -200,20 +200,44 @@ pub fn create_game_info_stream(
 /// P2 observations feed a `watch` (BehaviorSubject / hold-latest).
 /// P1 observations read it via `.borrow()` and complement with
 /// `merge_p2_into_p1_obs` when in `All` mode.
+///
+/// When `is_p2_observer` is true, P2 is an SC2 observer with full visibility.
+/// In `All` mode the observer's observation is used directly instead of
+/// merging (since the observer already sees everything).
 pub fn create_observation_stream(
     p1_stream: TaggedResponseStream,
     p2_stream: Option<TaggedResponseStream>,
     vision_mode_rx: watch::Receiver<VisionMode>,
+    is_p2_observer: bool,
 ) -> impl tokio_stream::Stream<Item = TaggedObservation> {
     let (hold_p2, latest_p2) = watch::channel::<Option<ResponseObservation>>(None);
     let p1_obs_source = observation_only_stream(p1_stream);
 
     // ── P2: update hold slot; emit obs only in Player2 mode ──
     let mode_p2 = vision_mode_rx.clone();
+    let logged_first_p2 = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let logged_first_p2_clone = logged_first_p2.clone();
     let p2_obs: Box<dyn tokio_stream::Stream<Item = TaggedObservation> + Send + Unpin> =
         match p2_stream {
             Some(s2) => Box::new(observation_only_stream(s2).filter_map(
                 move |(player_id, obs)| {
+                    if !logged_first_p2_clone.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        let game_loop = obs
+                            .observation
+                            .as_ref()
+                            .map(|o| o.get_game_loop())
+                            .unwrap_or(0);
+                        let n_units = obs
+                            .observation
+                            .as_ref()
+                            .and_then(|o| o.raw_data.as_ref())
+                            .map(|r| r.units.len())
+                            .unwrap_or(0);
+                        eprintln!(
+                            "[obs_pipeline] First P2 observation: player={player_id}, \
+                             game_loop={game_loop}, units={n_units}"
+                        );
+                    }
                     let mode = *mode_p2.borrow();
                     let _ = hold_p2.send(Some(obs.clone()));
                     (mode == VisionMode::Player2).then_some(TaggedObservation {
@@ -233,6 +257,8 @@ pub fn create_observation_stream(
             return None;
         }
         let obs_out = match (mode, latest_p2.borrow().as_ref()) {
+            // Observer already has full visibility — use its obs directly
+            (VisionMode::All, Some(p2)) if is_p2_observer => p2.clone(),
             (VisionMode::All, Some(p2)) => merge_p2_into_p1_obs(&obs, p2),
             _ => obs,
         };
