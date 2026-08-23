@@ -79,7 +79,9 @@ fn start_server_container(
         .map_err(|e| format!("Failed to execute docker pull: {e}"))?;
 
     if !pull_status.success() {
-        return Err(format!("docker pull failed with status: {pull_status}"));
+        eprintln!(
+            "docker pull failed; attempting to use local image '{image}'"
+        );
     }
 
     // Get absolute path to maps directory
