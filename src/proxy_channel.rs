@@ -630,9 +630,9 @@ impl ProxyDataChannel {
         if let Some(ref obs_sender) = observer_sender {
             // Enable reveal-map debug mode in VsAI so observer polling can see
             // both players and neutrals from the shared Player1 connection.
-            let dbg_req = make_reveal_map_debug_request()?;
-            let _dbg_resp = roundtrip(up_w, up_r, dbg_req).await?;
-            println!("[{pid}] Observer: debug show_map enabled");
+            // let dbg_req = make_reveal_map_debug_request()?;
+            // let _dbg_resp = roundtrip(up_w, up_r, dbg_req).await?;
+            // println!("[{pid}] Observer: debug show_map enabled");
 
             let gi_req = make_game_info_request()?;
             let gi_resp = roundtrip(up_w, up_r, gi_req).await?;
