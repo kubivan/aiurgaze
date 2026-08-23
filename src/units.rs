@@ -27,9 +27,7 @@ pub struct UnitCompositionVisibility {
 
 impl Default for UnitCompositionVisibility {
     fn default() -> Self {
-        Self {
-            show_orders: true,
-        }
+        Self { show_orders: true }
     }
 }
 

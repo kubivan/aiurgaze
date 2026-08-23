@@ -273,7 +273,8 @@ fn make_reveal_map_debug_request() -> Result<Vec<u8>, String> {
     let mut req = Request::new();
     let mut cmd = DebugCommand::new();
     cmd.set_game_state(DebugGameState::show_map);
-    req.mut_debug().set_debug(RepeatedField::from_vec(vec![cmd]));
+    req.mut_debug()
+        .set_debug(RepeatedField::from_vec(vec![cmd]));
     req.write_to_bytes()
         .map_err(|e| format!("Protobuf encode: {e}"))
 }

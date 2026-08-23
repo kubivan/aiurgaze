@@ -8,6 +8,7 @@ mod app_settings;
 mod bot_runner;
 mod controller;
 mod entity_system;
+mod fog_material;
 mod helpers;
 mod map;
 mod net_helpers;
@@ -16,39 +17,39 @@ mod proxy_channel;
 mod render_layers;
 mod ui;
 mod units;
-mod fog_material;
-use fog_material::{FogOfWarMaterial, FogUniforms};
-use bevy::prelude::*;
-use bevy::time::Real;
 use bevy::mesh::Mesh2d;
+use bevy::prelude::*;
 use bevy::sprite_render::{Material2dPlugin, MeshMaterial2d};
+use bevy::time::Real;
 use bevy_health_bar3d::prelude::*;
+use fog_material::{FogOfWarMaterial, FogUniforms};
 
 use crate::app_settings::{
     get_assets_dir, get_maps_dir, load_settings, AppSettings, StarcraftConfig,
 };
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
 use crate::controller::{
-    map_init_system, refresh_map_colors_on_layer_change, response_controller_system,
-    setup_proxies, FogMaterialHandle, FogOfWarData, FogOfWarHandle, GameInfoEvent,
-    LastVisionMode, MapResource, ObservationEvent, PlayerResources, ProtocolActivityEvent,
-    ProtocolActivityState, protocol_activity_system, update_player_resources,
+    map_init_system, protocol_activity_system, refresh_map_colors_on_layer_change,
+    response_controller_system, setup_proxies, update_player_resources, FogMaterialHandle,
+    FogOfWarData, FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent,
+    PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::proxy_channel::ProxyReadySignal;
-use crate::render_layers::{layer_visibility_system, LayerRegistry, RenderLayerKind, RenderLayerMarker};
+use crate::render_layers::{
+    layer_visibility_system, LayerRegistry, RenderLayerKind, RenderLayerMarker,
+};
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
-    camera_controls, hud_system, setup_camera, status_bar_system,
-    ui_system, AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated,
-    PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
+    camera_controls, hud_system, setup_camera, status_bar_system, ui_system, AppState,
+    CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
+    PendingCreateGameRequest, VisionModeChannel,
 };
 use crate::units::draw_unit_orders;
 use crate::units::{
     cleanup_dead_units, unit_selection_system, ObservationUnitTags, SelectedUnit,
-    UnitCompositionVisibility,
-    UnitBuildProgress, UnitHealth, UnitRegistry, UnitShield,
+    UnitBuildProgress, UnitCompositionVisibility, UnitHealth, UnitRegistry, UnitShield,
 };
 use bevy::asset::AssetPlugin;
 use bevy::color::palettes::basic::{GREEN, RED};
@@ -79,9 +80,7 @@ fn start_server_container(
         .map_err(|e| format!("Failed to execute docker pull: {e}"))?;
 
     if !pull_status.success() {
-        eprintln!(
-            "docker pull failed; attempting to use local image '{image}'"
-        );
+        eprintln!("docker pull failed; attempting to use local image '{image}'");
     }
 
     // Get absolute path to maps directory
@@ -355,7 +354,10 @@ fn main() {
         .add_systems(Update, response_controller_system)
         .add_systems(Update, protocol_activity_system)
         .add_systems(Update, update_player_resources)
-        .add_systems(Update, refresh_map_colors_on_layer_change.after(response_controller_system))
+        .add_systems(
+            Update,
+            refresh_map_colors_on_layer_change.after(response_controller_system),
+        )
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(
@@ -371,10 +373,7 @@ fn main() {
                 .run_if(resource_added::<FogOfWarHandle>)
                 .after(map_init_system),
         )
-        .add_systems(
-            Update,
-            update_fog_texture.after(response_controller_system),
-        )
+        .add_systems(Update, update_fog_texture.after(response_controller_system))
         .add_systems(
             Update,
             update_fog_uniforms
@@ -445,11 +444,13 @@ fn update_fog_texture(
     mut fog_data: Option<ResMut<FogOfWarData>>,
 ) {
     let Some(fog_handle) = fog_handle else { return };
-    let Some(fog_data) = fog_data.as_mut() else { return };
+    let Some(fog_data) = fog_data.as_mut() else {
+        return;
+    };
     if !fog_data.dirty {
         return;
     }
-    if let Some(image) = images.get_mut(&fog_handle.handle) {
+    if let Some(mut image) = images.get_mut(&fog_handle.handle) {
         image.data = Some(fog_data.data.clone());
     }
     // Invalidate the material so its bind group is rebuilt with the new GpuImage.
@@ -471,7 +472,7 @@ fn update_fog_uniforms(
     time: Res<Time<Real>>,
     camera_query: Query<(&Transform, &Projection), With<Camera>>,
 ) {
-    let Some(mat) = materials.get_mut(&mat_handle.handle) else {
+    let Some(mut mat) = materials.get_mut(&mat_handle.handle) else {
         return;
     };
 

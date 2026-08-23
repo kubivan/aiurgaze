@@ -22,8 +22,15 @@ pub fn status_bar_system(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
 
-    egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+    egui::Panel::bottom("status_bar").show(&mut viewport_ui, |ui| {
         ui.horizontal(|ui| {
             ui.label("Docker status:");
             match &*docker_status {
@@ -78,7 +85,10 @@ pub fn hud_system(
         fill: egui::Color32::from_rgba_premultiplied(8, 14, 26, 215),
         inner_margin: egui::Margin::same(12),
         corner_radius: egui::CornerRadius::same(7),
-        stroke: egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(55, 110, 175, 110)),
+        stroke: egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgba_premultiplied(55, 110, 175, 110),
+        ),
         ..Default::default()
     };
 
@@ -112,10 +122,13 @@ pub fn hud_system(
 
                 ui.label(egui::RichText::new("⬆").color(supply_color).size(15.0));
                 ui.label(
-                    egui::RichText::new(format!("{}/{}", player_res.food_used, player_res.food_cap))
-                        .color(supply_color)
-                        .strong()
-                        .size(15.0),
+                    egui::RichText::new(format!(
+                        "{}/{}",
+                        player_res.food_used, player_res.food_cap
+                    ))
+                    .color(supply_color)
+                    .strong()
+                    .size(15.0),
                 );
                 ui.add_space(8.0);
 
@@ -156,10 +169,8 @@ pub fn hud_system(
                                     .size(11.0),
                             );
                             let pg = build_progress.0.clamp(0.0, 1.0);
-                            let (rect, _) = ui.allocate_exact_size(
-                                egui::vec2(50.0, 5.0),
-                                egui::Sense::hover(),
-                            );
+                            let (rect, _) =
+                                ui.allocate_exact_size(egui::vec2(50.0, 5.0), egui::Sense::hover());
                             let painter = ui.painter();
                             painter.rect_filled(
                                 rect,
@@ -172,11 +183,7 @@ pub fn hud_system(
                             );
                             let r = (30.0 + 60.0 * (1.0 - pg)) as u8;
                             let g = (140.0 + 80.0 * pg) as u8;
-                            painter.rect_filled(
-                                filled,
-                                2.0,
-                                egui::Color32::from_rgb(r, g, 70),
-                            );
+                            painter.rect_filled(filled, 2.0, egui::Color32::from_rgb(r, g, 70));
                         });
                     }
                 });

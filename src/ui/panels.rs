@@ -2,14 +2,14 @@ use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::observation_pipeline::VisionMode;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::ui::{
     build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
     GameType, PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
-use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::units::{
-    CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto, UnitRegistry,
-    UnitTag, UnitType,
+    CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto, UnitRegistry, UnitTag,
+    UnitType,
 };
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
@@ -23,11 +23,12 @@ fn build_pending_bot_start(
     } else {
         Some(panel.bot_command.clone())
     };
-    let opponent_bot = if panel.bot_opponent_command.is_empty() || panel.game_type != GameType::VsBot {
-        None
-    } else {
-        Some(panel.bot_opponent_command.clone())
-    };
+    let opponent_bot =
+        if panel.bot_opponent_command.is_empty() || panel.game_type != GameType::VsBot {
+            None
+        } else {
+            Some(panel.bot_opponent_command.clone())
+        };
 
     if player_bot.is_none() && opponent_bot.is_none() {
         return None;
@@ -51,7 +52,15 @@ fn render_start_screen(
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
 ) {
-    egui::CentralPanel::default().show(ctx, |ui| {
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+
+    egui::CentralPanel::default().show(&mut viewport_ui, |ui| {
         ui.heading("SC2 Proxy");
         ui.separator();
         if show_game_config_panel(ui, game_config_panel) {
@@ -61,8 +70,10 @@ fn render_start_screen(
                     pending_request.0 = Some(req);
                     game_created.0 = true;
                     **app_state = AppState::GameScreen;
-                    pending_bot_start.0 =
-                        build_pending_bot_start(game_config_panel, app_settings.starcraft.listen_port);
+                    pending_bot_start.0 = build_pending_bot_start(
+                        game_config_panel,
+                        app_settings.starcraft.listen_port,
+                    );
                 }
                 Err(e) => {
                     eprintln!("Create game failed: {}", e);
@@ -82,10 +93,18 @@ fn render_game_screen(
     layer_registry: &mut ResMut<LayerRegistry>,
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,
 ) {
-    egui::SidePanel::right("unit_info_panel")
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+
+    egui::Panel::right("unit_info_panel")
         .resizable(true)
-        .default_width(300.0)
-        .show(ctx, |ui| {
+        .default_size(300.0)
+        .show(&mut viewport_ui, |ui| {
             ui.heading("Game Controls");
             ui.separator();
 
@@ -133,7 +152,7 @@ fn render_game_screen(
 
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
-        .show(ctx, |_ui| {});
+        .show(&mut viewport_ui, |_ui| {});
 }
 
 pub fn ui_system(

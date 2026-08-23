@@ -8,8 +8,7 @@
 use bevy::asset::{AssetServer, Assets, RenderAssetUsages};
 use bevy::image::{Image, ImageSampler};
 use bevy::prelude::{
-    Commands, DetectChanges, Handle, Local, Message, MessageReader, Query, Res, ResMut,
-    Resource,
+    Commands, DetectChanges, Handle, Local, Message, MessageReader, Query, Res, ResMut, Resource,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
@@ -26,13 +25,11 @@ use crate::observation_pipeline::{
     create_game_info_stream, create_observation_stream, TaggedResponseStream, VisionMode,
 };
 use crate::proxy_channel::{
-    CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, PlayerId,
-    ProxyDataChannel, ProxyReadySignal, create_observer_channel, observer_response_stream,
+    create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
+    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal,
 };
 use crate::render_layers::LayerRegistry;
-use crate::units::{
-    handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry,
-};
+use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -200,24 +197,29 @@ pub fn setup_proxies(
 
         while let Some(tagged_gi) = gi_stream.next().await {
             let mut ctx_clone = ctx.clone();
-            let gi_event = GameInfoEvent {
+            let gi_message = GameInfoEvent {
                 player_id: tagged_gi.player_id,
                 game_info: tagged_gi.game_info,
             };
+
             tokio::spawn(async move {
                 ctx_clone
                     .run_on_main_thread(move |ctx| {
-                        ctx.world.send_event(gi_event);
+                        ctx.world.write_message(gi_message);
                     })
                     .await;
             });
         }
+
         println!("GameInfo stream finished");
     });
 
     // Spawn observation consumer (hot — continuous during game)
     let p1_obs: TaggedResponseStream = Box::pin(channel1.response_stream());
-    println!("[setup_proxies] Creating observation stream (is_p2_observer={is_p2_observer}, has_p2={})" , merged_p2_obs.is_some());
+    println!(
+        "[setup_proxies] Creating observation stream (is_p2_observer={is_p2_observer}, has_p2={})",
+        merged_p2_obs.is_some()
+    );
     runtime.spawn_background_task(move |ctx| async move {
         let obs_stream =
             create_observation_stream(p1_obs, merged_p2_obs, vision_mode_rx, is_p2_observer);
@@ -233,7 +235,7 @@ pub fn setup_proxies(
             tokio::spawn(async move {
                 ctx_clone
                     .run_on_main_thread(move |ctx| {
-                        ctx.world.send_event(obs_event);
+                        ctx.world.write_message(obs_event);
                     })
                     .await;
             });
@@ -256,7 +258,7 @@ pub fn setup_proxies(
             tokio::spawn(async move {
                 ctx_clone
                     .run_on_main_thread(move |ctx| {
-                        ctx.world.send_event(activity_event);
+                        ctx.world.write_message(activity_event);
                     })
                     .await;
             });
@@ -278,7 +280,7 @@ pub fn setup_proxies(
                 tokio::spawn(async move {
                     ctx_clone
                         .run_on_main_thread(move |ctx| {
-                            ctx.world.send_event(activity_event);
+                            ctx.world.write_message(activity_event);
                         })
                         .await;
                 });
@@ -302,7 +304,7 @@ pub fn setup_proxies(
                 tokio::spawn(async move {
                     ctx_clone
                         .run_on_main_thread(move |ctx| {
-                            ctx.world.send_event(activity_event);
+                            ctx.world.write_message(activity_event);
                         })
                         .await;
                 });
@@ -387,10 +389,7 @@ fn response_kind_name(response: &sc2_proto::sc2api::Response) -> String {
     };
 
     let full = format!("{oneof:?}");
-    full.split('(')
-        .next()
-        .unwrap_or("unknown")
-        .to_string()
+    full.split('(').next().unwrap_or("unknown").to_string()
 }
 
 pub fn protocol_activity_system(
@@ -529,10 +528,7 @@ fn update_map_from_observation(
         .map_state
         .as_ref()?;
 
-    let creep_layer = map_state
-        .creep
-        .as_ref()
-        .map(TerrainLayer::from_image_data);
+    let creep_layer = map_state.creep.as_ref().map(TerrainLayer::from_image_data);
 
     if let Some(vis_data) = map_state.visibility.as_ref() {
         if !LOGGED_VIS_FORMAT.swap(true, Ordering::Relaxed) {
@@ -766,7 +762,11 @@ fn create_fog_of_war_texture(width: u32, height: u32) -> Image {
     let size = (width * height) as usize;
     let data = vec![255u8; size]; // 255 = fully visible; observations will carve fog
     let mut image = Image::new_fill(
-        Extent3d { width, height, depth_or_array_layers: 1 },
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         &data,
         TextureFormat::R8Unorm,
@@ -802,7 +802,8 @@ pub fn response_controller_system(
         // One-time diagnostic on first observation.
         if !*logged_first_obs {
             let has_vis = obs
-                .observation.as_ref()
+                .observation
+                .as_ref()
                 .and_then(|o| o.raw_data.as_ref())
                 .and_then(|r| r.map_state.as_ref())
                 .and_then(|m| m.visibility.as_ref())
@@ -830,7 +831,7 @@ pub fn response_controller_system(
             &layer_registry,
             &mut fog_data,
         )
-            .is_none()
+        .is_none()
         {
             eprintln!(
                 "[response_controller_system] Skipped map update: missing map resource or observation raw map_state"

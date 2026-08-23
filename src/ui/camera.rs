@@ -1,3 +1,4 @@
+use bevy::ecs::message::MessageReader;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 
@@ -13,8 +14,8 @@ pub struct CameraPanState {
 pub fn camera_controls(
     mut state: ResMut<CameraPanState>,
     buttons: Res<ButtonInput<MouseButton>>,
-    mut motion_evr: EventReader<MouseMotion>,
-    mut scroll_evr: EventReader<MouseWheel>,
+    mut motion_evr: MessageReader<MouseMotion>,
+    mut scroll_evr: MessageReader<MouseWheel>,
     mut q_camera: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
 ) {
     if let Ok((mut transform, mut projection)) = q_camera.single_mut() {
@@ -39,4 +40,3 @@ pub fn camera_controls(
         }
     }
 }
-
