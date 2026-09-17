@@ -1,18 +1,30 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
+use crate::controller::{PlayerResources, ProtocolActivityState};
 use crate::observation_pipeline::VisionMode;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::ui::hud::{render_hud, render_status_bar};
 use crate::ui::selected_unit_info::render_selected_unit_info;
+use crate::ui::DockerStatus;
 use crate::ui::{
     build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
     GameType, PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
 use crate::units::{
-    CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto, UnitRegistry, UnitTag,
-    UnitType,
+    CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
+    UnitRegistry, UnitTag, UnitType,
 };
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
+
+#[derive(SystemParam)]
+pub(crate) struct HudParams<'w, 's> {
+    docker_status: Res<'w, DockerStatus>,
+    activity: Res<'w, ProtocolActivityState>,
+    player_res: Res<'w, PlayerResources>,
+    in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
+}
 
 fn build_pending_bot_start(
     panel: &GameConfigPanel,
@@ -44,7 +56,7 @@ fn build_pending_bot_start(
 }
 
 fn render_start_screen(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     app_state: &mut ResMut<AppState>,
     game_config_panel: &mut ResMut<GameConfigPanel>,
     game_created: &mut ResMut<GameCreated>,
@@ -52,15 +64,7 @@ fn render_start_screen(
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
 ) {
-    let mut viewport_ui = egui::Ui::new(
-        ctx.clone(),
-        "viewport".into(),
-        egui::UiBuilder::new()
-            .layer_id(egui::LayerId::background())
-            .max_rect(ctx.viewport_rect()),
-    );
-
-    egui::CentralPanel::default().show(&mut viewport_ui, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         ui.heading("SC2 Proxy");
         ui.separator();
         if show_game_config_panel(ui, game_config_panel) {
@@ -85,7 +89,7 @@ fn render_start_screen(
 }
 
 fn render_game_screen(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     selected: &Res<SelectedUnit>,
     registry: &Res<UnitRegistry>,
     unit_query: &Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
@@ -93,18 +97,10 @@ fn render_game_screen(
     layer_registry: &mut ResMut<LayerRegistry>,
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,
 ) {
-    let mut viewport_ui = egui::Ui::new(
-        ctx.clone(),
-        "viewport".into(),
-        egui::UiBuilder::new()
-            .layer_id(egui::LayerId::background())
-            .max_rect(ctx.viewport_rect()),
-    );
-
     egui::Panel::right("unit_info_panel")
         .resizable(true)
         .default_size(300.0)
-        .show(&mut viewport_ui, |ui| {
+        .show(ui, |ui| {
             ui.heading("Game Controls");
             ui.separator();
 
@@ -152,7 +148,7 @@ fn render_game_screen(
 
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
-        .show(&mut viewport_ui, |_ui| {});
+        .show(ui, |_ui| {});
 }
 
 pub fn ui_system(
@@ -169,14 +165,25 @@ pub fn ui_system(
     mut vision_mode_channel: ResMut<VisionModeChannel>,
     mut layer_registry: ResMut<LayerRegistry>,
     mut unit_visibility: ResMut<UnitCompositionVisibility>,
+    hud: HudParams,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
 
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+
+    render_status_bar(&mut viewport_ui, hud.docker_status, hud.activity);
+
     match *app_state {
         AppState::StartScreen => render_start_screen(
-            ctx,
+            &mut viewport_ui,
             &mut app_state,
             &mut game_config_panel,
             &mut game_created,
@@ -185,7 +192,7 @@ pub fn ui_system(
             &mut pending_bot_start,
         ),
         AppState::GameScreen => render_game_screen(
-            ctx,
+            &mut viewport_ui,
             &selected,
             &registry,
             &unit_query,
@@ -193,5 +200,9 @@ pub fn ui_system(
             &mut layer_registry,
             &mut unit_visibility,
         ),
+    }
+
+    if *app_state == AppState::GameScreen {
+        render_hud(&ctx, hud.player_res, hud.in_progress_query);
     }
 }

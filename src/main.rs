@@ -42,9 +42,8 @@ use crate::render_layers::{
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
-    camera_controls, hud_system, setup_camera, status_bar_system, ui_system, AppState,
-    CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
-    PendingCreateGameRequest, VisionModeChannel,
+    camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus,
+    GameConfigPanel, GameCreated, PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
 use crate::units::draw_unit_orders;
 use crate::units::{
@@ -345,8 +344,6 @@ fn main() {
         .add_systems(Update, camera_controls)
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
-        .add_systems(EguiPrimaryContextPass, status_bar_system)
-        .add_systems(EguiPrimaryContextPass, hud_system)
         .add_systems(
             Update,
             map_init_system.run_if(not(resource_exists::<MapResource>)),

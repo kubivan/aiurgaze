@@ -1,8 +1,7 @@
 use crate::controller::{PlayerResources, ProtocolActivityState};
-use crate::ui::AppState;
 use crate::units::{UnitBuildProgress, UnitType};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui;
 
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub enum DockerStatus {
@@ -13,24 +12,12 @@ pub enum DockerStatus {
     Error(String),
 }
 
-pub fn status_bar_system(
-    mut contexts: EguiContexts,
+pub fn render_status_bar(
+    ui: &mut egui::Ui,
     docker_status: Res<DockerStatus>,
     activity: Res<ProtocolActivityState>,
 ) {
-    let ctx = match contexts.ctx_mut() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
-    let mut viewport_ui = egui::Ui::new(
-        ctx.clone(),
-        "viewport".into(),
-        egui::UiBuilder::new()
-            .layer_id(egui::LayerId::background())
-            .max_rect(ctx.viewport_rect()),
-    );
-
-    egui::Panel::bottom("status_bar").show(&mut viewport_ui, |ui| {
+    egui::Panel::bottom("status_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label("Docker status:");
             match &*docker_status {
@@ -52,19 +39,11 @@ pub fn status_bar_system(
 }
 
 /// HUD overlay: resource counts, supply, build queue — shown in top-left corner during GameScreen.
-pub fn hud_system(
-    mut contexts: EguiContexts,
-    app_state: Res<AppState>,
+pub fn render_hud(
+    ctx: &egui::Context,
     player_res: Res<PlayerResources>,
     in_progress_query: Query<(&UnitType, &UnitBuildProgress)>,
 ) {
-    if *app_state != AppState::GameScreen {
-        return;
-    }
-    let Ok(ctx) = contexts.ctx_mut() else {
-        return;
-    };
-
     let mineral_color = egui::Color32::from_rgb(90, 190, 255);
     let vespene_color = egui::Color32::from_rgb(80, 210, 130);
     let ratio = if player_res.food_cap > 0 {
