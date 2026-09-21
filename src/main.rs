@@ -7,6 +7,7 @@
 mod app_settings;
 mod bot_runner;
 mod controller;
+mod debug_draw;
 mod entity_system;
 mod fog_material;
 mod helpers;
@@ -33,6 +34,9 @@ use crate::controller::{
     response_controller_system, setup_proxies, update_player_resources, FogMaterialHandle,
     FogOfWarData, FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent,
     PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
+};
+use crate::debug_draw::{
+    debug_draw_message_system, render_debug_draws, DebugDrawEvent, DebugDrawOverlay,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::proxy_channel::ProxyReadySignal;
@@ -272,6 +276,7 @@ fn main() {
         .add_message::<GameInfoEvent>()
         .add_message::<ObservationEvent>()
         .add_message::<ProtocolActivityEvent>()
+        .add_message::<DebugDrawEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -334,6 +339,7 @@ fn main() {
         .insert_resource(ProxyReadyResource::default())
         .insert_resource(PendingBotStart::default())
         .insert_resource(FogOfWarData::default())
+        .insert_resource(DebugDrawOverlay::default())
         .insert_resource(LayerRegistry::default())
         .insert_resource(UnitCompositionVisibility::default())
         .insert_resource(ProtocolActivityState::default())
@@ -362,6 +368,8 @@ fn main() {
             emit_pending_bot_start.after(proxy_connect_on_docker_ready),
         )
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
+        .add_systems(Update, debug_draw_message_system)
+        .add_systems(Update, render_debug_draws)
         .add_systems(Update, draw_unit_orders)
         .add_systems(PostUpdate, layer_visibility_system)
         .add_systems(

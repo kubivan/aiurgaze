@@ -17,7 +17,7 @@ use sc2_proto::sc2api::{PortSet, Request, Request_oneof_request, Response};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::{broadcast, mpsc, Notify};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_tungstenite::{accept_async, connect_async, WebSocketStream};
 
@@ -404,6 +404,7 @@ impl ProxyDataChannel {
         join_barrier: Option<JoinResponseBarrier>,
         create_game_request: Request,
         multiplayer_ports: Option<MultiplayerPorts>,
+        debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
@@ -453,6 +454,7 @@ impl ProxyDataChannel {
             join_barrier,
             multiplayer_ports,
             None,
+            debug_tx,
         )
         .await
     }
@@ -468,6 +470,7 @@ impl ProxyDataChannel {
         create_game_signal: CreateGameSignal,
         join_barrier: Option<JoinResponseBarrier>,
         multiplayer_ports: Option<MultiplayerPorts>,
+        debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
@@ -496,6 +499,7 @@ impl ProxyDataChannel {
             join_barrier,
             multiplayer_ports,
             None,
+            debug_tx,
         )
         .await
     }
@@ -511,6 +515,7 @@ impl ProxyDataChannel {
         ready_signal: ProxyReadySignal,
         create_game_request: Request,
         observer_sender: Option<broadcast::Sender<TaggedResponse>>,
+        debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
@@ -559,6 +564,7 @@ impl ProxyDataChannel {
             None,
             None,
             observer_sender,
+            debug_tx,
         )
         .await
     }
@@ -585,6 +591,7 @@ impl ProxyDataChannel {
         join_barrier: Option<JoinResponseBarrier>,
         multiplayer_ports: Option<MultiplayerPorts>,
         observer_sender: Option<broadcast::Sender<TaggedResponse>>,
+        debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (mut cw, mut cr) = client_ws.split();
 
@@ -648,6 +655,12 @@ impl ProxyDataChannel {
         while let Some(msg) = cr.next().await {
             let msg = msg?;
             let raw = msg.into_data().to_vec();
+
+            if let Some(ref tx) = debug_tx {
+                if let Some(evt) = crate::debug_draw::debug_draw_from_request(pid, &raw) {
+                    let _ = tx.try_send(evt);
+                }
+            }
 
             let resp = roundtrip(up_w, up_r, raw).await?;
             if let Some(res) = try_parse_response(&resp) {

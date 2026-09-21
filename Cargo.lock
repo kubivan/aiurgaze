@@ -1058,7 +1058,7 @@ dependencies = [
 [[package]]
 name = "bevy_health_bar3d"
 version = "3.10.0"
-source = "git+ssh://git@github.com/kubivan/bevy_health_bar.git?branch=main#3f1353dc42fb0c729424318bf25574a55a7c451a"
+source = "git+https://github.com/kubivan/bevy_health_bar.git?branch=main#b284aeb0c1804c14815fc4f330adf00808b85bea"
 dependencies = [
  "bevy",
  "ordered-float 4.6.0",
@@ -5270,7 +5270,7 @@ dependencies = [
 [[package]]
 name = "sc2-proto"
 version = "0.2.3"
-source = "git+ssh://git@github.com/kubivan/sc2-proto-rs.git?branch=master#053ee8eb74d3884d4e962ddadb2c8208a817108c"
+source = "git+https://github.com/kubivan/sc2-proto-rs.git?branch=master#053ee8eb74d3884d4e962ddadb2c8208a817108c"
 dependencies = [
  "protobuf",
 ]

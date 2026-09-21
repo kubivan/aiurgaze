@@ -142,6 +142,7 @@ pub fn setup_proxies(
     // Create ready signal - expect 1 proxy for VsAI, 2 for VsBot
     let expected_proxies = if is_vs_bot { 2 } else { 1 };
     let ready_signal = ProxyReadySignal::new(expected_proxies);
+    let (debug_tx, mut debug_rx) = tokio::sync::mpsc::channel(64);
 
     let base_port = settings.starcraft.listen_port;
     let listen_url = settings.starcraft.listen_url.clone();
@@ -188,6 +189,19 @@ pub fn setup_proxies(
     let merged_p2_gi = p2_gi_stream.or(obs_gi_stream);
     let merged_p2_obs = p2_obs_stream.or(obs_obs_stream);
     let is_p2_observer = !is_vs_bot; // observer provides P2 data in VsAI mode
+
+    runtime.spawn_background_task(move |ctx| async move {
+        while let Some(evt) = debug_rx.recv().await {
+            let mut ctx_clone = ctx.clone();
+            tokio::spawn(async move {
+                ctx_clone
+                    .run_on_main_thread(move |world| {
+                        world.world.write_message(evt);
+                    })
+                    .await;
+            });
+        }
+    });
 
     // Spawn game_info consumer (cold — fires once per player at startup)
     let p1_gi: TaggedResponseStream = Box::pin(channel1.response_stream());
@@ -338,13 +352,14 @@ pub fn setup_proxies(
         let mp2 = Some(mp);
 
         // Host (Player1): CreateGame → signal → JoinGame → bridge
+        let debug_tx_host = debug_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             let Some(cg_req) = create_game_request else {
                 eprintln!("[Player1] No CreateGame request for host mode");
                 return;
             };
             if let Err(e) = channel1
-                .run_host(ready_signal1, cg_signal1, barrier1, cg_req, mp1)
+                .run_host(ready_signal1, cg_signal1, barrier1, cg_req, mp1, Some(debug_tx_host))
                 .await
             {
                 eprintln!("[Player1] Proxy failed: {e}");
@@ -352,9 +367,10 @@ pub fn setup_proxies(
         });
 
         // Guest (Player2): wait signal → JoinGame → bridge
+        let debug_tx_guest = debug_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             if let Err(e) = channel2
-                .run_guest(ready_signal2, cg_signal2, barrier2, mp2)
+                .run_guest(ready_signal2, cg_signal2, barrier2, mp2, Some(debug_tx_guest))
                 .await
             {
                 eprintln!("[Player2] Proxy failed: {e}");
@@ -365,13 +381,14 @@ pub fn setup_proxies(
         // The proxy sends disable_fog observation requests after each bot
         // roundtrip and publishes responses on observer_sender as Player2.
         // No separate WS connection needed — uses the same upstream.
+        let debug_tx_solo = debug_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             let Some(cg_req) = create_game_request else {
                 eprintln!("[Player1] No CreateGame request for solo mode");
                 return;
             };
             if let Err(e) = channel1
-                .run_solo(ready_signal1, cg_req, observer_sender)
+                .run_solo(ready_signal1, cg_req, observer_sender, Some(debug_tx_solo))
                 .await
             {
                 eprintln!("[Player1] Proxy failed: {e}");
