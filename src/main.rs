@@ -31,15 +31,17 @@ use crate::app_settings::{
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
 use crate::controller::{
     map_init_system, protocol_activity_system, refresh_map_colors_on_layer_change,
-    response_controller_system, setup_proxies, update_player_resources, FogMaterialHandle,
-    FogOfWarData, FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent,
-    PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
+    current_frame_system, response_controller_system, setup_proxies, update_player_resources,
+    FogMaterialHandle,
+    CurrentFrame, FogOfWarData, FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource,
+    ObservationEvent, PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
+    ReplayFrameEvent,
 };
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws, DebugDrawEvent, DebugDrawOverlay,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
-use crate::proxy_channel::ProxyReadySignal;
+use crate::proxy_channel::{ProxyReadySignal, ProxyStreamPause};
 use crate::render_layers::{
     layer_visibility_system, LayerRegistry, RenderLayerKind, RenderLayerMarker,
 };
@@ -229,12 +231,20 @@ fn proxy_connect_on_docker_ready(
     vision_mode_channel: Res<VisionModeChannel>,
     mut proxy_ready: ResMut<ProxyReadyResource>,
     mut pending_request: ResMut<PendingCreateGameRequest>,
+    proxy_pause: Res<ProxyStreamPause>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
         let is_vs_bot = game_config.game_type == GameType::VsBot;
         let vision_rx = vision_mode_channel.sender.subscribe();
         let create_req = pending_request.0.take();
-        let ready_signal = setup_proxies(&runtime, &settings, is_vs_bot, vision_rx, create_req);
+        let ready_signal = setup_proxies(
+            &runtime,
+            &settings,
+            is_vs_bot,
+            vision_rx,
+            create_req,
+            proxy_pause.paused.clone(),
+        );
         proxy_ready.0 = Some(ready_signal);
         *has_connected = true;
         println!(
@@ -275,6 +285,7 @@ fn main() {
         .add_message::<StartBotProcessesEvent>()
         .add_message::<GameInfoEvent>()
         .add_message::<ObservationEvent>()
+        .add_message::<ReplayFrameEvent>()
         .add_message::<ProtocolActivityEvent>()
         .add_message::<DebugDrawEvent>()
         .register_type::<UnitHealth>()
@@ -344,6 +355,9 @@ fn main() {
         .insert_resource(UnitCompositionVisibility::default())
         .insert_resource(ProtocolActivityState::default())
         .insert_resource(PlayerResources::default())
+        .insert_resource(CurrentFrame::default())
+        .insert_resource(ProxyStreamPause::new())
+        .insert_resource(crate::controller::LoopPlaybackState::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
@@ -354,7 +368,8 @@ fn main() {
             Update,
             map_init_system.run_if(not(resource_exists::<MapResource>)),
         )
-        .add_systems(Update, response_controller_system)
+        .add_systems(Update, current_frame_system)
+        .add_systems(Update, response_controller_system.after(current_frame_system))
         .add_systems(Update, protocol_activity_system)
         .add_systems(Update, update_player_resources)
         .add_systems(

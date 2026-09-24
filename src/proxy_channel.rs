@@ -9,13 +9,17 @@
 //! - After JoinGame, each proxy fetches a silent GameInfo for map data.
 //! - Then the proxy enters the bridge loop forwarding traffic in both directions.
 
+use bevy::prelude::Resource;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use protobuf::{Message, RepeatedField};
 use sc2_proto::debug::{DebugCommand, DebugGameState};
-use sc2_proto::sc2api::{PortSet, Request, Request_oneof_request, Response};
+use sc2_proto::sc2api::{
+    PortSet, Request, Request_oneof_request, Response, ResponseGameInfo, ResponseObservation,
+};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Notify};
 use tokio_stream::wrappers::BroadcastStream;
@@ -225,11 +229,213 @@ impl std::fmt::Display for PlayerId {
     }
 }
 
+/// Shared pause state for live bot/server communication.
+/// When paused, the proxy stops forwarding requests/responses and keeps
+/// client-side pending traffic queued until resumed.
+#[derive(Resource, Clone, Default, Debug)]
+pub struct ProxyStreamPause {
+    pub paused: Arc<AtomicBool>,
+}
+
+impl ProxyStreamPause {
+    pub fn new() -> Self {
+        Self {
+            paused: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::SeqCst);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+}
+
 /// Response tagged with its source player.
 #[derive(Debug, Clone)]
 pub struct TaggedResponse {
     pub player_id: PlayerId,
     pub response: Response,
+}
+
+/// Single snapshot for a given SC2 loop step.
+///
+/// The replay buffer stores one frame per loop and keeps a full set of the
+/// important data needed to scrub and re-render past game state.
+#[derive(Debug, Clone)]
+pub struct ReplayFrame {
+    pub player_id: PlayerId,
+    pub game_loop: u32,
+    pub observation: Option<ResponseObservation>,
+    pub game_info: Option<ResponseGameInfo>,
+    pub debug: Option<Vec<u8>>,
+}
+
+/// Proxy-owned frame accumulator for one simulation step.
+///
+/// Responses update this frame until the corresponding step response arrives.
+/// At that boundary the frame is committed to history and the accumulator is
+/// reset for the next step.
+#[derive(Debug, Clone, Default)]
+pub struct CurrentFrame {
+    pub player_id: Option<PlayerId>,
+    pub game_loop: u32,
+    pub observation: Option<ResponseObservation>,
+    pub game_info: Option<ResponseGameInfo>,
+    pub debug: Option<Vec<u8>>,
+}
+
+impl CurrentFrame {
+    pub fn update(&mut self, player_id: PlayerId, response: &Response) {
+        self.player_id = Some(player_id);
+        match response.response.as_ref() {
+            Some(sc2_proto::sc2api::Response_oneof_response::observation(observation)) => {
+                self.game_loop = observation
+                    .observation
+                    .as_ref()
+                    .map(|inner| inner.get_game_loop())
+                    .unwrap_or(self.game_loop);
+                self.observation = Some(observation.clone());
+            }
+            Some(sc2_proto::sc2api::Response_oneof_response::game_info(game_info)) => {
+                self.game_info = Some(game_info.clone());
+            }
+            Some(sc2_proto::sc2api::Response_oneof_response::debug(_)) => {
+                self.debug = response.write_to_bytes().ok();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn finish(&mut self) -> Option<ReplayFrame> {
+        let player_id = self.player_id?;
+        if self.observation.is_none() && self.game_info.is_none() && self.debug.is_none() {
+            self.reset();
+            return None;
+        }
+
+        let frame = ReplayFrame::new(
+            player_id,
+            self.game_loop,
+            self.observation.take(),
+            self.game_info.take(),
+            self.debug.take(),
+        );
+        self.reset();
+        Some(frame)
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
+impl ReplayFrame {
+    pub fn new(
+        player_id: PlayerId,
+        game_loop: u32,
+        observation: Option<ResponseObservation>,
+        game_info: Option<ResponseGameInfo>,
+        debug: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            player_id,
+            game_loop,
+            observation,
+            game_info,
+            debug,
+        }
+    }
+
+    pub fn from_response(player_id: PlayerId, response: &Response) -> Self {
+        let game_loop = match response.response.as_ref() {
+            Some(sc2_proto::sc2api::Response_oneof_response::observation(obs)) => obs
+                .observation
+                .as_ref()
+                .map(|inner| inner.get_game_loop())
+                .unwrap_or(0),
+            Some(sc2_proto::sc2api::Response_oneof_response::game_info(_)) => 0,
+            Some(sc2_proto::sc2api::Response_oneof_response::debug(_)) => 0,
+            _ => 0,
+        };
+
+        let observation = match response.response.as_ref() {
+            Some(sc2_proto::sc2api::Response_oneof_response::observation(obs)) => Some(obs.clone()),
+            _ => None,
+        };
+        let game_info = match response.response.as_ref() {
+            Some(sc2_proto::sc2api::Response_oneof_response::game_info(gi)) => Some(gi.clone()),
+            _ => None,
+        };
+        let debug = match response.response.as_ref() {
+            Some(sc2_proto::sc2api::Response_oneof_response::debug(_)) => {
+                response.write_to_bytes().ok().filter(|bytes| !bytes.is_empty())
+            }
+            _ => None,
+        };
+
+        Self {
+            player_id,
+            game_loop,
+            observation,
+            game_info,
+            debug,
+        }
+    }
+
+}
+
+/// Bounded replay history for live loop scrubbing.
+#[derive(Debug, Clone, Default)]
+pub struct ReplayBuffer {
+    capacity: usize,
+    frames: VecDeque<ReplayFrame>,
+}
+
+impl ReplayBuffer {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            frames: VecDeque::new(),
+        }
+    }
+
+    pub fn push_frame(&mut self, frame: ReplayFrame) {
+        if self.frames.len() == self.capacity {
+            self.frames.pop_front();
+        }
+        self.frames.push_back(frame);
+    }
+
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    pub fn latest_loop(&self) -> Option<u32> {
+        self.frames.back().map(|frame| frame.game_loop)
+    }
+
+    pub fn oldest_loop(&self) -> Option<u32> {
+        self.frames.front().map(|frame| frame.game_loop)
+    }
+
+    pub fn frames(&self) -> impl Iterator<Item = &ReplayFrame> {
+        self.frames.iter()
+    }
+
+    pub fn latest_frame(&self) -> Option<&ReplayFrame> {
+        self.frames.back()
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
 }
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
@@ -332,11 +538,41 @@ async fn roundtrip(
 }
 
 /// Publish a response to the broadcast channel (best-effort).
-fn publish(sender: &broadcast::Sender<TaggedResponse>, player_id: PlayerId, res: Response) {
+fn publish(
+    sender: &broadcast::Sender<TaggedResponse>,
+    frame_sender: &broadcast::Sender<ReplayFrame>,
+    replay_buffer: Option<&Arc<Mutex<ReplayBuffer>>>,
+    current_frame: Option<&Arc<Mutex<CurrentFrame>>>,
+    player_id: PlayerId,
+    res: Response,
+) {
+    let response_clone = res.clone();
     let _ = sender.send(TaggedResponse {
         player_id,
         response: res,
     });
+
+    let Some(current_frame) = current_frame else {
+        return;
+    };
+
+    let mut frame = current_frame.lock().expect("current frame lock poisoned");
+    frame.update(player_id, &response_clone);
+    let is_step = matches!(
+        response_clone.response,
+        Some(sc2_proto::sc2api::Response_oneof_response::step(_))
+    );
+    if is_step {
+        if let Some(completed) = frame.finish() {
+            let _ = frame_sender.send(completed.clone());
+            if let Some(buffer) = replay_buffer {
+                buffer
+                    .lock()
+                    .expect("replay buffer lock poisoned")
+                    .push_frame(completed);
+            }
+        }
+    }
 }
 
 // ─── ProxyDataChannel ───────────────────────────────────────────────────────
@@ -350,6 +586,9 @@ pub struct ProxyDataChannel {
     pub listen_addr: String,
     pub upstream_url: String,
     sender: broadcast::Sender<TaggedResponse>,
+    frame_sender: broadcast::Sender<ReplayFrame>,
+    replay_buffer: Arc<Mutex<ReplayBuffer>>,
+    current_frame: Arc<Mutex<CurrentFrame>>,
 }
 
 impl ProxyDataChannel {
@@ -361,12 +600,16 @@ impl ProxyDataChannel {
         upstream_url: impl Into<String>,
     ) -> (Self, broadcast::Receiver<TaggedResponse>) {
         let (sender, receiver) = broadcast::channel(CHANNEL_BUFFER_SIZE);
+        let (frame_sender, _) = broadcast::channel(CHANNEL_BUFFER_SIZE);
         (
             Self {
                 player_id,
                 listen_addr: listen_addr.into(),
                 upstream_url: upstream_url.into(),
                 sender,
+                frame_sender,
+                replay_buffer: Arc::new(Mutex::new(ReplayBuffer::new(512))),
+                current_frame: Arc::new(Mutex::new(CurrentFrame::default())),
             },
             receiver,
         )
@@ -375,6 +618,24 @@ impl ProxyDataChannel {
     /// Subscribe to this channel's response stream.
     pub fn subscribe(&self) -> broadcast::Receiver<TaggedResponse> {
         self.sender.subscribe()
+    }
+
+    pub fn completed_frame_stream(
+        &self,
+    ) -> impl tokio_stream::Stream<Item = ReplayFrame> + Send + Unpin {
+        tokio_stream::StreamExt::filter_map(
+            BroadcastStream::new(self.frame_sender.subscribe()),
+            |frame| frame.ok(),
+        )
+    }
+
+    /// Access the replay history captured for this proxy.
+    pub fn replay_buffer(&self) -> Arc<Mutex<ReplayBuffer>> {
+        Arc::clone(&self.replay_buffer)
+    }
+
+    pub fn current_frame(&self) -> Arc<Mutex<CurrentFrame>> {
+        Arc::clone(&self.current_frame)
     }
 
     /// Get a typed response stream (BroadcastStream) from this channel.
@@ -405,9 +666,13 @@ impl ProxyDataChannel {
         create_game_request: Request,
         multiplayer_ports: Option<MultiplayerPorts>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
+        let frame_sender = self.frame_sender.clone();
+        let replay_buffer = Arc::clone(&self.replay_buffer);
+        let current_frame = Arc::clone(&self.current_frame);
 
         // 1. Open own upstream WS
         let upstream = connect_upstream(&self.upstream_url).await?;
@@ -433,7 +698,7 @@ impl ProxyDataChannel {
                     println!("[{pid}] CreateGame succeeded");
                 }
             }
-            publish(&sender, pid, res);
+            publish(&sender, &frame_sender, Some(&replay_buffer), Some(&current_frame), pid, res);
         }
 
         // 3. Signal guest
@@ -451,10 +716,14 @@ impl ProxyDataChannel {
             &mut up_w,
             &mut up_r,
             &sender,
+            &frame_sender,
             join_barrier,
             multiplayer_ports,
+            Some(&replay_buffer),
+            Some(&current_frame),
             None,
             debug_tx,
+            pause_state,
         )
         .await
     }
@@ -471,9 +740,13 @@ impl ProxyDataChannel {
         join_barrier: Option<JoinResponseBarrier>,
         multiplayer_ports: Option<MultiplayerPorts>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
+        let frame_sender = self.frame_sender.clone();
+        let replay_buffer = Arc::clone(&self.replay_buffer);
+        let current_frame = Arc::clone(&self.current_frame);
 
         // 1. Wait for game creation
         println!("[{pid}] Waiting for CreateGame signal...");
@@ -496,10 +769,14 @@ impl ProxyDataChannel {
             &mut up_w,
             &mut up_r,
             &sender,
+            &frame_sender,
             join_barrier,
             multiplayer_ports,
+            Some(&replay_buffer),
+            Some(&current_frame),
             None,
             debug_tx,
+            pause_state,
         )
         .await
     }
@@ -516,9 +793,13 @@ impl ProxyDataChannel {
         create_game_request: Request,
         observer_sender: Option<broadcast::Sender<TaggedResponse>>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let sender = self.sender.clone();
+        let frame_sender = self.frame_sender.clone();
+        let replay_buffer = Arc::clone(&self.replay_buffer);
+        let current_frame = Arc::clone(&self.current_frame);
 
         let upstream = connect_upstream(&self.upstream_url).await?;
         let (mut up_w, mut up_r) = upstream.split();
@@ -543,7 +824,7 @@ impl ProxyDataChannel {
                     println!("[{pid}] CreateGame succeeded");
                 }
             }
-            publish(&sender, pid, res);
+            publish(&sender, &frame_sender, Some(&replay_buffer), Some(&current_frame), pid, res);
         }
 
         // Signal observer (if present) that CreateGame is done
@@ -561,10 +842,14 @@ impl ProxyDataChannel {
             &mut up_w,
             &mut up_r,
             &sender,
+            &frame_sender,
             None,
             None,
+            Some(&replay_buffer),
+            Some(&current_frame),
             observer_sender,
             debug_tx,
+            pause_state,
         )
         .await
     }
@@ -588,12 +873,17 @@ impl ProxyDataChannel {
         up_w: &mut futures_util::stream::SplitSink<UpstreamWs, tungstenite::Message>,
         up_r: &mut futures_util::stream::SplitStream<UpstreamWs>,
         sender: &broadcast::Sender<TaggedResponse>,
+        frame_sender: &broadcast::Sender<ReplayFrame>,
         join_barrier: Option<JoinResponseBarrier>,
         multiplayer_ports: Option<MultiplayerPorts>,
+        replay_buffer: Option<&Arc<Mutex<ReplayBuffer>>>,
+        current_frame: Option<&Arc<Mutex<CurrentFrame>>>,
         observer_sender: Option<broadcast::Sender<TaggedResponse>>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (mut cw, mut cr) = client_ws.split();
+        let mut pending_client: VecDeque<Vec<u8>> = VecDeque::new();
 
         //join game
         if let Some(join_msg) = cr.next().await {
@@ -618,7 +908,7 @@ impl ProxyDataChannel {
             let resp = roundtrip(up_w, up_r, raw).await?;
 
             if let Some(res) = try_parse_response(&resp) {
-                publish(sender, pid, res);
+                publish(sender, frame_sender, replay_buffer, current_frame, pid, res);
             }
             cw.send(tungstenite::Message::Binary(Bytes::from(resp)))
                 .await?;
@@ -645,16 +935,68 @@ impl ProxyDataChannel {
             let gi_req = make_game_info_request()?;
             let gi_resp = roundtrip(up_w, up_r, gi_req).await?;
             if let Some(res) = try_parse_response(&gi_resp) {
-                publish(obs_sender, PlayerId::Player2, res);
+                publish(obs_sender, frame_sender, replay_buffer, current_frame, PlayerId::Player2, res);
             }
             println!("[{pid}] Observer: initial GameInfo published");
         }
 
         let mut observer_last_game_loop: u32 = 0;
 
-        while let Some(msg) = cr.next().await {
+        loop {
+            while pause_state
+                .as_ref()
+                .is_some_and(|state| state.load(Ordering::SeqCst))
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+
+            let Some(msg) = cr.next().await else {
+                break;
+            };
             let msg = msg?;
             let raw = msg.into_data().to_vec();
+
+            if !pending_client.is_empty() {
+                let mut queued = VecDeque::new();
+                std::mem::swap(&mut queued, &mut pending_client);
+                for pending_raw in queued {
+                    if let Some(ref tx) = debug_tx {
+                        if let Some(evt) = crate::debug_draw::debug_draw_from_request(pid, &pending_raw) {
+                            let _ = tx.try_send(evt);
+                        }
+                    }
+
+                    let resp = roundtrip(up_w, up_r, pending_raw).await?;
+                    if let Some(res) = try_parse_response(&resp) {
+                        publish(sender, frame_sender, replay_buffer, current_frame, pid, res);
+                    }
+                    cw.send(tungstenite::Message::Binary(Bytes::from(resp)))
+                        .await?;
+
+                    if let Some(ref obs_sender) = observer_sender {
+                        let obs_req = make_disable_fog_observation_request()?;
+                        let obs_resp = roundtrip(up_w, up_r, obs_req).await?;
+                        if let Some(res) = try_parse_response(&obs_resp) {
+                            let current_loop = if let Some(
+                                sc2_proto::sc2api::Response_oneof_response::observation(ref obs),
+                            ) = res.response
+                            {
+                                obs.observation
+                                    .as_ref()
+                                    .map(|inner| inner.get_game_loop())
+                                    .unwrap_or(0)
+                            } else {
+                                0
+                            };
+
+                            if current_loop > observer_last_game_loop {
+                                observer_last_game_loop = current_loop;
+                                publish(obs_sender, frame_sender, replay_buffer, current_frame, PlayerId::Player2, res);
+                            }
+                        }
+                    }
+                }
+            }
 
             if let Some(ref tx) = debug_tx {
                 if let Some(evt) = crate::debug_draw::debug_draw_from_request(pid, &raw) {
@@ -664,7 +1006,7 @@ impl ProxyDataChannel {
 
             let resp = roundtrip(up_w, up_r, raw).await?;
             if let Some(res) = try_parse_response(&resp) {
-                publish(sender, pid, res);
+                publish(sender, frame_sender, replay_buffer, current_frame, pid, res);
             }
             cw.send(tungstenite::Message::Binary(Bytes::from(resp)))
                 .await?;
@@ -701,7 +1043,7 @@ impl ProxyDataChannel {
                             );
                         }
                         observer_last_game_loop = current_loop;
-                        publish(obs_sender, PlayerId::Player2, res);
+                        publish(obs_sender, frame_sender, replay_buffer, current_frame, PlayerId::Player2, res);
                     }
                 } else {
                     static LOGGED_PARSE_FAIL: AtomicBool = AtomicBool::new(false);
@@ -746,5 +1088,49 @@ mod tests {
     fn test_player_id_display() {
         assert_eq!(format!("{}", PlayerId::Player1), "Player1");
         assert_eq!(format!("{}", PlayerId::Player2), "Player2");
+    }
+
+    #[test]
+    fn replay_buffer_keeps_latest_frames() {
+        let mut buffer = ReplayBuffer::new(3);
+
+        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 10, None, None, None));
+        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 11, None, None, None));
+        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 12, None, None, None));
+        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 13, None, None, None));
+
+        assert_eq!(buffer.len(), 3);
+        assert_eq!(buffer.latest_loop(), Some(13));
+        assert_eq!(buffer.oldest_loop(), Some(11));
+    }
+
+    #[test]
+    fn current_frame_finishes_and_resets_once() {
+        let mut current = CurrentFrame::default();
+        let mut observation_response = Response::new();
+        let observation = ResponseObservation::new();
+        observation_response.set_observation(observation.clone());
+
+        current.update(PlayerId::Player1, &observation_response);
+        let frame = current.finish().unwrap();
+
+        assert_eq!(frame.player_id, PlayerId::Player1);
+        assert!(frame.observation.is_some());
+        assert!(current.player_id.is_none());
+        assert!(current.observation.is_none());
+        assert!(current.finish().is_none());
+    }
+
+    #[test]
+    fn replay_frame_tracks_optional_debug_data() {
+        let frame = ReplayFrame {
+            player_id: PlayerId::Player2,
+            game_loop: 42,
+            observation: None,
+            game_info: None,
+            debug: Some(vec![1, 2, 3]),
+        };
+
+        assert_eq!(frame.debug.as_deref(), Some(&[1, 2, 3][..]));
     }
 }

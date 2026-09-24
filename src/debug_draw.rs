@@ -11,9 +11,9 @@ use crate::render_layers::{LayerRegistry, RenderLayerKind};
 
 #[derive(Debug, Clone)]
 pub enum DebugDrawPrimitive {
-    Line { start: Vec2, end: Vec2, color: Color },
-    Box { min: Vec2, max: Vec2, color: Color },
-    Sphere { center: Vec2, radius: f32, color: Color },
+    Line { start: Vec3, end: Vec3, color: Color },
+    Box { min: Vec3, max: Vec3, color: Color },
+    Sphere { center: Vec3, radius: f32, color: Color },
 }
 
 #[derive(Resource, Default, Clone)]
@@ -112,11 +112,15 @@ fn color_to_bevy(color: &ProtoColor) -> Color {
     )
 }
 
-fn project_point(point: &Point) -> Vec2 {
+fn project_point(point: &Point) -> Vec3 {
+    Vec3::new(point.get_x(), point.get_y(), point.get_z())
+}
+
+pub fn project_debug_point(point: &Point, map_size: (u32, u32), tile_size: f32) -> Vec2 {
     let x = point.get_x();
     let y = point.get_y();
-    let world_x = x * 1.0;
-    let world_y = y * 1.0;
+    let world_x = x * tile_size - (map_size.0 as f32) * tile_size / 2.0;
+    let world_y = y * tile_size - (map_size.1 as f32) * tile_size / 2.0;
     Vec2::new(world_x, world_y)
 }
 
@@ -138,19 +142,63 @@ pub fn render_debug_draws(
     overlay: Res<DebugDrawOverlay>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
+    entity_system: Option<Res<crate::entity_system::EntitySystem>>,
 ) {
-    if map.is_none() || !overlay.enabled || !layer_registry.is_visible(RenderLayerKind::DebugOverlay) {
+    if map.is_none() || entity_system.is_none() || !overlay.enabled || !layer_registry.is_visible(RenderLayerKind::DebugOverlay) {
         return;
     }
+
+    let map = map.unwrap();
+    let entity_system = entity_system.unwrap();
+    let map_size = map.static_layers.get_dimensions();
+    let tile_size = entity_system.map_config.tile_size;
 
     for item in &overlay.commands {
         match item {
             DebugDrawPrimitive::Line { start, end, color } => {
-                gizmos.line_2d(*start, *end, *color);
+                let p0 = project_debug_point(
+                    &Point {
+                        x: Some(start.x),
+                        y: Some(start.y),
+                        z: Some(start.z),
+                        ..Default::default()
+                    },
+                    map_size,
+                    tile_size,
+                );
+                let p1 = project_debug_point(
+                    &Point {
+                        x: Some(end.x),
+                        y: Some(end.y),
+                        z: Some(end.z),
+                        ..Default::default()
+                    },
+                    map_size,
+                    tile_size,
+                );
+                gizmos.line_2d(p0, p1, *color);
             }
             DebugDrawPrimitive::Box { min, max, color } => {
-                let rect_min = *min;
-                let rect_max = *max;
+                let rect_min = project_debug_point(
+                    &Point {
+                        x: Some(min.x),
+                        y: Some(min.y),
+                        z: Some(min.z),
+                        ..Default::default()
+                    },
+                    map_size,
+                    tile_size,
+                );
+                let rect_max = project_debug_point(
+                    &Point {
+                        x: Some(max.x),
+                        y: Some(max.y),
+                        z: Some(max.z),
+                        ..Default::default()
+                    },
+                    map_size,
+                    tile_size,
+                );
                 let x_min = rect_min.x.min(rect_max.x);
                 let x_max = rect_min.x.max(rect_max.x);
                 let y_min = rect_min.y.min(rect_max.y);
@@ -165,7 +213,17 @@ pub fn render_debug_draws(
                 gizmos.line_2d(p3, p0, *color);
             }
             DebugDrawPrimitive::Sphere { center, radius, color } => {
-                gizmos.circle_2d(*center, *radius, *color);
+                let center2 = project_debug_point(
+                    &Point {
+                        x: Some(center.x),
+                        y: Some(center.y),
+                        z: Some(center.z),
+                        ..Default::default()
+                    },
+                    map_size,
+                    tile_size,
+                );
+                gizmos.circle_2d(center2, *radius * tile_size, *color);
             }
         }
     }
@@ -237,4 +295,22 @@ pub fn debug_draw_from_request(player_id: PlayerId, raw: &[u8]) -> Option<DebugD
     }
 
     Some(DebugDrawEvent { player_id, commands })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_debug_point_matches_map_space() {
+        let point = Point {
+            x: Some(2.0),
+            y: Some(3.0),
+            z: Some(0.0),
+            ..Default::default()
+        };
+
+        let projected = project_debug_point(&point, (20, 18), 4.0);
+        assert_eq!(projected, Vec2::new(2.0 * 4.0 - 20.0 * 4.0 / 2.0, 3.0 * 4.0 - 18.0 * 4.0 / 2.0));
+    }
 }

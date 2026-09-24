@@ -1,6 +1,7 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::controller::{PlayerResources, ProtocolActivityState};
+use crate::proxy_channel::ProxyStreamPause;
 use crate::observation_pipeline::VisionMode;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::ui::hud::{render_hud, render_status_bar};
@@ -96,6 +97,8 @@ fn render_game_screen(
     vision_mode_channel: &mut ResMut<VisionModeChannel>,
     layer_registry: &mut ResMut<LayerRegistry>,
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,
+    playback: &mut ResMut<crate::controller::LoopPlaybackState>,
+    proxy_pause: &mut ResMut<ProxyStreamPause>,
 ) {
     egui::Panel::right("unit_info_panel")
         .resizable(true)
@@ -118,6 +121,27 @@ fn render_game_screen(
                         }
                     }
                 });
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.heading("Replay");
+            ui.horizontal(|ui| {
+                if ui.button("Pause").clicked() {
+                    playback.pause();
+                    proxy_pause.set_paused(true);
+                }
+                if ui.button("Back").clicked() {
+                    playback.step_back();
+                }
+                if ui.button("Forward").clicked() {
+                    playback.step_forward();
+                }
+                if ui.button("Resume").clicked() {
+                    playback.resume();
+                    proxy_pause.set_paused(false);
+                }
+            });
+            ui.label(format!("mode: {:?}   loop: {}", playback.mode, playback.current_loop()));
 
             ui.add_space(10.0);
             ui.separator();
@@ -165,6 +189,8 @@ pub fn ui_system(
     mut vision_mode_channel: ResMut<VisionModeChannel>,
     mut layer_registry: ResMut<LayerRegistry>,
     mut unit_visibility: ResMut<UnitCompositionVisibility>,
+    mut playback: ResMut<crate::controller::LoopPlaybackState>,
+    mut proxy_pause: ResMut<ProxyStreamPause>,
     hud: HudParams,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
@@ -199,6 +225,8 @@ pub fn ui_system(
             &mut vision_mode_channel,
             &mut layer_registry,
             &mut unit_visibility,
+            &mut playback,
+            &mut proxy_pause,
         ),
     }
 

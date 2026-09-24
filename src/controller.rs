@@ -26,13 +26,15 @@ use crate::observation_pipeline::{
 };
 use crate::proxy_channel::{
     create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
-    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal,
+    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayBuffer, ReplayFrame,
 };
 use crate::render_layers::LayerRegistry;
 use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
+use crate::ui::VisionModeChannel;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 static LOGGED_VIS_FORMAT: AtomicBool = AtomicBool::new(false);
 
@@ -42,6 +44,12 @@ pub struct ObservationEvent {
     pub player_id: PlayerId,
     pub observation: ResponseObservation,
     pub vision_mode: VisionMode,
+}
+
+/// A complete step frame committed by the proxy.
+#[derive(Message, Clone)]
+pub struct ReplayFrameEvent {
+    pub frame: ReplayFrame,
 }
 
 /// Event emitted when game info is received.
@@ -56,6 +64,211 @@ pub struct GameInfoEvent {
 pub struct ProtocolActivityEvent {
     pub player_id: PlayerId,
     pub response_kind: String,
+}
+
+/// Playback mode for loop scrubbing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopPlaybackMode {
+    Live,
+    Paused,
+    Scrubbing,
+}
+
+impl Default for LoopPlaybackMode {
+    fn default() -> Self {
+        Self::Live
+    }
+}
+
+/// The currently selected/rendered frame. This is the view-facing state:
+/// the renderer consumes only this single frame, regardless of whether it came
+/// from the live proxy stream or from the replay history.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct CurrentFrame {
+    pub frame: Option<ReplayFrame>,
+}
+
+/// Stateful loop playback and replay history.
+#[derive(Resource, Clone, Debug)]
+pub struct LoopPlaybackState {
+    pub mode: LoopPlaybackMode,
+    pub selected_loop: u32,
+    pub live_loop: u32,
+    pub history: ReplayBuffer,
+}
+
+impl Default for LoopPlaybackState {
+    fn default() -> Self {
+        Self {
+            mode: LoopPlaybackMode::Live,
+            selected_loop: 0,
+            live_loop: 0,
+            history: ReplayBuffer::new(512),
+        }
+    }
+}
+
+impl LoopPlaybackState {
+    pub fn current_loop(&self) -> u32 {
+        if self.mode == LoopPlaybackMode::Live {
+            self.live_loop
+        } else {
+            self.selected_loop
+        }
+    }
+
+    pub fn pause(&mut self) {
+        self.mode = LoopPlaybackMode::Paused;
+        if self.selected_loop == 0 {
+            self.selected_loop = self.live_loop;
+        }
+    }
+
+    pub fn resume(&mut self) {
+        self.mode = LoopPlaybackMode::Live;
+        self.selected_loop = self.live_loop;
+    }
+
+    pub fn step_back(&mut self) {
+        let loops = self.known_loops();
+        if loops.is_empty() {
+            return;
+        }
+
+        let current = if self.selected_loop > 0 {
+            self.selected_loop
+        } else {
+            self.live_loop
+        };
+        let idx = loops
+            .iter()
+            .position(|loop_id| *loop_id == current)
+            .unwrap_or(loops.len().saturating_sub(1));
+        let next_idx = idx.saturating_sub(1).min(loops.len().saturating_sub(1));
+        self.mode = LoopPlaybackMode::Paused;
+        self.selected_loop = loops[next_idx];
+    }
+
+    pub fn step_forward(&mut self) {
+        let loops = self.known_loops();
+        if loops.is_empty() {
+            return;
+        }
+
+        let current = if self.selected_loop > 0 {
+            self.selected_loop
+        } else {
+            self.live_loop
+        };
+        let idx = loops
+            .iter()
+            .position(|loop_id| *loop_id == current)
+            .unwrap_or(loops.len().saturating_sub(1));
+        let next_idx = (idx + 1).min(loops.len().saturating_sub(1));
+        self.mode = LoopPlaybackMode::Paused;
+        self.selected_loop = loops[next_idx];
+    }
+
+    fn known_loops(&self) -> Vec<u32> {
+        let mut loops = Vec::new();
+        for loop_id in self
+            .history
+            .frames()
+            .map(|frame| frame.game_loop)
+            .filter(|loop_id| *loop_id > 0)
+        {
+            if loops.last() != Some(&loop_id) {
+                loops.push(loop_id);
+            }
+        }
+        loops
+    }
+
+    pub fn push_frame(&mut self, frame: ReplayFrame) {
+        if frame.game_loop == 0 {
+            return;
+        }
+        self.history.push_frame(frame.clone());
+        self.live_loop = frame.game_loop;
+        if self.mode == LoopPlaybackMode::Live {
+            self.selected_loop = frame.game_loop;
+        }
+    }
+
+    pub fn frame_for_loop(&self, loop_id: u32) -> Option<&ReplayFrame> {
+        self.history
+            .frames()
+            .filter(|frame| frame.game_loop > 0 && frame.observation.is_some())
+            .filter(|frame| frame.game_loop <= loop_id)
+            .last()
+    }
+
+    pub fn apply_live_frame(&self, frame: ReplayFrame, current: &mut CurrentFrame) {
+        current.frame = Some(frame.clone());
+    }
+
+    pub fn apply_rewind_frame(&self, current: &mut CurrentFrame) {
+        let Some(frame) = self.frame_for_loop(self.selected_loop).cloned() else {
+            return;
+        };
+        current.frame = Some(frame);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loop_playback_selects_latest_known_frame() {
+        let mut state = LoopPlaybackState::default();
+        state.history.push_frame(ReplayFrame::new(PlayerId::Player1, 10, None, None, None));
+        state.history.push_frame(ReplayFrame::new(
+            PlayerId::Player1,
+            20,
+            Some(ResponseObservation::new()),
+            None,
+            None,
+        ));
+        state.history.push_frame(ReplayFrame::new(
+            PlayerId::Player1,
+            30,
+            Some(ResponseObservation::new()),
+            None,
+            None,
+        ));
+
+        state.selected_loop = 25;
+        let frame = state.frame_for_loop(state.selected_loop).unwrap();
+        assert_eq!(frame.game_loop, 20);
+    }
+
+    #[test]
+    fn loop_playback_navigates_unique_loops_and_resumes() {
+        let mut state = LoopPlaybackState::default();
+        for loop_id in [10, 10, 20, 20, 30, 30] {
+            state.history.push_frame(ReplayFrame::new(
+                PlayerId::Player1,
+                loop_id,
+                Some(ResponseObservation::new()),
+                None,
+                None,
+            ));
+        }
+        state.live_loop = 30;
+        state.selected_loop = 30;
+
+        state.step_back();
+        assert_eq!(state.selected_loop, 20);
+        state.step_back();
+        assert_eq!(state.selected_loop, 10);
+        state.step_forward();
+        assert_eq!(state.selected_loop, 20);
+
+        state.resume();
+        assert_eq!(state.mode, LoopPlaybackMode::Live);
+        assert_eq!(state.selected_loop, 30);
+    }
 }
 
 /// Live player stats extracted from each observation (minerals, vespene, supply, etc.).
@@ -136,6 +349,7 @@ pub fn setup_proxies(
     is_vs_bot: bool,
     vision_mode_rx: watch::Receiver<VisionMode>,
     create_game_request: Option<Request>,
+    pause_state: Arc<AtomicBool>,
 ) -> ProxyReadySignal {
     println!("====== setup_proxies (is_vs_bot={}) ======", is_vs_bot);
 
@@ -185,10 +399,43 @@ pub fn setup_proxies(
         (None, None, None)
     };
 
+    let mut p1_frames = channel1.completed_frame_stream();
+    runtime.spawn_background_task(move |ctx| async move {
+        while let Some(frame) = p1_frames.next().await {
+            let mut ctx_clone = ctx.clone();
+            tokio::spawn(async move {
+                ctx_clone
+                    .run_on_main_thread(move |ctx| {
+                        ctx.world.write_message(ReplayFrameEvent { frame });
+                    })
+                    .await;
+            });
+        }
+    });
+
+    if let Some(ref channel2_for_frames) = channel2 {
+        let mut p2_frames = channel2_for_frames.completed_frame_stream();
+        runtime.spawn_background_task(move |ctx| async move {
+            while let Some(frame) = p2_frames.next().await {
+                let mut ctx_clone = ctx.clone();
+                tokio::spawn(async move {
+                    ctx_clone
+                        .run_on_main_thread(move |ctx| {
+                            ctx.world.write_message(ReplayFrameEvent { frame });
+                        })
+                        .await;
+                });
+            }
+        });
+    }
+
     // Merge P2 streams: either from VsBot channel2 or from VsAI observer
     let merged_p2_gi = p2_gi_stream.or(obs_gi_stream);
     let merged_p2_obs = p2_obs_stream.or(obs_obs_stream);
     let is_p2_observer = !is_vs_bot; // observer provides P2 data in VsAI mode
+    let pause_state_for_host = pause_state.clone();
+    let pause_state_for_guest = pause_state.clone();
+    let pause_state_for_solo = pause_state.clone();
 
     runtime.spawn_background_task(move |ctx| async move {
         while let Some(evt) = debug_rx.recv().await {
@@ -359,7 +606,15 @@ pub fn setup_proxies(
                 return;
             };
             if let Err(e) = channel1
-                .run_host(ready_signal1, cg_signal1, barrier1, cg_req, mp1, Some(debug_tx_host))
+                .run_host(
+                    ready_signal1,
+                    cg_signal1,
+                    barrier1,
+                    cg_req,
+                    mp1,
+                    Some(debug_tx_host),
+                    Some(pause_state_for_host.clone()),
+                )
                 .await
             {
                 eprintln!("[Player1] Proxy failed: {e}");
@@ -370,7 +625,14 @@ pub fn setup_proxies(
         let debug_tx_guest = debug_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             if let Err(e) = channel2
-                .run_guest(ready_signal2, cg_signal2, barrier2, mp2, Some(debug_tx_guest))
+                .run_guest(
+                    ready_signal2,
+                    cg_signal2,
+                    barrier2,
+                    mp2,
+                    Some(debug_tx_guest),
+                    Some(pause_state_for_guest.clone()),
+                )
                 .await
             {
                 eprintln!("[Player2] Proxy failed: {e}");
@@ -388,7 +650,13 @@ pub fn setup_proxies(
                 return;
             };
             if let Err(e) = channel1
-                .run_solo(ready_signal1, cg_req, observer_sender, Some(debug_tx_solo))
+                .run_solo(
+                    ready_signal1,
+                    cg_req,
+                    observer_sender,
+                    Some(debug_tx_solo),
+                    Some(pause_state_for_solo.clone()),
+                )
                 .await
             {
                 eprintln!("[Player1] Proxy failed: {e}");
@@ -425,12 +693,20 @@ pub fn protocol_activity_system(
 pub fn update_player_resources(
     mut events: MessageReader<ObservationEvent>,
     mut res: ResMut<PlayerResources>,
+    mut playback: ResMut<LoopPlaybackState>,
 ) {
     for event in events.read() {
         let Some(obs) = event.observation.observation.as_ref() else {
             continue;
         };
-        res.game_loop = obs.get_game_loop();
+        let loop_id = obs.get_game_loop();
+        if playback.mode == LoopPlaybackMode::Live {
+            res.game_loop = loop_id;
+            playback.selected_loop = loop_id;
+        } else {
+            res.game_loop = playback.selected_loop;
+        }
+
         let Some(pc) = obs.player_common.as_ref() else {
             continue;
         };
@@ -441,6 +717,24 @@ pub fn update_player_resources(
         res.army_count = pc.get_army_count();
         res.worker_count = pc.get_food_workers();
         res.idle_workers = pc.get_idle_worker_count();
+    }
+}
+
+/// Selects the single frame consumed by rendering.
+pub fn current_frame_system(
+    mut frame_events: MessageReader<ReplayFrameEvent>,
+    mut playback: ResMut<LoopPlaybackState>,
+    mut current_frame: ResMut<CurrentFrame>,
+) {
+    for event in frame_events.read() {
+        playback.push_frame(event.frame.clone());
+        if playback.mode == LoopPlaybackMode::Live {
+            playback.apply_live_frame(event.frame.clone(), &mut current_frame);
+        }
+    }
+
+    if playback.mode != LoopPlaybackMode::Live {
+        playback.apply_rewind_frame(&mut current_frame);
     }
 }
 
@@ -795,7 +1089,6 @@ fn create_fog_of_war_texture(width: u32, height: u32) -> Image {
 
 /// System to handle observation events from the pipeline.
 pub fn response_controller_system(
-    mut obs_events: MessageReader<ObservationEvent>,
     mut last_vision_mode: ResMut<LastVisionMode>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
@@ -808,62 +1101,65 @@ pub fn response_controller_system(
     layer_registry: Res<LayerRegistry>,
     mut fog_data: Option<ResMut<FogOfWarData>>,
     mut logged_first_obs: Local<bool>,
+    current_frame: Res<CurrentFrame>,
+    vision_mode: Res<VisionModeChannel>,
 ) {
-    // Rebuild seen tags once per frame across all observation events.
-    // This prevents cross-event despawn races in VisionMode::All.
     seen_tags.seen_tags.clear();
 
-    for event in obs_events.read() {
-        let obs = &event.observation;
+    let Some(frame) = current_frame.frame.as_ref() else {
+        return;
+    };
+    let Some(obs) = frame.observation.as_ref() else {
+        return;
+    };
 
-        // One-time diagnostic on first observation.
-        if !*logged_first_obs {
-            let has_vis = obs
-                .observation
-                .as_ref()
-                .and_then(|o| o.raw_data.as_ref())
-                .and_then(|r| r.map_state.as_ref())
-                .and_then(|m| m.visibility.as_ref())
-                .is_some();
-            eprintln!(
-                "[fog] first observation received. visibility layer present: {has_vis}. \
-                 If false, enable raw interface in your bot's JoinGameRequest."
-            );
-            *logged_first_obs = true;
-        }
-
-        handle_vision_mode_change(
-            event.vision_mode,
-            &mut last_vision_mode,
-            &mut commands,
-            &mut registry,
-            &mut seen_tags,
+    // One-time diagnostic on first observation.
+    if !*logged_first_obs {
+        let has_vis = obs
+            .observation
+            .as_ref()
+            .and_then(|o| o.raw_data.as_ref())
+            .and_then(|r| r.map_state.as_ref())
+            .and_then(|m| m.visibility.as_ref())
+            .is_some();
+        eprintln!(
+            "[fog] first observation received. visibility layer present: {has_vis}. \
+             If false, enable raw interface in your bot's JoinGameRequest."
         );
+        *logged_first_obs = true;
+    }
 
-        if update_map_from_observation(
-            obs,
-            &mut map_res,
-            &mut tile_color_query,
-            &entity_system,
-            &layer_registry,
-            &mut fog_data,
-        )
-        .is_none()
-        {
-            eprintln!(
-                "[response_controller_system] Skipped map update: missing map resource or observation raw map_state"
-            );
-        }
+    handle_vision_mode_change(
+        vision_mode.current,
+        &mut last_vision_mode,
+        &mut commands,
+        &mut registry,
+        &mut seen_tags,
+    );
 
-        handle_units_for_observation(
-            &mut commands,
-            &asset_server,
-            &mut registry,
-            &entity_system,
-            obs,
-            unit_query,
-            &mut seen_tags,
-            &map_res,
+    if update_map_from_observation(
+        obs,
+        &mut map_res,
+        &mut tile_color_query,
+        &entity_system,
+        &layer_registry,
+        &mut fog_data,
+    )
+    .is_none()
+    {
+        eprintln!(
+            "[response_controller_system] Skipped map update: missing map resource or observation raw map_state"
         );
     }
+
+    handle_units_for_observation(
+        &mut commands,
+        &asset_server,
+        &mut registry,
+        &entity_system,
+        obs,
+        unit_query,
+        &mut seen_tags,
+        &map_res,
+    );
 }
