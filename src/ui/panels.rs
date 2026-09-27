@@ -1,8 +1,9 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
+use crate::chat_overlay::ChatOverlay;
 use crate::controller::{PlayerResources, ProtocolActivityState};
-use crate::proxy_channel::ProxyStreamPause;
 use crate::observation_pipeline::VisionMode;
+use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::ui::hud::{render_hud, render_status_bar};
 use crate::ui::selected_unit_info::render_selected_unit_info;
@@ -24,6 +25,7 @@ pub(crate) struct HudParams<'w, 's> {
     docker_status: Res<'w, DockerStatus>,
     activity: Res<'w, ProtocolActivityState>,
     player_res: Res<'w, PlayerResources>,
+    chat_overlay: Res<'w, ChatOverlay>,
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
 }
 
@@ -141,7 +143,11 @@ fn render_game_screen(
                     proxy_pause.set_paused(false);
                 }
             });
-            ui.label(format!("mode: {:?}   loop: {}", playback.mode, playback.current_loop()));
+            ui.label(format!(
+                "mode: {:?}   loop: {}",
+                playback.mode,
+                playback.current_loop()
+            ));
 
             ui.add_space(10.0);
             ui.separator();
@@ -231,6 +237,11 @@ pub fn ui_system(
     }
 
     if *app_state == AppState::GameScreen {
-        render_hud(&ctx, hud.player_res, hud.in_progress_query);
+        render_hud(
+            &ctx,
+            hud.player_res,
+            hud.in_progress_query,
+            hud.chat_overlay,
+        );
     }
 }

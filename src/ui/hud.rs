@@ -1,4 +1,6 @@
+use crate::chat_overlay::ChatOverlay;
 use crate::controller::{PlayerResources, ProtocolActivityState};
+use crate::proxy_channel::PlayerId;
 use crate::units::{UnitBuildProgress, UnitType};
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -43,6 +45,7 @@ pub fn render_hud(
     ctx: &egui::Context,
     player_res: Res<PlayerResources>,
     in_progress_query: Query<(&UnitType, &UnitBuildProgress)>,
+    chat_overlay: Res<ChatOverlay>,
 ) {
     let mineral_color = egui::Color32::from_rgb(90, 190, 255);
     let vespene_color = egui::Color32::from_rgb(80, 210, 130);
@@ -175,5 +178,49 @@ pub fn render_hud(
                         .size(10.0),
                 );
             }
+        });
+
+    render_chat_bubble(ctx, &chat_overlay, player_res.game_loop);
+}
+
+fn render_chat_bubble(ctx: &egui::Context, overlay: &ChatOverlay, game_loop: u32) {
+    if game_loop >= overlay.expires_at_game_loop {
+        return;
+    }
+    let Some(chat) = &overlay.active else {
+        return;
+    };
+
+    let player_color = match chat.player_id {
+        PlayerId::Player1 => egui::Color32::from_rgb(105, 185, 255),
+        PlayerId::Player2 => egui::Color32::from_rgb(255, 125, 105),
+    };
+    egui::Area::new("sc2_chat_bubble".into())
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -64.0))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style())
+                .fill(egui::Color32::from_rgba_unmultiplied(12, 19, 29, 230))
+                .stroke(egui::Stroke::new(1.0, player_color))
+                .inner_margin(egui::Margin::symmetric(14, 9))
+                .show(ui, |ui| {
+                    ui.set_max_width(480.0);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new(match chat.player_id {
+                                PlayerId::Player1 => "Player 1",
+                                PlayerId::Player2 => "Player 2",
+                            })
+                            .color(player_color)
+                            .strong()
+                            .size(11.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(&chat.message)
+                                .color(egui::Color32::WHITE)
+                                .size(15.0),
+                        );
+                    });
+                });
         });
 }

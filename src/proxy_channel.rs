@@ -370,9 +370,10 @@ impl ReplayFrame {
             _ => None,
         };
         let debug = match response.response.as_ref() {
-            Some(sc2_proto::sc2api::Response_oneof_response::debug(_)) => {
-                response.write_to_bytes().ok().filter(|bytes| !bytes.is_empty())
-            }
+            Some(sc2_proto::sc2api::Response_oneof_response::debug(_)) => response
+                .write_to_bytes()
+                .ok()
+                .filter(|bytes| !bytes.is_empty()),
             _ => None,
         };
 
@@ -384,7 +385,6 @@ impl ReplayFrame {
             debug,
         }
     }
-
 }
 
 /// Bounded replay history for live loop scrubbing.
@@ -666,6 +666,7 @@ impl ProxyDataChannel {
         create_game_request: Request,
         multiplayer_ports: Option<MultiplayerPorts>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
         pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
@@ -698,7 +699,14 @@ impl ProxyDataChannel {
                     println!("[{pid}] CreateGame succeeded");
                 }
             }
-            publish(&sender, &frame_sender, Some(&replay_buffer), Some(&current_frame), pid, res);
+            publish(
+                &sender,
+                &frame_sender,
+                Some(&replay_buffer),
+                Some(&current_frame),
+                pid,
+                res,
+            );
         }
 
         // 3. Signal guest
@@ -723,6 +731,7 @@ impl ProxyDataChannel {
             Some(&current_frame),
             None,
             debug_tx,
+            chat_tx,
             pause_state,
         )
         .await
@@ -740,6 +749,7 @@ impl ProxyDataChannel {
         join_barrier: Option<JoinResponseBarrier>,
         multiplayer_ports: Option<MultiplayerPorts>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
         pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
@@ -776,6 +786,7 @@ impl ProxyDataChannel {
             Some(&current_frame),
             None,
             debug_tx,
+            chat_tx,
             pause_state,
         )
         .await
@@ -793,6 +804,7 @@ impl ProxyDataChannel {
         create_game_request: Request,
         observer_sender: Option<broadcast::Sender<TaggedResponse>>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
         pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
@@ -824,7 +836,14 @@ impl ProxyDataChannel {
                     println!("[{pid}] CreateGame succeeded");
                 }
             }
-            publish(&sender, &frame_sender, Some(&replay_buffer), Some(&current_frame), pid, res);
+            publish(
+                &sender,
+                &frame_sender,
+                Some(&replay_buffer),
+                Some(&current_frame),
+                pid,
+                res,
+            );
         }
 
         // Signal observer (if present) that CreateGame is done
@@ -849,6 +868,7 @@ impl ProxyDataChannel {
             Some(&current_frame),
             observer_sender,
             debug_tx,
+            chat_tx,
             pause_state,
         )
         .await
@@ -880,6 +900,7 @@ impl ProxyDataChannel {
         current_frame: Option<&Arc<Mutex<CurrentFrame>>>,
         observer_sender: Option<broadcast::Sender<TaggedResponse>>,
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
+        chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
         pause_state: Option<Arc<AtomicBool>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (mut cw, mut cr) = client_ws.split();
@@ -935,7 +956,14 @@ impl ProxyDataChannel {
             let gi_req = make_game_info_request()?;
             let gi_resp = roundtrip(up_w, up_r, gi_req).await?;
             if let Some(res) = try_parse_response(&gi_resp) {
-                publish(obs_sender, frame_sender, replay_buffer, current_frame, PlayerId::Player2, res);
+                publish(
+                    obs_sender,
+                    frame_sender,
+                    replay_buffer,
+                    current_frame,
+                    PlayerId::Player2,
+                    res,
+                );
             }
             println!("[{pid}] Observer: initial GameInfo published");
         }
@@ -961,7 +989,16 @@ impl ProxyDataChannel {
                 std::mem::swap(&mut queued, &mut pending_client);
                 for pending_raw in queued {
                     if let Some(ref tx) = debug_tx {
-                        if let Some(evt) = crate::debug_draw::debug_draw_from_request(pid, &pending_raw) {
+                        if let Some(evt) =
+                            crate::debug_draw::debug_draw_from_request(pid, &pending_raw)
+                        {
+                            let _ = tx.try_send(evt);
+                        }
+                    }
+                    if let Some(ref tx) = chat_tx {
+                        for evt in
+                            crate::chat_overlay::chat_messages_from_request(pid, &pending_raw)
+                        {
                             let _ = tx.try_send(evt);
                         }
                     }
@@ -991,7 +1028,14 @@ impl ProxyDataChannel {
 
                             if current_loop > observer_last_game_loop {
                                 observer_last_game_loop = current_loop;
-                                publish(obs_sender, frame_sender, replay_buffer, current_frame, PlayerId::Player2, res);
+                                publish(
+                                    obs_sender,
+                                    frame_sender,
+                                    replay_buffer,
+                                    current_frame,
+                                    PlayerId::Player2,
+                                    res,
+                                );
                             }
                         }
                     }
@@ -1000,6 +1044,11 @@ impl ProxyDataChannel {
 
             if let Some(ref tx) = debug_tx {
                 if let Some(evt) = crate::debug_draw::debug_draw_from_request(pid, &raw) {
+                    let _ = tx.try_send(evt);
+                }
+            }
+            if let Some(ref tx) = chat_tx {
+                for evt in crate::chat_overlay::chat_messages_from_request(pid, &raw) {
                     let _ = tx.try_send(evt);
                 }
             }
@@ -1043,7 +1092,14 @@ impl ProxyDataChannel {
                             );
                         }
                         observer_last_game_loop = current_loop;
-                        publish(obs_sender, frame_sender, replay_buffer, current_frame, PlayerId::Player2, res);
+                        publish(
+                            obs_sender,
+                            frame_sender,
+                            replay_buffer,
+                            current_frame,
+                            PlayerId::Player2,
+                            res,
+                        );
                     }
                 } else {
                     static LOGGED_PARSE_FAIL: AtomicBool = AtomicBool::new(false);

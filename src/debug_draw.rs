@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 use sc2_proto::common::Point;
-use sc2_proto::debug::{
-    Color as ProtoColor, DebugCommand, DebugCommand_oneof_command, DebugDraw,
-};
+use sc2_proto::debug::{Color as ProtoColor, DebugCommand, DebugCommand_oneof_command, DebugDraw};
 use sc2_proto::sc2api::{Request, Request_oneof_request};
 
 use crate::controller::MapResource;
@@ -11,9 +9,21 @@ use crate::render_layers::{LayerRegistry, RenderLayerKind};
 
 #[derive(Debug, Clone)]
 pub enum DebugDrawPrimitive {
-    Line { start: Vec3, end: Vec3, color: Color },
-    Box { min: Vec3, max: Vec3, color: Color },
-    Sphere { center: Vec3, radius: f32, color: Color },
+    Line {
+        start: Vec3,
+        end: Vec3,
+        color: Color,
+    },
+    Box {
+        min: Vec3,
+        max: Vec3,
+        color: Color,
+    },
+    Sphere {
+        center: Vec3,
+        radius: f32,
+        color: Color,
+    },
 }
 
 #[derive(Resource, Default, Clone)]
@@ -144,7 +154,11 @@ pub fn render_debug_draws(
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
 ) {
-    if map.is_none() || entity_system.is_none() || !overlay.enabled || !layer_registry.is_visible(RenderLayerKind::DebugOverlay) {
+    if map.is_none()
+        || entity_system.is_none()
+        || !overlay.enabled
+        || !layer_registry.is_visible(RenderLayerKind::DebugOverlay)
+    {
         return;
     }
 
@@ -212,7 +226,11 @@ pub fn render_debug_draws(
                 gizmos.line_2d(p2, p3, *color);
                 gizmos.line_2d(p3, p0, *color);
             }
-            DebugDrawPrimitive::Sphere { center, radius, color } => {
+            DebugDrawPrimitive::Sphere {
+                center,
+                radius,
+                color,
+            } => {
                 let center2 = project_debug_point(
                     &Point {
                         x: Some(center.x),
@@ -235,7 +253,10 @@ pub fn debug_draw_request_from_sc2(request: &Request) -> Option<DebugDrawEvent> 
     };
 
     for cmd in debug_req.get_debug() {
-        if matches!(cmd.command.as_ref(), Some(DebugCommand_oneof_command::draw(_))) {
+        if matches!(
+            cmd.command.as_ref(),
+            Some(DebugCommand_oneof_command::draw(_))
+        ) {
             return Some(DebugDrawEvent {
                 player_id: PlayerId::Player1,
                 commands: extract_debug_draw_commands(request),
@@ -246,7 +267,10 @@ pub fn debug_draw_request_from_sc2(request: &Request) -> Option<DebugDrawEvent> 
     None
 }
 
-pub fn debug_command_to_event(player_id: PlayerId, command: &DebugCommand) -> Option<DebugDrawEvent> {
+pub fn debug_command_to_event(
+    player_id: PlayerId,
+    command: &DebugCommand,
+) -> Option<DebugDrawEvent> {
     let Some(DebugCommand_oneof_command::draw(draw)) = command.command.as_ref() else {
         return None;
     };
@@ -294,7 +318,10 @@ pub fn debug_draw_from_request(player_id: PlayerId, raw: &[u8]) -> Option<DebugD
         return None;
     }
 
-    Some(DebugDrawEvent { player_id, commands })
+    Some(DebugDrawEvent {
+        player_id,
+        commands,
+    })
 }
 
 #[cfg(test)]
@@ -311,6 +338,9 @@ mod tests {
         };
 
         let projected = project_debug_point(&point, (20, 18), 4.0);
-        assert_eq!(projected, Vec2::new(2.0 * 4.0 - 20.0 * 4.0 / 2.0, 3.0 * 4.0 - 18.0 * 4.0 / 2.0));
+        assert_eq!(
+            projected,
+            Vec2::new(2.0 * 4.0 - 20.0 * 4.0 / 2.0, 3.0 * 4.0 - 18.0 * 4.0 / 2.0)
+        );
     }
 }

@@ -6,6 +6,7 @@
 //mod proxy_ws;
 mod app_settings;
 mod bot_runner;
+mod chat_overlay;
 mod controller;
 mod debug_draw;
 mod entity_system;
@@ -29,13 +30,13 @@ use crate::app_settings::{
     get_assets_dir, get_maps_dir, load_settings, AppSettings, StarcraftConfig,
 };
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
+use crate::chat_overlay::{update_chat_overlay, ChatMessageEvent, ChatOverlay};
 use crate::controller::{
-    map_init_system, protocol_activity_system, refresh_map_colors_on_layer_change,
-    current_frame_system, response_controller_system, setup_proxies, update_player_resources,
-    FogMaterialHandle,
-    CurrentFrame, FogOfWarData, FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource,
-    ObservationEvent, PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
-    ReplayFrameEvent,
+    current_frame_system, map_init_system, protocol_activity_system,
+    refresh_map_colors_on_layer_change, response_controller_system, setup_proxies,
+    update_player_resources, CurrentFrame, FogMaterialHandle, FogOfWarData, FogOfWarHandle,
+    GameInfoEvent, LastVisionMode, MapResource, ObservationEvent, PlayerResources,
+    ProtocolActivityEvent, ProtocolActivityState, ReplayFrameEvent,
 };
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws, DebugDrawEvent, DebugDrawOverlay,
@@ -288,6 +289,7 @@ fn main() {
         .add_message::<ReplayFrameEvent>()
         .add_message::<ProtocolActivityEvent>()
         .add_message::<DebugDrawEvent>()
+        .add_message::<ChatMessageEvent>()
         .register_type::<UnitHealth>()
         .register_type::<UnitShield>()
         .register_type::<UnitBuildProgress>()
@@ -351,6 +353,7 @@ fn main() {
         .insert_resource(PendingBotStart::default())
         .insert_resource(FogOfWarData::default())
         .insert_resource(DebugDrawOverlay::default())
+        .insert_resource(ChatOverlay::default())
         .insert_resource(LayerRegistry::default())
         .insert_resource(UnitCompositionVisibility::default())
         .insert_resource(ProtocolActivityState::default())
@@ -369,7 +372,10 @@ fn main() {
             map_init_system.run_if(not(resource_exists::<MapResource>)),
         )
         .add_systems(Update, current_frame_system)
-        .add_systems(Update, response_controller_system.after(current_frame_system))
+        .add_systems(
+            Update,
+            response_controller_system.after(current_frame_system),
+        )
         .add_systems(Update, protocol_activity_system)
         .add_systems(Update, update_player_resources)
         .add_systems(
@@ -384,6 +390,7 @@ fn main() {
         )
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
         .add_systems(Update, debug_draw_message_system)
+        .add_systems(Update, update_chat_overlay)
         .add_systems(Update, render_debug_draws)
         .add_systems(Update, draw_unit_orders)
         .add_systems(PostUpdate, layer_visibility_system)

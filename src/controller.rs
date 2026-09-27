@@ -29,8 +29,8 @@ use crate::proxy_channel::{
     MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayBuffer, ReplayFrame,
 };
 use crate::render_layers::LayerRegistry;
-use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
 use crate::ui::VisionModeChannel;
+use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -222,7 +222,9 @@ mod tests {
     #[test]
     fn loop_playback_selects_latest_known_frame() {
         let mut state = LoopPlaybackState::default();
-        state.history.push_frame(ReplayFrame::new(PlayerId::Player1, 10, None, None, None));
+        state
+            .history
+            .push_frame(ReplayFrame::new(PlayerId::Player1, 10, None, None, None));
         state.history.push_frame(ReplayFrame::new(
             PlayerId::Player1,
             20,
@@ -357,6 +359,7 @@ pub fn setup_proxies(
     let expected_proxies = if is_vs_bot { 2 } else { 1 };
     let ready_signal = ProxyReadySignal::new(expected_proxies);
     let (debug_tx, mut debug_rx) = tokio::sync::mpsc::channel(64);
+    let (chat_tx, mut chat_rx) = tokio::sync::mpsc::channel(64);
 
     let base_port = settings.starcraft.listen_port;
     let listen_url = settings.starcraft.listen_url.clone();
@@ -439,6 +442,19 @@ pub fn setup_proxies(
 
     runtime.spawn_background_task(move |ctx| async move {
         while let Some(evt) = debug_rx.recv().await {
+            let mut ctx_clone = ctx.clone();
+            tokio::spawn(async move {
+                ctx_clone
+                    .run_on_main_thread(move |world| {
+                        world.world.write_message(evt);
+                    })
+                    .await;
+            });
+        }
+    });
+
+    runtime.spawn_background_task(move |ctx| async move {
+        while let Some(evt) = chat_rx.recv().await {
             let mut ctx_clone = ctx.clone();
             tokio::spawn(async move {
                 ctx_clone
@@ -600,6 +616,7 @@ pub fn setup_proxies(
 
         // Host (Player1): CreateGame → signal → JoinGame → bridge
         let debug_tx_host = debug_tx.clone();
+        let chat_tx_host = chat_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             let Some(cg_req) = create_game_request else {
                 eprintln!("[Player1] No CreateGame request for host mode");
@@ -613,6 +630,7 @@ pub fn setup_proxies(
                     cg_req,
                     mp1,
                     Some(debug_tx_host),
+                    Some(chat_tx_host),
                     Some(pause_state_for_host.clone()),
                 )
                 .await
@@ -623,6 +641,7 @@ pub fn setup_proxies(
 
         // Guest (Player2): wait signal → JoinGame → bridge
         let debug_tx_guest = debug_tx.clone();
+        let chat_tx_guest = chat_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             if let Err(e) = channel2
                 .run_guest(
@@ -631,6 +650,7 @@ pub fn setup_proxies(
                     barrier2,
                     mp2,
                     Some(debug_tx_guest),
+                    Some(chat_tx_guest),
                     Some(pause_state_for_guest.clone()),
                 )
                 .await
@@ -644,6 +664,7 @@ pub fn setup_proxies(
         // roundtrip and publishes responses on observer_sender as Player2.
         // No separate WS connection needed — uses the same upstream.
         let debug_tx_solo = debug_tx.clone();
+        let chat_tx_solo = chat_tx.clone();
         runtime.spawn_background_task(move |_ctx| async move {
             let Some(cg_req) = create_game_request else {
                 eprintln!("[Player1] No CreateGame request for solo mode");
@@ -655,6 +676,7 @@ pub fn setup_proxies(
                     cg_req,
                     observer_sender,
                     Some(debug_tx_solo),
+                    Some(chat_tx_solo),
                     Some(pause_state_for_solo.clone()),
                 )
                 .await
