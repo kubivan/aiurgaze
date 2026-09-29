@@ -15,7 +15,7 @@ use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use sc2_proto::sc2api::{Request, ResponseGameInfo, ResponseObservation};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 
 use crate::app_settings::AppSettings;
@@ -26,7 +26,8 @@ use crate::observation_pipeline::{
 };
 use crate::proxy_channel::{
     create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
-    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayBuffer, ReplayFrame,
+    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayAssembler, ReplayBuffer,
+    ReplayFrame, TaggedResponse,
 };
 use crate::render_layers::LayerRegistry;
 use crate::ui::VisionModeChannel;
@@ -345,6 +346,26 @@ pub struct FogMaterialHandle {
 /// Creates one or two proxy channels depending on game mode,
 /// merges their streams with vision filtering, and emits Bevy events.
 /// Returns a ProxyReadySignal that will be signaled when all proxies are ready.
+fn spawn_replay_assembler(
+    runtime: &TokioTasksRuntime,
+    mut responses: mpsc::Receiver<TaggedResponse>,
+) {
+    runtime.spawn_background_task(move |ctx| async move {
+        let mut assembler = ReplayAssembler::default();
+        while let Some(response) = responses.recv().await {
+            let Some(frame) = assembler.push(response) else {
+                continue;
+            };
+            let mut ctx_clone = ctx.clone();
+            ctx_clone
+                .run_on_main_thread(move |ctx| {
+                    ctx.world.write_message(ReplayFrameEvent { frame });
+                })
+                .await;
+        }
+    });
+}
+
 pub fn setup_proxies(
     runtime: &TokioTasksRuntime,
     settings: &AppSettings,
@@ -371,22 +392,22 @@ pub fn setup_proxies(
 
     // Create Player1 proxy channel (each gets its own upstream URL)
     let listen_addr1 = format!("{}:{}", listen_url, base_port);
-    let (channel1, _rx1) = ProxyDataChannel::new(
+    let (channel1, _response_rx1, p1_replay_responses) = ProxyDataChannel::new(
         PlayerId::Player1,
         listen_addr1.clone(),
         upstream_addr1.clone(),
     );
 
     // Create Player2 proxy channel if VsBot mode — connects to the 2nd SC2 instance
-    let (channel2, p2_gi_stream, p2_obs_stream) = if is_vs_bot {
+    let (channel2, p2_gi_stream, p2_obs_stream, p2_replay_responses) = if is_vs_bot {
         let listen_addr2 = format!("{}:{}", listen_url, base_port + 1);
-        let (ch, _rx) =
+        let (ch, _response_rx, replay_responses) =
             ProxyDataChannel::new(PlayerId::Player2, listen_addr2, upstream_addr2.clone());
         let gi: TaggedResponseStream = Box::pin(ch.response_stream());
         let obs: TaggedResponseStream = Box::pin(ch.response_stream());
-        (Some(ch), Some(gi), Some(obs))
+        (Some(ch), Some(gi), Some(obs), Some(replay_responses))
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
 
     // In VsAI mode, create an observer broadcast channel. The proxy will
@@ -402,34 +423,9 @@ pub fn setup_proxies(
         (None, None, None)
     };
 
-    let mut p1_frames = channel1.completed_frame_stream();
-    runtime.spawn_background_task(move |ctx| async move {
-        while let Some(frame) = p1_frames.next().await {
-            let mut ctx_clone = ctx.clone();
-            tokio::spawn(async move {
-                ctx_clone
-                    .run_on_main_thread(move |ctx| {
-                        ctx.world.write_message(ReplayFrameEvent { frame });
-                    })
-                    .await;
-            });
-        }
-    });
-
-    if let Some(ref channel2_for_frames) = channel2 {
-        let mut p2_frames = channel2_for_frames.completed_frame_stream();
-        runtime.spawn_background_task(move |ctx| async move {
-            while let Some(frame) = p2_frames.next().await {
-                let mut ctx_clone = ctx.clone();
-                tokio::spawn(async move {
-                    ctx_clone
-                        .run_on_main_thread(move |ctx| {
-                            ctx.world.write_message(ReplayFrameEvent { frame });
-                        })
-                        .await;
-                });
-            }
-        });
+    spawn_replay_assembler(runtime, p1_replay_responses);
+    if let Some(p2_replay_responses) = p2_replay_responses {
+        spawn_replay_assembler(runtime, p2_replay_responses);
     }
 
     // Merge P2 streams: either from VsBot channel2 or from VsAI observer

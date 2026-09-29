@@ -160,7 +160,9 @@ pub(super) async fn poll_observer(
                 .unwrap_or_else(|| "None".to_string())
         );
     }
-    publisher.publish_to(observer_sender, PlayerId::Player2, response);
+    publisher
+        .publish_to(observer_sender, PlayerId::Player2, response)
+        .await;
     Ok(())
 }
 
@@ -190,7 +192,7 @@ pub(super) async fn create_game(
                 println!("[{player_id}] CreateGame succeeded");
             }
         }
-        publisher.publish(player_id, response);
+        publisher.publish(player_id, response).await;
     }
 
     Ok(())
@@ -247,7 +249,7 @@ pub(super) async fn accept_and_bridge(
     let response_bytes = roundtrip(up_w, up_r, raw).await?;
 
     if let Some(response) = try_parse_response(&response_bytes) {
-        publisher.publish(player_id, response);
+        publisher.publish(player_id, response).await;
     }
     client_write
         .send(tungstenite::Message::Binary(Bytes::from(response_bytes)))
@@ -262,7 +264,9 @@ pub(super) async fn accept_and_bridge(
         let request = make_game_info_request()?;
         let response_bytes = roundtrip(up_w, up_r, request).await?;
         if let Some(response) = try_parse_response(&response_bytes) {
-            publisher.publish_to(observer_sender, PlayerId::Player2, response);
+            publisher
+                .publish_to(observer_sender, PlayerId::Player2, response)
+                .await;
         }
         println!("[{player_id}] Observer: initial GameInfo published");
     }
@@ -294,7 +298,7 @@ pub(super) async fn accept_and_bridge(
 
         let response_bytes = roundtrip(up_w, up_r, raw).await?;
         if let Some(response) = try_parse_response(&response_bytes) {
-            publisher.publish(player_id, response);
+            publisher.publish(player_id, response).await;
         }
         client_write
             .send(tungstenite::Message::Binary(Bytes::from(response_bytes)))

@@ -2,7 +2,6 @@ use super::{PlayerId, TaggedResponse};
 use protobuf::Message;
 use sc2_proto::sc2api::{Response, ResponseGameInfo, ResponseObservation};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 /// Single snapshot for a given SC2 loop step.
@@ -15,9 +14,9 @@ pub struct ReplayFrame {
     pub debug: Option<Vec<u8>>,
 }
 
-/// Proxy-owned frame accumulator for one simulation step.
+/// Accumulates response data until a step response closes the frame.
 #[derive(Debug, Clone, Default)]
-pub struct CurrentFrame {
+struct FrameAccumulator {
     pub player_id: Option<PlayerId>,
     pub game_loop: u32,
     pub observation: Option<ResponseObservation>,
@@ -25,7 +24,7 @@ pub struct CurrentFrame {
     pub debug: Option<Vec<u8>>,
 }
 
-impl CurrentFrame {
+impl FrameAccumulator {
     pub fn update(&mut self, player_id: PlayerId, response: &Response) {
         self.player_id = Some(player_id);
         match response.response.as_ref() {
@@ -178,48 +177,51 @@ impl ReplayBuffer {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct ReplayAssembler {
+    current: FrameAccumulator,
+}
+
+impl ReplayAssembler {
+    pub(crate) fn push(&mut self, tagged: TaggedResponse) -> Option<ReplayFrame> {
+        let is_step = matches!(
+            tagged.response.response,
+            Some(sc2_proto::sc2api::Response_oneof_response::step(_))
+        );
+        self.current.update(tagged.player_id, &tagged.response);
+        if is_step {
+            self.current.finish()
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct ProxyPublisher {
     pub(super) response_sender: broadcast::Sender<TaggedResponse>,
-    pub(super) frame_sender: broadcast::Sender<ReplayFrame>,
-    pub(super) replay_buffer: Arc<Mutex<ReplayBuffer>>,
-    pub(super) current_frame: Arc<Mutex<CurrentFrame>>,
+    pub(super) replay_response_sender: tokio::sync::mpsc::Sender<TaggedResponse>,
 }
 
 impl ProxyPublisher {
-    pub(super) fn publish(&self, player_id: PlayerId, response: Response) {
-        self.publish_to(&self.response_sender, player_id, response);
+    pub(super) async fn publish(&self, player_id: PlayerId, response: Response) {
+        self.publish_to(&self.response_sender, player_id, response)
+            .await;
     }
 
-    pub(super) fn publish_to(
+    pub(super) async fn publish_to(
         &self,
         sender: &broadcast::Sender<TaggedResponse>,
         player_id: PlayerId,
         response: Response,
     ) {
-        let response_clone = response.clone();
-        let _ = sender.send(TaggedResponse {
+        let tagged = TaggedResponse {
             player_id,
             response,
-        });
-
-        let mut frame = self
-            .current_frame
-            .lock()
-            .expect("current frame lock poisoned");
-        frame.update(player_id, &response_clone);
-        let is_step = matches!(
-            response_clone.response,
-            Some(sc2_proto::sc2api::Response_oneof_response::step(_))
-        );
-        if is_step {
-            if let Some(completed) = frame.finish() {
-                let _ = self.frame_sender.send(completed.clone());
-                self.replay_buffer
-                    .lock()
-                    .expect("replay buffer lock poisoned")
-                    .push_frame(completed);
-            }
+        };
+        let _ = sender.send(tagged.clone());
+        if self.replay_response_sender.send(tagged).await.is_err() {
+            eprintln!("[ProxyPublisher] Replay consumer has stopped");
         }
     }
 }
