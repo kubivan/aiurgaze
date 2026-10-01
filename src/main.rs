@@ -19,12 +19,13 @@ mod proxy_channel;
 mod render_layers;
 mod ui;
 mod units;
-use bevy::mesh::Mesh2d;
+use bevy::mesh::{Mesh2d, Mesh3d};
+use bevy::pbr::{MaterialPlugin, MeshMaterial3d};
 use bevy::prelude::*;
 use bevy::sprite_render::{Material2dPlugin, MeshMaterial2d};
 use bevy::time::Real;
 use bevy_health_bar3d::prelude::*;
-use fog_material::{FogOfWarMaterial, FogUniforms};
+use fog_material::{FogOfWarMaterial, FogOfWarMaterial3d, FogUniforms};
 
 use crate::app_settings::{
     get_assets_dir, get_maps_dir, load_settings, AppSettings, StarcraftConfig,
@@ -32,30 +33,34 @@ use crate::app_settings::{
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
 use crate::chat_overlay::{update_chat_overlay, ChatMessageEvent, ChatOverlay};
 use crate::controller::{
-    current_frame_system, map_init_system, protocol_activity_system,
+    current_frame_system, map_init_system, protocol_activity_system, refresh_3d_terrain_mesh,
     refresh_map_colors_on_layer_change, response_controller_system, setup_proxies,
-    update_player_resources, CurrentFrame, FogMaterialHandle, FogOfWarData, FogOfWarHandle,
-    GameInfoEvent, LastVisionMode, MapResource, ObservationEvent, PlayerResources,
+    update_player_resources, CurrentFrame, Fog3dMaterialHandle, FogMaterialHandle, FogOfWarData,
+    FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent, PlayerResources,
     ProtocolActivityEvent, ProtocolActivityState, ReplayFrameEvent,
 };
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws, DebugDrawEvent, DebugDrawOverlay,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
+use crate::map::{terrain_height_to_world_y, Terrain3dMeshDirty, Terrain3dSettings};
 use crate::proxy_channel::{ProxyReadySignal, ProxyStreamPause};
 use crate::render_layers::{
-    layer_visibility_system, LayerRegistry, RenderLayerKind, RenderLayerMarker,
+    layer_visibility_system, view_mode_visibility_system, LayerRegistry, RenderLayerKind,
+    RenderLayerMarker,
 };
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
-    camera_controls, setup_camera, ui_system, AppState, CameraPanState, DockerStatus,
-    GameConfigPanel, GameCreated, PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
+    camera_controls, setup_camera, switch_render_camera, ui_system, AppState, CameraPanState,
+    DockerStatus, GameConfigPanel, GameCreated, PendingBotStart, PendingCreateGameRequest,
+    RenderViewMode, VisionModeChannel,
 };
 use crate::units::draw_unit_orders;
 use crate::units::{
-    cleanup_dead_units, unit_selection_system, ObservationUnitTags, SelectedUnit,
-    UnitBuildProgress, UnitCompositionVisibility, UnitHealth, UnitRegistry, UnitShield,
+    cleanup_dead_units, unit_selection_system, update_unit_3d_billboards, ObservationUnitTags,
+    SelectedUnit, Unit3dMaterialCache, UnitBuildProgress, UnitCompositionVisibility, UnitHealth,
+    UnitRegistry, UnitShield,
 };
 use bevy::asset::AssetPlugin;
 use bevy::color::palettes::basic::{GREEN, RED};
@@ -318,6 +323,7 @@ fn main() {
         .add_plugins(EguiPlugin::default())
         .add_plugins(TokioTasksPlugin::default())
         .add_plugins(Material2dPlugin::<FogOfWarMaterial>::default())
+        .add_plugins(MaterialPlugin::<FogOfWarMaterial3d>::default())
         .add_plugins(HealthBarPlugin::<UnitHealth>::default())
         .add_plugins(HealthBarPlugin::<UnitShield>::default())
         .add_plugins(HealthBarPlugin::<UnitBuildProgress>::default())
@@ -338,9 +344,13 @@ fn main() {
         )
         .insert_resource(GameCreated(false))
         .insert_resource(UnitRegistry::default())
+        .insert_resource(Unit3dMaterialCache::default())
         .insert_resource(SelectedUnit::default())
         .insert_resource(ObservationUnitTags::default())
         .insert_resource(CameraPanState::default())
+        .insert_resource(RenderViewMode::default())
+        .insert_resource(Terrain3dSettings::default())
+        .insert_resource(Terrain3dMeshDirty::default())
         .insert_resource(BotProcessStatus::default())
         .insert_resource(game_config_panel)
         .insert_resource(docker_status)
@@ -364,7 +374,12 @@ fn main() {
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
         .add_systems(Update, unit_selection_system)
+        .add_systems(
+            Update,
+            update_unit_3d_billboards.after(response_controller_system),
+        )
         .add_systems(Update, camera_controls)
+        .add_systems(Update, switch_render_camera)
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(
@@ -382,6 +397,12 @@ fn main() {
             Update,
             refresh_map_colors_on_layer_change.after(response_controller_system),
         )
+        .add_systems(
+            Update,
+            refresh_3d_terrain_mesh
+                .after(response_controller_system)
+                .after(refresh_map_colors_on_layer_change),
+        )
         .add_systems(Update, cleanup_dead_units.after(response_controller_system))
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(
@@ -394,6 +415,10 @@ fn main() {
         .add_systems(Update, render_debug_draws)
         .add_systems(Update, draw_unit_orders)
         .add_systems(PostUpdate, layer_visibility_system)
+        .add_systems(
+            PostUpdate,
+            view_mode_visibility_system.after(layer_visibility_system),
+        )
         .add_systems(
             Update,
             spawn_fog_overlay
@@ -416,25 +441,31 @@ fn spawn_fog_overlay(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<FogOfWarMaterial>>,
+    mut materials_3d: ResMut<Assets<FogOfWarMaterial3d>>,
     fog_handle: Res<FogOfWarHandle>,
     map_res: Res<MapResource>,
     entity_system: Res<EntitySystem>,
+    terrain_settings: Res<Terrain3dSettings>,
 ) {
     let (width, height) = map_res.static_layers.get_dimensions();
     let tile_size = entity_system.map_config.tile_size;
     let w = width as f32 * tile_size;
     let h = height as f32 * tile_size;
 
+    let uniforms = FogUniforms {
+        camera_pos: Vec3::new(0.0, 0.0, 1.0),
+        time: 0.0,
+        light_dir: Vec3::new(0.6, 0.7, -0.4).normalize(),
+        _pad0: 0.0,
+        world_size: Vec2::new(w, h),
+        world_origin: Vec2::ZERO,
+    };
     let material = materials.add(FogOfWarMaterial {
-        uniforms: FogUniforms {
-            camera_pos: Vec3::new(0.0, 0.0, 1.0),
-            time: 0.0,
-            // Default sun direction: upper-right, slightly from above.
-            light_dir: Vec3::new(0.6, 0.7, -0.4).normalize(),
-            _pad0: 0.0,
-            world_size: Vec2::new(w, h),
-            world_origin: Vec2::ZERO,
-        },
+        uniforms: uniforms.clone(),
+        fog_texture: fog_handle.handle.clone(),
+    });
+    let material_3d = materials_3d.add(FogOfWarMaterial3d {
+        uniforms,
         fog_texture: fog_handle.handle.clone(),
     });
 
@@ -443,12 +474,35 @@ fn spawn_fog_overlay(
     commands.insert_resource(FogMaterialHandle {
         handle: material.clone(),
     });
+    commands.insert_resource(Fog3dMaterialHandle {
+        handle: material_3d.clone(),
+    });
 
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(w, h))),
         MeshMaterial2d(material),
         Transform::from_xyz(0.0, 0.0, 1000.0),
         RenderLayerMarker(RenderLayerKind::Terrain),
+        crate::render_layers::ViewModeVisibility(RenderViewMode::TwoD),
+    ));
+    let max_height = map_res
+        .static_layers
+        .height
+        .data
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(128);
+    let fog_height =
+        terrain_height_to_world_y(max_height, tile_size, terrain_settings.height_scale) + tile_size;
+    commands.spawn((
+        Mesh3d(meshes.add(Rectangle::new(w, h))),
+        MeshMaterial3d(material_3d),
+        Transform::from_xyz(0.0, fog_height, 0.0)
+            .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        RenderLayerMarker(RenderLayerKind::Terrain),
+        crate::render_layers::ViewModeVisibility(RenderViewMode::ThreeD),
+        FogOverlay3d,
     ));
     println!(
         "[fog] spawned fog overlay: {}x{} px, texture {}x{}",
@@ -466,8 +520,10 @@ fn spawn_fog_overlay(
 fn update_fog_texture(
     fog_handle: Option<Res<FogOfWarHandle>>,
     mat_handle: Option<Res<FogMaterialHandle>>,
+    mat_3d_handle: Option<Res<Fog3dMaterialHandle>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<FogOfWarMaterial>>,
+    mut materials_3d: ResMut<Assets<FogOfWarMaterial3d>>,
     mut fog_data: Option<ResMut<FogOfWarData>>,
 ) {
     let Some(fog_handle) = fog_handle else { return };
@@ -485,6 +541,9 @@ fn update_fog_texture(
         // get_mut marks the asset as Modified → triggers re-extraction + re-preparation.
         let _ = materials.get_mut(&mat_handle.handle);
     }
+    if let Some(mat_handle) = mat_3d_handle {
+        let _ = materials_3d.get_mut(&mat_handle.handle);
+    }
     fog_data.dirty = false;
 }
 
@@ -496,24 +555,51 @@ fn update_fog_texture(
 fn update_fog_uniforms(
     mat_handle: Res<FogMaterialHandle>,
     mut materials: ResMut<Assets<FogOfWarMaterial>>,
+    mat_3d_handle: Option<Res<Fog3dMaterialHandle>>,
+    mut materials_3d: ResMut<Assets<FogOfWarMaterial3d>>,
     time: Res<Time<Real>>,
-    camera_query: Query<(&Transform, &Projection), With<Camera>>,
+    camera_query: Query<(&Transform, &Projection, &Camera), (With<Camera>, Without<FogOverlay3d>)>,
+    map_res: Res<MapResource>,
+    entity_system: Res<EntitySystem>,
+    terrain_settings: Res<Terrain3dSettings>,
+    mut fog_3d_query: Query<&mut Transform, With<FogOverlay3d>>,
 ) {
-    let Some(mut mat) = materials.get_mut(&mat_handle.handle) else {
+    let Some((cam_tf, projection, _)) = camera_query.iter().find(|(_, _, camera)| camera.is_active)
+    else {
         return;
     };
+    let scale = match projection {
+        Projection::Orthographic(ortho) => ortho.scale,
+        _ => 1.0,
+    };
+    if let Some(mut mat) = materials.get_mut(&mat_handle.handle) {
+        mat.uniforms.time = time.elapsed_secs();
+        mat.uniforms.camera_pos = Vec3::new(cam_tf.translation.x, cam_tf.translation.y, scale);
+    }
+    if let Some(mat_handle) = mat_3d_handle {
+        if let Some(mut mat) = materials_3d.get_mut(&mat_handle.handle) {
+            mat.uniforms.time = time.elapsed_secs();
+            mat.uniforms.camera_pos = Vec3::new(cam_tf.translation.x, cam_tf.translation.z, scale);
+        }
+    }
 
-    mat.uniforms.time = time.elapsed_secs();
-
-    // Read camera transform + ortho scale.
-    if let Ok((cam_tf, projection)) = camera_query.single() {
-        mat.uniforms.camera_pos = Vec3::new(
-            cam_tf.translation.x,
-            cam_tf.translation.y,
-            match projection {
-                Projection::Orthographic(ortho) => ortho.scale,
-                _ => 1.0,
-            },
-        );
+    let max_height = map_res
+        .static_layers
+        .height
+        .data
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(128);
+    let fog_height = terrain_height_to_world_y(
+        max_height,
+        entity_system.map_config.tile_size,
+        terrain_settings.height_scale,
+    ) + entity_system.map_config.tile_size;
+    for mut transform in &mut fog_3d_query {
+        transform.translation.y = fog_height;
     }
 }
+
+#[derive(Component)]
+struct FogOverlay3d;

@@ -1,4 +1,5 @@
 use bevy::math::{Vec2, Vec3};
+use bevy::pbr::Material;
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
@@ -53,5 +54,24 @@ impl Material2d for FogOfWarMaterial {
         // still works correctly if the shader outputs straight alpha (rgb, a),
         // which we do as a fallback-safe path.
         AlphaMode2d::Blend
+    }
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct FogOfWarMaterial3d {
+    #[uniform(0)]
+    pub uniforms: FogUniforms,
+    #[texture(1)]
+    #[sampler(2)]
+    pub fog_texture: Handle<Image>,
+}
+
+impl Material for FogOfWarMaterial3d {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/fog_of_war_3d.wgsl".into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
     }
 }

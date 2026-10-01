@@ -4,8 +4,10 @@ use sc2_proto::debug::{Color as ProtoColor, DebugCommand, DebugCommand_oneof_com
 use sc2_proto::sc2api::{Request, Request_oneof_request};
 
 use crate::controller::MapResource;
+use crate::map::map_position_3d;
 use crate::proxy_channel::PlayerId;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::ui::RenderViewMode;
 
 #[derive(Debug, Clone)]
 pub enum DebugDrawPrimitive {
@@ -134,6 +136,10 @@ pub fn project_debug_point(point: &Point, map_size: (u32, u32), tile_size: f32) 
     Vec2::new(world_x, world_y)
 }
 
+pub fn project_debug_point_3d(point: Vec3, map_size: (u32, u32), tile_size: f32) -> Vec3 {
+    map_position_3d(point.x, point.y, point.z, map_size, tile_size)
+}
+
 pub fn debug_draw_message_system(
     mut events: MessageReader<DebugDrawEvent>,
     mut overlay: ResMut<DebugDrawOverlay>,
@@ -153,6 +159,7 @@ pub fn render_debug_draws(
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
+    view_mode: Res<RenderViewMode>,
 ) {
     if map.is_none()
         || entity_system.is_none()
@@ -170,6 +177,14 @@ pub fn render_debug_draws(
     for item in &overlay.commands {
         match item {
             DebugDrawPrimitive::Line { start, end, color } => {
+                if *view_mode == RenderViewMode::ThreeD {
+                    gizmos.line(
+                        project_debug_point_3d(*start, map_size, tile_size),
+                        project_debug_point_3d(*end, map_size, tile_size),
+                        *color,
+                    );
+                    continue;
+                }
                 let p0 = project_debug_point(
                     &Point {
                         x: Some(start.x),
@@ -193,6 +208,10 @@ pub fn render_debug_draws(
                 gizmos.line_2d(p0, p1, *color);
             }
             DebugDrawPrimitive::Box { min, max, color } => {
+                if *view_mode == RenderViewMode::ThreeD {
+                    draw_debug_box_3d(&mut gizmos, *min, *max, map_size, tile_size, *color);
+                    continue;
+                }
                 let rect_min = project_debug_point(
                     &Point {
                         x: Some(min.x),
@@ -231,6 +250,11 @@ pub fn render_debug_draws(
                 radius,
                 color,
             } => {
+                if *view_mode == RenderViewMode::ThreeD {
+                    let center = project_debug_point_3d(*center, map_size, tile_size);
+                    draw_debug_sphere_3d(&mut gizmos, center, *radius * tile_size, *color);
+                    continue;
+                }
                 let center2 = project_debug_point(
                     &Point {
                         x: Some(center.x),
@@ -243,6 +267,61 @@ pub fn render_debug_draws(
                 );
                 gizmos.circle_2d(center2, *radius * tile_size, *color);
             }
+        }
+    }
+}
+
+fn draw_debug_box_3d(
+    gizmos: &mut Gizmos,
+    min: Vec3,
+    max: Vec3,
+    map_size: (u32, u32),
+    tile_size: f32,
+    color: Color,
+) {
+    let corners = [
+        map_position_3d(min.x, min.y, min.z, map_size, tile_size),
+        map_position_3d(max.x, min.y, min.z, map_size, tile_size),
+        map_position_3d(min.x, max.y, min.z, map_size, tile_size),
+        map_position_3d(max.x, max.y, min.z, map_size, tile_size),
+        map_position_3d(min.x, min.y, max.z, map_size, tile_size),
+        map_position_3d(max.x, min.y, max.z, map_size, tile_size),
+        map_position_3d(min.x, max.y, max.z, map_size, tile_size),
+        map_position_3d(max.x, max.y, max.z, map_size, tile_size),
+    ];
+    for (start, end) in [
+        (0, 1),
+        (0, 2),
+        (1, 3),
+        (2, 3),
+        (4, 5),
+        (4, 6),
+        (5, 7),
+        (6, 7),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ] {
+        gizmos.line(corners[start], corners[end], color);
+    }
+}
+
+fn draw_debug_sphere_3d(gizmos: &mut Gizmos, center: Vec3, radius: f32, color: Color) {
+    const SEGMENTS: usize = 16;
+    for plane in 0..3 {
+        for index in 0..SEGMENTS {
+            let a = index as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+            let b = (index + 1) as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+            let point = |angle: f32| {
+                let (sin, cos) = angle.sin_cos();
+                match plane {
+                    0 => center + Vec3::new(cos * radius, sin * radius, 0.0),
+                    1 => center + Vec3::new(cos * radius, 0.0, sin * radius),
+                    _ => center + Vec3::new(0.0, cos * radius, sin * radius),
+                }
+            };
+            gizmos.line(point(a), point(b), color);
         }
     }
 }
@@ -341,6 +420,14 @@ mod tests {
         assert_eq!(
             projected,
             Vec2::new(2.0 * 4.0 - 20.0 * 4.0 / 2.0, 3.0 * 4.0 - 18.0 * 4.0 / 2.0)
+        );
+    }
+
+    #[test]
+    fn debug_projection_centers_xy_and_preserves_z() {
+        assert_eq!(
+            project_debug_point_3d(Vec3::new(2.0, 3.0, 4.0), (10, 8), 2.0),
+            Vec3::new(-6.0, 8.0, -2.0)
         );
     }
 }
