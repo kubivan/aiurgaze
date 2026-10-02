@@ -2,9 +2,11 @@ use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::chat_overlay::ChatOverlay;
 use crate::controller::{PlayerResources, ProtocolActivityState};
+use crate::map::Terrain3dSettings;
 use crate::observation_pipeline::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::render_view::RenderViewMode;
 use crate::ui::hud::{render_hud, render_status_bar};
 use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::ui::DockerStatus;
@@ -26,6 +28,8 @@ pub(crate) struct HudParams<'w, 's> {
     activity: Res<'w, ProtocolActivityState>,
     player_res: Res<'w, PlayerResources>,
     chat_overlay: Res<'w, ChatOverlay>,
+    render_view_mode: ResMut<'w, RenderViewMode>,
+    terrain_3d_settings: ResMut<'w, Terrain3dSettings>,
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
 }
 
@@ -101,6 +105,8 @@ fn render_game_screen(
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,
     playback: &mut ResMut<crate::controller::LoopPlaybackState>,
     proxy_pause: &mut ResMut<ProxyStreamPause>,
+    render_view_mode: &mut ResMut<RenderViewMode>,
+    terrain_3d_settings: &mut ResMut<Terrain3dSettings>,
 ) {
     egui::Panel::right("unit_info_panel")
         .resizable(true)
@@ -108,6 +114,31 @@ fn render_game_screen(
         .show(ui, |ui| {
             ui.heading("Game Controls");
             ui.separator();
+
+            ui.label("Render View:");
+            egui::ComboBox::from_id_salt("render_view_mode_combo")
+                .selected_text(match **render_view_mode {
+                    RenderViewMode::TwoD => "2D",
+                    RenderViewMode::ThreeD => "3D (experimental)",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut **render_view_mode, RenderViewMode::TwoD, "2D");
+                    ui.selectable_value(
+                        &mut **render_view_mode,
+                        RenderViewMode::ThreeD,
+                        "3D (experimental)",
+                    );
+                });
+            let mut height_scale = terrain_3d_settings.height_scale;
+            if ui
+                .add_enabled(
+                    **render_view_mode == RenderViewMode::ThreeD,
+                    egui::Slider::new(&mut height_scale, 0.1..=4.0).text("Terrain height"),
+                )
+                .changed()
+            {
+                terrain_3d_settings.height_scale = height_scale;
+            }
 
             ui.label("Vision Mode:");
             let current_mode = vision_mode_channel.current;
@@ -197,7 +228,7 @@ pub fn ui_system(
     mut unit_visibility: ResMut<UnitCompositionVisibility>,
     mut playback: ResMut<crate::controller::LoopPlaybackState>,
     mut proxy_pause: ResMut<ProxyStreamPause>,
-    hud: HudParams,
+    mut hud: HudParams,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -233,6 +264,8 @@ pub fn ui_system(
             &mut unit_visibility,
             &mut playback,
             &mut proxy_pause,
+            &mut hud.render_view_mode,
+            &mut hud.terrain_3d_settings,
         ),
     }
 

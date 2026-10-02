@@ -1,3 +1,4 @@
+use crate::render_view::RenderViewMode;
 use bevy::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,12 +80,32 @@ impl Default for LayerRegistry {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RenderLayerMarker(pub RenderLayerKind);
 
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ViewModeVisibility(pub RenderViewMode);
+
 pub fn layer_visibility_system(
     registry: Res<LayerRegistry>,
     mut query: Query<(&RenderLayerMarker, &mut Visibility)>,
 ) {
     for (marker, mut visibility) in &mut query {
         *visibility = if registry.is_visible(marker.0) {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
+pub fn view_mode_visibility_system(
+    view_mode: Res<RenderViewMode>,
+    mut query: Query<(&ViewModeVisibility, &mut Visibility)>,
+) {
+    if !view_mode.is_changed() {
+        return;
+    }
+
+    for (view_marker, mut visibility) in &mut query {
+        *visibility = if view_marker.0 == *view_mode {
             Visibility::Inherited
         } else {
             Visibility::Hidden

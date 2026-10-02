@@ -7,8 +7,12 @@
 
 use bevy::asset::{AssetServer, Assets, RenderAssetUsages};
 use bevy::image::{Image, ImageSampler};
+use bevy::mesh::Mesh;
+use bevy::mesh::Mesh3d;
+use bevy::pbr::{MeshMaterial3d, StandardMaterial};
 use bevy::prelude::{
-    Commands, DetectChanges, Handle, Local, Message, MessageReader, Query, Res, ResMut, Resource,
+    default, Commands, DetectChanges, Handle, Local, Message, MessageReader, Query, Res, ResMut,
+    Resource, Transform, Visibility,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
@@ -20,7 +24,10 @@ use tokio_stream::StreamExt;
 
 use crate::app_settings::AppSettings;
 use crate::entity_system::EntitySystem;
-use crate::map::{blend_tile_color, spawn_tilemap, TerrainLayer, TerrainLayers};
+use crate::map::{
+    blend_tile_color, build_terrain_mesh, spawn_tilemap, Terrain3dMeshDirty, Terrain3dSettings,
+    TerrainLayer, TerrainLayers,
+};
 use crate::observation_pipeline::{
     create_game_info_stream, create_observation_stream, TaggedResponseStream, VisionMode,
 };
@@ -29,9 +36,12 @@ use crate::proxy_channel::{
     MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayAssembler, ReplayBuffer,
     ReplayFrame, TaggedResponse,
 };
-use crate::render_layers::LayerRegistry;
+use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
+use crate::render_view::RenderViewMode;
 use crate::ui::VisionModeChannel;
-use crate::units::{handle_observation, ObservationUnitTags, UnitBuildProgress, UnitRegistry};
+use crate::units::{
+    handle_observation, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
+};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -308,6 +318,8 @@ impl Default for ProtocolActivityState {
 pub struct MapResource {
     pub static_layers: TerrainLayers,
     pub tile_storage: TileStorage,
+    pub terrain_mesh_handle: Handle<Mesh>,
+    pub terrain_mesh_entity: bevy::prelude::Entity,
     pub last_creep_hash: u64,
     pub last_energy_hash: u64,
     pub last_visibility_hash: u64,
@@ -339,6 +351,11 @@ pub struct FogOfWarData {
 #[derive(Resource)]
 pub struct FogMaterialHandle {
     pub handle: Handle<crate::fog_material::FogOfWarMaterial>,
+}
+
+#[derive(Resource)]
+pub struct Fog3dMaterialHandle {
+    pub handle: Handle<crate::fog_material::FogOfWarMaterial3d>,
 }
 
 /// Set up proxy channels and the observation pipeline.
@@ -847,6 +864,7 @@ fn update_map_from_observation(
     entity_system: &Res<EntitySystem>,
     layer_registry: &Res<LayerRegistry>,
     fog_data: &mut Option<ResMut<FogOfWarData>>,
+    terrain_mesh_dirty: &mut ResMut<Terrain3dMeshDirty>,
 ) -> Option<()> {
     let map_res = map_res.as_mut()?;
     let map_state = obs
@@ -890,6 +908,10 @@ fn update_map_from_observation(
         || new_energy_hash != map_res.last_energy_hash
         || new_visibility_hash != map_res.last_visibility_hash
     {
+        if new_creep_hash != map_res.last_creep_hash || new_energy_hash != map_res.last_energy_hash
+        {
+            terrain_mesh_dirty.0 = true;
+        }
         update_tilemap_colors(
             &map_res.tile_storage,
             &map_res.static_layers,
@@ -980,6 +1002,7 @@ pub fn refresh_map_colors_on_layer_change(
     map_res: Option<Res<MapResource>>,
     entity_system: Res<EntitySystem>,
     mut tile_color_query: Query<&mut TileColor>,
+    mut terrain_mesh_dirty: ResMut<Terrain3dMeshDirty>,
 ) {
     if !layer_registry.is_changed() {
         return;
@@ -999,6 +1022,35 @@ pub fn refresh_map_colors_on_layer_change(
         &entity_system,
         &layer_registry,
     );
+    terrain_mesh_dirty.0 = true;
+}
+
+pub fn refresh_3d_terrain_mesh(
+    map_res: Option<Res<MapResource>>,
+    layer_registry: Res<LayerRegistry>,
+    settings: Res<Terrain3dSettings>,
+    entity_system: Res<EntitySystem>,
+    mut dirty: ResMut<Terrain3dMeshDirty>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    if !dirty.0 && !layer_registry.is_changed() && !settings.is_changed() {
+        return;
+    }
+    let Some(map_res) = map_res else {
+        return;
+    };
+    let Some(mut mesh) = meshes.get_mut(&map_res.terrain_mesh_handle) else {
+        return;
+    };
+    *mesh = build_terrain_mesh(
+        &map_res.static_layers,
+        map_res.latest_creep_layer.as_ref(),
+        map_res.latest_energy_layer.as_ref(),
+        &entity_system.map_config,
+        &layer_registry,
+        settings.height_scale,
+    );
+    dirty.0 = false;
 }
 
 fn handle_units_for_observation(
@@ -1010,6 +1062,7 @@ fn handle_units_for_observation(
     unit_query: Query<&UnitBuildProgress>,
     seen_tags: &mut ResMut<ObservationUnitTags>,
     map_res: &Option<ResMut<MapResource>>,
+    visual_assets: &mut Unit3dRenderAssets,
 ) {
     let map_size = map_res.as_ref().map(|m| {
         let (width, height) = m.static_layers.get_dimensions();
@@ -1025,6 +1078,7 @@ fn handle_units_for_observation(
         unit_query,
         seen_tags,
         map_size,
+        visual_assets,
     );
 }
 
@@ -1040,6 +1094,9 @@ pub fn map_init_system(
     entity_system: Res<EntitySystem>,
     layer_registry: Res<LayerRegistry>,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    terrain_settings: Res<Terrain3dSettings>,
 ) {
     // Drain all events in this batch; only process the first valid one.
     let events: Vec<_> = gi_events.read().collect();
@@ -1068,9 +1125,34 @@ pub fn map_init_system(
         &entity_system.map_config,
         &layer_registry,
     );
+    let terrain_mesh_handle = meshes.add(build_terrain_mesh(
+        &static_layers,
+        None,
+        None,
+        &entity_system.map_config,
+        &layer_registry,
+        terrain_settings.height_scale,
+    ));
+    let terrain_material = materials.add(StandardMaterial {
+        perceptual_roughness: 1.0,
+        cull_mode: None,
+        ..default()
+    });
+    let terrain_mesh_entity = commands
+        .spawn((
+            Mesh3d(terrain_mesh_handle.clone()),
+            MeshMaterial3d(terrain_material),
+            Transform::IDENTITY,
+            Visibility::Hidden,
+            RenderLayerMarker(RenderLayerKind::Terrain),
+            ViewModeVisibility(RenderViewMode::ThreeD),
+        ))
+        .id();
     commands.insert_resource(MapResource {
         static_layers: static_layers.clone(),
         tile_storage,
+        terrain_mesh_handle,
+        terrain_mesh_entity,
         last_creep_hash: 0,
         last_energy_hash: 0,
         last_visibility_hash: 0,
@@ -1118,9 +1200,11 @@ pub fn response_controller_system(
     mut seen_tags: ResMut<ObservationUnitTags>,
     layer_registry: Res<LayerRegistry>,
     mut fog_data: Option<ResMut<FogOfWarData>>,
+    mut terrain_mesh_dirty: ResMut<Terrain3dMeshDirty>,
     mut logged_first_obs: Local<bool>,
     current_frame: Res<CurrentFrame>,
     vision_mode: Res<VisionModeChannel>,
+    mut visual_assets: Unit3dRenderAssets,
 ) {
     seen_tags.seen_tags.clear();
 
@@ -1162,6 +1246,7 @@ pub fn response_controller_system(
         &entity_system,
         &layer_registry,
         &mut fog_data,
+        &mut terrain_mesh_dirty,
     )
     .is_none()
     {
@@ -1179,5 +1264,6 @@ pub fn response_controller_system(
         unit_query,
         &mut seen_tags,
         &map_res,
+        &mut visual_assets,
     );
 }
