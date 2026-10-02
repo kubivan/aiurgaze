@@ -6,12 +6,13 @@ use crate::map::Terrain3dSettings;
 use crate::observation_pipeline::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::render_view::RenderViewMode;
 use crate::ui::hud::{render_hud, render_status_bar};
 use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::ui::DockerStatus;
 use crate::ui::{
     build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
-    GameType, PendingBotStart, PendingCreateGameRequest, RenderViewMode, VisionModeChannel,
+    GameType, PendingBotStart, PendingCreateGameRequest, VisionModeChannel,
 };
 use crate::units::{
     CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,

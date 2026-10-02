@@ -17,6 +17,7 @@ mod net_helpers;
 mod observation_pipeline;
 mod proxy_channel;
 mod render_layers;
+mod render_view;
 mod ui;
 mod units;
 use bevy::mesh::{Mesh2d, Mesh3d};
@@ -40,7 +41,8 @@ use crate::controller::{
     ProtocolActivityEvent, ProtocolActivityState, ReplayFrameEvent,
 };
 use crate::debug_draw::{
-    debug_draw_message_system, render_debug_draws, DebugDrawEvent, DebugDrawOverlay,
+    debug_draw_message_system, render_debug_draws_2d, render_debug_draws_3d, DebugDrawEvent,
+    DebugDrawOverlay,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::map::{terrain_height_to_world_y, Terrain3dMeshDirty, Terrain3dSettings};
@@ -49,19 +51,20 @@ use crate::render_layers::{
     layer_visibility_system, view_mode_visibility_system, LayerRegistry, RenderLayerKind,
     RenderLayerMarker,
 };
+use crate::render_view::{render_view_is_2d, render_view_is_3d, RenderViewMode, RenderViewSet};
 use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
-    camera_controls, setup_camera, switch_render_camera, ui_system, AppState, CameraPanState,
-    DockerStatus, GameConfigPanel, GameCreated, PendingBotStart, PendingCreateGameRequest,
-    RenderViewMode, VisionModeChannel,
+    camera_controls_2d, camera_controls_3d, setup_camera, switch_render_camera, ui_system,
+    AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
+    PendingCreateGameRequest, VisionModeChannel,
 };
-use crate::units::draw_unit_orders;
 use crate::units::{
-    cleanup_dead_units, unit_selection_system, update_unit_3d_billboards, ObservationUnitTags,
-    SelectedUnit, Unit3dMaterialCache, UnitBuildProgress, UnitCompositionVisibility, UnitHealth,
-    UnitRegistry, UnitShield,
+    cleanup_dead_units, unit_selection_2d, unit_selection_3d, update_unit_3d_billboards,
+    ObservationUnitTags, SelectedUnit, Unit3dMaterialCache, UnitBuildProgress,
+    UnitCompositionVisibility, UnitHealth, UnitRegistry, UnitShield,
 };
+use crate::units::{draw_unit_orders_2d, draw_unit_orders_3d};
 use bevy::asset::AssetPlugin;
 use bevy::color::palettes::basic::{GREEN, RED};
 use bevy_ecs_tilemap::TilemapPlugin;
@@ -373,12 +376,18 @@ fn main() {
         .insert_resource(crate::controller::LoopPlaybackState::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
-        .add_systems(Update, unit_selection_system)
+        .configure_sets(Update, RenderViewSet::TwoD.run_if(render_view_is_2d))
+        .configure_sets(Update, RenderViewSet::ThreeD.run_if(render_view_is_3d))
+        .add_systems(Update, unit_selection_2d.in_set(RenderViewSet::TwoD))
+        .add_systems(Update, unit_selection_3d.in_set(RenderViewSet::ThreeD))
         .add_systems(
             Update,
-            update_unit_3d_billboards.after(response_controller_system),
+            update_unit_3d_billboards
+                .after(response_controller_system)
+                .in_set(RenderViewSet::ThreeD),
         )
-        .add_systems(Update, camera_controls)
+        .add_systems(Update, camera_controls_2d.in_set(RenderViewSet::TwoD))
+        .add_systems(Update, camera_controls_3d.in_set(RenderViewSet::ThreeD))
         .add_systems(Update, switch_render_camera)
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
@@ -412,8 +421,10 @@ fn main() {
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
         .add_systems(Update, debug_draw_message_system)
         .add_systems(Update, update_chat_overlay)
-        .add_systems(Update, render_debug_draws)
-        .add_systems(Update, draw_unit_orders)
+        .add_systems(Update, render_debug_draws_2d.in_set(RenderViewSet::TwoD))
+        .add_systems(Update, render_debug_draws_3d.in_set(RenderViewSet::ThreeD))
+        .add_systems(Update, draw_unit_orders_2d.in_set(RenderViewSet::TwoD))
+        .add_systems(Update, draw_unit_orders_3d.in_set(RenderViewSet::ThreeD))
         .add_systems(PostUpdate, layer_visibility_system)
         .add_systems(
             PostUpdate,

@@ -37,6 +37,7 @@ use crate::proxy_channel::{
     ReplayFrame, TaggedResponse,
 };
 use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
+use crate::render_view::RenderViewMode;
 use crate::ui::VisionModeChannel;
 use crate::units::{
     handle_observation, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
@@ -1144,7 +1145,7 @@ pub fn map_init_system(
             Transform::IDENTITY,
             Visibility::Hidden,
             RenderLayerMarker(RenderLayerKind::Terrain),
-            ViewModeVisibility(crate::ui::RenderViewMode::ThreeD),
+            ViewModeVisibility(RenderViewMode::ThreeD),
         ))
         .id();
     commands.insert_resource(MapResource {

@@ -9,7 +9,7 @@ use crate::controller::MapResource;
 use crate::entity_system::EntitySystem;
 use crate::map::map_position_3d;
 use crate::render_layers::ViewModeVisibility;
-use crate::ui::RenderViewMode;
+use crate::render_view::RenderViewMode;
 use bevy_health_bar3d::prelude::*;
 use protobuf::reflect::ReflectFieldRef;
 use protobuf::Message;
@@ -598,25 +598,20 @@ pub fn get_set_fields(unit: &sc2_proto::raw::Unit) -> Vec<(String, String)> {
     result
 }
 
-/// System to select unit on mouse click
-pub fn unit_selection_system(
+pub fn unit_selection_2d(
     windows: Query<&Window>,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
-    _registry: Res<UnitRegistry>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
     unit_query: Query<(Entity, &Transform, &UnitTag, &UnitProto)>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut selected: ResMut<SelectedUnit>,
     entity_system: Res<EntitySystem>,
-    view_mode: Res<RenderViewMode>,
-    map_resource: Option<Res<MapResource>>,
 ) {
     if !mouse_button_input.just_pressed(MouseButton::Left) {
         return;
     }
 
     let window = windows.single().unwrap();
-    let Some((camera, camera_transform)) = camera_query.iter().find(|(camera, _)| camera.is_active)
-    else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -624,64 +619,85 @@ pub fn unit_selection_system(
         return;
     };
 
-    if *view_mode == RenderViewMode::ThreeD {
-        let Some(map_resource) = map_resource else {
-            return;
-        };
-        let map_size = map_resource.static_layers.get_dimensions();
-        let tile_size = entity_system.map_config.tile_size;
-        for (_entity, _transform, tag, proto) in &unit_query {
-            let Some(position) = proto.0.pos.as_ref() else {
-                continue;
-            };
-            let world_position = map_position_3d(
-                position.x.unwrap_or(0.0),
-                position.y.unwrap_or(0.0),
-                position.z.unwrap_or(0.0),
-                map_size,
-                tile_size,
-            );
-            let Ok(screen_position) = camera.world_to_viewport(camera_transform, world_position)
-            else {
-                continue;
-            };
-            let radius = proto.0.radius.unwrap_or(1.0) * tile_size;
-            let projected_radius = camera
-                .world_to_viewport(camera_transform, world_position + Vec3::X * radius)
-                .map_or(14.0, |edge| edge.distance(screen_position));
-            if cursor_pos.distance(screen_position) <= projected_radius.max(14.0) {
-                selected.tag = Some(tag.0);
-                break;
-            }
-        }
-    } else {
-        let Ok(world_pos) = camera.viewport_to_world(camera_transform, cursor_pos) else {
-            return;
-        };
-        let world_pos = world_pos.origin.truncate();
-        for (_entity, transform, tag, _) in &unit_query {
-            let unit_pos = transform.translation.truncate();
-            if unit_pos.distance(world_pos) < entity_system.map_config.tile_size {
-                selected.tag = Some(tag.0);
-                break;
-            }
+    let Ok(world_pos) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
+    let world_pos = world_pos.origin.truncate();
+    for (_entity, transform, tag, _) in &unit_query {
+        let unit_pos = transform.translation.truncate();
+        if unit_pos.distance(world_pos) < entity_system.map_config.tile_size {
+            selected.tag = Some(tag.0);
+            break;
         }
     }
 }
 
-/// System to draw lines from units to their order targets
-pub fn draw_unit_orders(
+pub fn unit_selection_3d(
+    windows: Query<&Window>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    unit_query: Query<(&UnitTag, &UnitProto)>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
+    mut selected: ResMut<SelectedUnit>,
+    entity_system: Res<EntitySystem>,
+    map_resource: Option<Res<MapResource>>,
+) {
+    if !mouse_button_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Some(map_resource) = map_resource else {
+        return;
+    };
+    let map_size = map_resource.static_layers.get_dimensions();
+    let tile_size = entity_system.map_config.tile_size;
+
+    for (tag, proto) in &unit_query {
+        let Some(position) = proto.0.pos.as_ref() else {
+            continue;
+        };
+        let world_position = map_position_3d(
+            position.x.unwrap_or(0.0),
+            position.y.unwrap_or(0.0),
+            position.z.unwrap_or(0.0),
+            map_size,
+            tile_size,
+        );
+        let Ok(screen_position) = camera.world_to_viewport(camera_transform, world_position) else {
+            continue;
+        };
+        let radius = proto.0.radius.unwrap_or(1.0) * tile_size;
+        let projected_radius = camera
+            .world_to_viewport(camera_transform, world_position + Vec3::X * radius)
+            .map_or(14.0, |edge| edge.distance(screen_position));
+        if cursor_pos.distance(screen_position) <= projected_radius.max(14.0) {
+            selected.tag = Some(tag.0);
+            break;
+        }
+    }
+}
+
+pub fn draw_unit_orders_2d(
     mut gizmos: Gizmos,
     unit_query: Query<(&Transform, &UnitProto)>,
     registry: Res<UnitRegistry>,
     entity_system: Res<EntitySystem>,
     unit_visibility: Res<UnitCompositionVisibility>,
-    view_mode: Res<RenderViewMode>,
     map_resource: Option<Res<MapResource>>,
 ) {
     if !unit_visibility.show_orders {
         return;
     }
+
+    use sc2_proto::raw::UnitOrder_oneof_target;
 
     let tile_size = entity_system.map_config.tile_size;
     let map_size = map_resource
@@ -695,61 +711,9 @@ pub fn draw_unit_orders(
     {
         // Get the first order if it exists
         let order = proto.0.orders.first().unwrap();
-        if *view_mode == RenderViewMode::ThreeD {
-            let Some(position) = proto.0.pos.as_ref() else {
-                continue;
-            };
-            let start = map_position_3d(
-                position.x.unwrap_or(0.0),
-                position.y.unwrap_or(0.0),
-                position.z.unwrap_or(0.0),
-                map_size,
-                tile_size,
-            );
-            match order.target.as_ref() {
-                Some(UnitOrder_oneof_target::target_world_space_pos(point)) => {
-                    let end = map_position_3d(
-                        point.x.unwrap_or(0.0),
-                        point.y.unwrap_or(0.0),
-                        point.z.unwrap_or(0.0),
-                        map_size,
-                        tile_size,
-                    );
-                    gizmos.line(start, end, Color::srgba(0.8, 0.8, 0.2, 0.8));
-                    gizmos.line(
-                        end - Vec3::X * 3.0,
-                        end + Vec3::X * 3.0,
-                        Color::srgba(1.0, 1.0, 0.3, 0.9),
-                    );
-                }
-                Some(UnitOrder_oneof_target::target_unit_tag(target_tag)) => {
-                    let Some(&target_entity) = registry.map.get(target_tag) else {
-                        continue;
-                    };
-                    let Ok((_, target_proto)) = unit_query.get(target_entity) else {
-                        continue;
-                    };
-                    let Some(target_position) = target_proto.0.pos.as_ref() else {
-                        continue;
-                    };
-                    let end = map_position_3d(
-                        target_position.x.unwrap_or(0.0),
-                        target_position.y.unwrap_or(0.0),
-                        target_position.z.unwrap_or(0.0),
-                        map_size,
-                        tile_size,
-                    );
-                    gizmos.line(start, end, Color::srgba(0.2, 0.8, 0.8, 0.8));
-                }
-                _ => {}
-            }
-            continue;
-        }
         let start_pos = Vec2::new(transform.translation.x, transform.translation.y);
 
         // Check if the order has a target using the oneof enum
-        use sc2_proto::raw::UnitOrder_oneof_target;
-
         match order.target.as_ref() {
             Some(UnitOrder_oneof_target::target_world_space_pos(point)) => {
                 // Target is a position
@@ -799,6 +763,76 @@ pub fn draw_unit_orders(
                 );
             }
             _ => continue,
+        }
+    }
+}
+
+pub fn draw_unit_orders_3d(
+    mut gizmos: Gizmos,
+    unit_query: Query<&UnitProto>,
+    registry: Res<UnitRegistry>,
+    entity_system: Res<EntitySystem>,
+    unit_visibility: Res<UnitCompositionVisibility>,
+    map_resource: Option<Res<MapResource>>,
+) {
+    if !unit_visibility.show_orders {
+        return;
+    }
+    let Some(map_resource) = map_resource else {
+        return;
+    };
+    use sc2_proto::raw::UnitOrder_oneof_target;
+
+    let map_size = map_resource.static_layers.get_dimensions();
+    let tile_size = entity_system.map_config.tile_size;
+    for proto in unit_query.iter().filter(|proto| !proto.0.orders.is_empty()) {
+        let Some(position) = proto.0.pos.as_ref() else {
+            continue;
+        };
+        let start = map_position_3d(
+            position.x.unwrap_or(0.0),
+            position.y.unwrap_or(0.0),
+            position.z.unwrap_or(0.0),
+            map_size,
+            tile_size,
+        );
+        let order = proto.0.orders.first().unwrap();
+        match order.target.as_ref() {
+            Some(UnitOrder_oneof_target::target_world_space_pos(point)) => {
+                let end = map_position_3d(
+                    point.x.unwrap_or(0.0),
+                    point.y.unwrap_or(0.0),
+                    point.z.unwrap_or(0.0),
+                    map_size,
+                    tile_size,
+                );
+                gizmos.line(start, end, Color::srgba(0.8, 0.8, 0.2, 0.8));
+                gizmos.line(
+                    end - Vec3::X * 3.0,
+                    end + Vec3::X * 3.0,
+                    Color::srgba(1.0, 1.0, 0.3, 0.9),
+                );
+            }
+            Some(UnitOrder_oneof_target::target_unit_tag(target_tag)) => {
+                let Some(&target_entity) = registry.map.get(target_tag) else {
+                    continue;
+                };
+                let Ok(target_proto) = unit_query.get(target_entity) else {
+                    continue;
+                };
+                let Some(target_position) = target_proto.0.pos.as_ref() else {
+                    continue;
+                };
+                let end = map_position_3d(
+                    target_position.x.unwrap_or(0.0),
+                    target_position.y.unwrap_or(0.0),
+                    target_position.z.unwrap_or(0.0),
+                    map_size,
+                    tile_size,
+                );
+                gizmos.line(start, end, Color::srgba(0.2, 0.8, 0.8, 0.8));
+            }
+            _ => {}
         }
     }
 }

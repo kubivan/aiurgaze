@@ -7,7 +7,6 @@ use crate::controller::MapResource;
 use crate::map::map_position_3d;
 use crate::proxy_channel::PlayerId;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
-use crate::ui::RenderViewMode;
 
 #[derive(Debug, Clone)]
 pub enum DebugDrawPrimitive {
@@ -153,13 +152,12 @@ pub fn debug_draw_message_system(
     overlay.enabled = true;
 }
 
-pub fn render_debug_draws(
+pub fn render_debug_draws_2d(
     mut gizmos: Gizmos,
     overlay: Res<DebugDrawOverlay>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
-    view_mode: Res<RenderViewMode>,
 ) {
     if map.is_none()
         || entity_system.is_none()
@@ -177,14 +175,6 @@ pub fn render_debug_draws(
     for item in &overlay.commands {
         match item {
             DebugDrawPrimitive::Line { start, end, color } => {
-                if *view_mode == RenderViewMode::ThreeD {
-                    gizmos.line(
-                        project_debug_point_3d(*start, map_size, tile_size),
-                        project_debug_point_3d(*end, map_size, tile_size),
-                        *color,
-                    );
-                    continue;
-                }
                 let p0 = project_debug_point(
                     &Point {
                         x: Some(start.x),
@@ -208,10 +198,6 @@ pub fn render_debug_draws(
                 gizmos.line_2d(p0, p1, *color);
             }
             DebugDrawPrimitive::Box { min, max, color } => {
-                if *view_mode == RenderViewMode::ThreeD {
-                    draw_debug_box_3d(&mut gizmos, *min, *max, map_size, tile_size, *color);
-                    continue;
-                }
                 let rect_min = project_debug_point(
                     &Point {
                         x: Some(min.x),
@@ -250,11 +236,6 @@ pub fn render_debug_draws(
                 radius,
                 color,
             } => {
-                if *view_mode == RenderViewMode::ThreeD {
-                    let center = project_debug_point_3d(*center, map_size, tile_size);
-                    draw_debug_sphere_3d(&mut gizmos, center, *radius * tile_size, *color);
-                    continue;
-                }
                 let center2 = project_debug_point(
                     &Point {
                         x: Some(center.x),
@@ -266,6 +247,48 @@ pub fn render_debug_draws(
                     tile_size,
                 );
                 gizmos.circle_2d(center2, *radius * tile_size, *color);
+            }
+        }
+    }
+}
+
+pub fn render_debug_draws_3d(
+    mut gizmos: Gizmos,
+    overlay: Res<DebugDrawOverlay>,
+    layer_registry: Res<LayerRegistry>,
+    map: Option<Res<MapResource>>,
+    entity_system: Option<Res<crate::entity_system::EntitySystem>>,
+) {
+    if map.is_none()
+        || entity_system.is_none()
+        || !overlay.enabled
+        || !layer_registry.is_visible(RenderLayerKind::DebugOverlay)
+    {
+        return;
+    }
+
+    let map = map.unwrap();
+    let entity_system = entity_system.unwrap();
+    let map_size = map.static_layers.get_dimensions();
+    let tile_size = entity_system.map_config.tile_size;
+
+    for item in &overlay.commands {
+        match item {
+            DebugDrawPrimitive::Line { start, end, color } => gizmos.line(
+                project_debug_point_3d(*start, map_size, tile_size),
+                project_debug_point_3d(*end, map_size, tile_size),
+                *color,
+            ),
+            DebugDrawPrimitive::Box { min, max, color } => {
+                draw_debug_box_3d(&mut gizmos, *min, *max, map_size, tile_size, *color);
+            }
+            DebugDrawPrimitive::Sphere {
+                center,
+                radius,
+                color,
+            } => {
+                let center = project_debug_point_3d(*center, map_size, tile_size);
+                draw_debug_sphere_3d(&mut gizmos, center, *radius * tile_size, *color);
             }
         }
     }

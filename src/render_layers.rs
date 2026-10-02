@@ -1,4 +1,4 @@
-use crate::ui::RenderViewMode;
+use crate::render_view::RenderViewMode;
 use bevy::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -100,6 +100,10 @@ pub fn view_mode_visibility_system(
     view_mode: Res<RenderViewMode>,
     mut query: Query<(&ViewModeVisibility, &mut Visibility)>,
 ) {
+    if !view_mode.is_changed() {
+        return;
+    }
+
     for (view_marker, mut visibility) in &mut query {
         *visibility = if view_marker.0 == *view_mode {
             Visibility::Inherited

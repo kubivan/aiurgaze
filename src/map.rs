@@ -1,5 +1,6 @@
 use crate::app_settings::MapConfig;
 use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
+use crate::render_view::RenderViewMode;
 use bevy::asset::{Handle, RenderAssetUsages};
 use bevy::image::Image;
 use bevy::mesh::{Indices, Mesh, PrimitiveTopology};
@@ -355,7 +356,7 @@ pub fn spawn_tilemap(
                 })
                 .insert((
                     RenderLayerMarker(RenderLayerKind::Terrain),
-                    ViewModeVisibility(crate::ui::RenderViewMode::TwoD),
+                    ViewModeVisibility(RenderViewMode::TwoD),
                 ))
                 .id();
             tile_storage.set(&tile_pos, tile_entity);
@@ -380,7 +381,7 @@ pub fn spawn_tilemap(
     });
     commands.entity(tilemap_entity).insert((
         RenderLayerMarker(RenderLayerKind::Terrain),
-        ViewModeVisibility(crate::ui::RenderViewMode::TwoD),
+        ViewModeVisibility(RenderViewMode::TwoD),
     ));
     // Add atlas to array texture loader so it's preprocessed before we need to use it.
     // Only used when the atlas feature is off and we are using array textures.

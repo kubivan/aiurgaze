@@ -8,13 +8,6 @@ pub enum AppState {
     GameScreen,
 }
 
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RenderViewMode {
-    #[default]
-    TwoD,
-    ThreeD,
-}
-
 /// Resource to hold the pending CreateGame request.
 #[derive(Resource, Default)]
 pub struct PendingCreateGameRequest(pub Option<Request>);
