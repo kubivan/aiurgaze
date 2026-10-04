@@ -1,7 +1,9 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::chat_overlay::ChatOverlay;
-use crate::controller::{PlayerResources, ProtocolActivityState};
+use crate::controller::{MapResource, PlayerResources, ProtocolActivityState};
+use crate::debug_draw::{render_debug_texts, DebugDrawOverlay};
+use crate::entity_system::EntitySystem;
 use crate::map::Terrain3dSettings;
 use crate::observation_pipeline::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
@@ -28,6 +30,10 @@ pub(crate) struct HudParams<'w, 's> {
     activity: Res<'w, ProtocolActivityState>,
     player_res: Res<'w, PlayerResources>,
     chat_overlay: Res<'w, ChatOverlay>,
+    debug_overlay: Res<'w, DebugDrawOverlay>,
+    map: Option<Res<'w, MapResource>>,
+    entity_system: Res<'w, EntitySystem>,
+    cameras: Query<'w, 's, (&'static Camera, &'static GlobalTransform)>,
     render_view_mode: ResMut<'w, RenderViewMode>,
     terrain_3d_settings: ResMut<'w, Terrain3dSettings>,
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
@@ -275,6 +281,15 @@ pub fn ui_system(
             hud.player_res,
             hud.in_progress_query,
             hud.chat_overlay,
+        );
+        render_debug_texts(
+            &ctx,
+            &hud.debug_overlay,
+            &layer_registry,
+            hud.map.as_deref(),
+            &hud.entity_system,
+            &hud.cameras,
+            *hud.render_view_mode,
         );
     }
 }

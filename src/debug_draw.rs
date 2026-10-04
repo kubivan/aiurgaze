@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_egui::egui;
 use sc2_proto::common::Point;
 use sc2_proto::debug::{Color as ProtoColor, DebugCommand, DebugCommand_oneof_command, DebugDraw};
 use sc2_proto::sc2api::{Request, Request_oneof_request};
@@ -7,6 +8,7 @@ use crate::controller::MapResource;
 use crate::map::map_position_3d;
 use crate::proxy_channel::PlayerId;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::render_view::RenderViewMode;
 
 #[derive(Debug, Clone)]
 pub enum DebugDrawPrimitive {
@@ -27,10 +29,25 @@ pub enum DebugDrawPrimitive {
     },
 }
 
+#[derive(Debug, Clone)]
+pub enum DebugTextPosition {
+    Virtual(Vec2),
+    World(Vec3),
+}
+
+#[derive(Debug, Clone)]
+pub struct DebugTextPrimitive {
+    pub text: String,
+    pub position: DebugTextPosition,
+    pub color: Color,
+    pub size: f32,
+}
+
 #[derive(Resource, Default, Clone)]
 pub struct DebugDrawOverlay {
     pub enabled: bool,
     pub commands: Vec<DebugDrawPrimitive>,
+    pub texts: Vec<DebugTextPrimitive>,
 }
 
 impl DebugDrawOverlay {
@@ -43,6 +60,7 @@ impl DebugDrawOverlay {
 pub struct DebugDrawEvent {
     pub player_id: PlayerId,
     pub commands: Vec<DebugDrawPrimitive>,
+    pub texts: Vec<DebugTextPrimitive>,
 }
 
 pub fn extract_debug_draw_commands(request: &Request) -> Vec<DebugDrawPrimitive> {
@@ -114,6 +132,39 @@ fn extract_draw_items(draw: &DebugDraw) -> Vec<DebugDrawPrimitive> {
     items
 }
 
+fn extract_draw_texts(draw: &DebugDraw) -> Vec<DebugTextPrimitive> {
+    draw.get_text()
+        .iter()
+        .filter_map(|item| {
+            let text = item.text.as_ref()?.clone();
+            let position = item
+                .virtual_pos
+                .as_ref()
+                .map(|point| DebugTextPosition::Virtual(Vec2::new(point.get_x(), point.get_y())))
+                .or_else(|| {
+                    item.world_pos
+                        .as_ref()
+                        .map(|point| DebugTextPosition::World(project_point(point)))
+                })?;
+
+            Some(DebugTextPrimitive {
+                text,
+                position,
+                color: item
+                    .color
+                    .as_ref()
+                    .map(color_to_bevy)
+                    .unwrap_or(Color::WHITE),
+                size: item.size.unwrap_or(8) as f32,
+            })
+        })
+        .collect()
+}
+
+fn extract_draw_content(draw: &DebugDraw) -> (Vec<DebugDrawPrimitive>, Vec<DebugTextPrimitive>) {
+    (extract_draw_items(draw), extract_draw_texts(draw))
+}
+
 fn color_to_bevy(color: &ProtoColor) -> Color {
     Color::srgba(
         (color.get_r() as f32) / 255.0,
@@ -144,20 +195,134 @@ pub fn debug_draw_message_system(
     mut overlay: ResMut<DebugDrawOverlay>,
 ) {
     let mut all_commands = Vec::new();
+    let mut all_texts = Vec::new();
     for event in events.read() {
         all_commands.extend(event.commands.iter().cloned());
+        all_texts.extend(event.texts.iter().cloned());
     }
 
     overlay.commands = all_commands;
+    overlay.texts = all_texts;
     overlay.enabled = true;
 }
 
+pub fn render_debug_texts(
+    ctx: &egui::Context,
+    overlay: &DebugDrawOverlay,
+    layer_registry: &LayerRegistry,
+    map: Option<&MapResource>,
+    entity_system: &crate::entity_system::EntitySystem,
+    cameras: &Query<(&Camera, &GlobalTransform)>,
+    view_mode: RenderViewMode,
+) {
+    if !overlay.enabled || !layer_registry.is_visible(RenderLayerKind::DebugOverlay) {
+        return;
+    }
+
+    let viewport = ctx.viewport_rect();
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("sc2_debug_text"),
+    ));
+    let pre_layout_bounds = viewport.expand(512.0);
+    let active_camera = cameras.iter().find(|(camera, _)| camera.is_active);
+
+    for item in &overlay.texts {
+        let position = match &item.position {
+            DebugTextPosition::Virtual(position) => Some(egui::pos2(
+                viewport.left() + position.x * viewport.width(),
+                viewport.top() + position.y * viewport.height(),
+            )),
+            DebugTextPosition::World(position) => {
+                let (Some(map), Some((camera, transform))) = (map, active_camera) else {
+                    continue;
+                };
+                let map_size = map.static_layers.get_dimensions();
+                let tile_size = entity_system.map_config.tile_size;
+                let world_position = if view_mode == RenderViewMode::ThreeD {
+                    project_debug_point_3d(*position, map_size, tile_size)
+                } else {
+                    project_debug_point(
+                        &Point {
+                            x: Some(position.x),
+                            y: Some(position.y),
+                            z: Some(position.z),
+                            ..Default::default()
+                        },
+                        map_size,
+                        tile_size,
+                    )
+                    .extend(0.0)
+                };
+                camera
+                    .world_to_viewport(transform, world_position)
+                    .ok()
+                    .map(|position| {
+                        egui::pos2(viewport.left() + position.x, viewport.top() + position.y)
+                    })
+            }
+        };
+        let Some(position) = position else {
+            continue;
+        };
+        if !pre_layout_bounds.contains(position) {
+            continue;
+        }
+        let color = item.color.to_srgba().to_u8_array();
+        let color = egui::Color32::from_rgb(color[0], color[1], color[2]);
+        let galley = painter.layout_no_wrap(
+            item.text.clone(),
+            egui::FontId::proportional(item.size * ctx.pixels_per_point()),
+            color,
+        );
+        let text_bounds = egui::Rect::from_min_size(position, galley.size());
+        if viewport.intersects(text_bounds) {
+            painter.galley(position, galley, color);
+        }
+    }
+}
+
 pub fn render_debug_draws_2d(
+    gizmos: Gizmos,
+    overlay: Res<DebugDrawOverlay>,
+    layer_registry: Res<LayerRegistry>,
+    map: Option<Res<MapResource>>,
+    entity_system: Option<Res<crate::entity_system::EntitySystem>>,
+) {
+    render_debug_draws_for_view(
+        gizmos,
+        overlay,
+        layer_registry,
+        map,
+        entity_system,
+        RenderViewMode::TwoD,
+    );
+}
+
+pub fn render_debug_draws_3d(
+    gizmos: Gizmos,
+    overlay: Res<DebugDrawOverlay>,
+    layer_registry: Res<LayerRegistry>,
+    map: Option<Res<MapResource>>,
+    entity_system: Option<Res<crate::entity_system::EntitySystem>>,
+) {
+    render_debug_draws_for_view(
+        gizmos,
+        overlay,
+        layer_registry,
+        map,
+        entity_system,
+        RenderViewMode::ThreeD,
+    );
+}
+
+fn render_debug_draws_for_view(
     mut gizmos: Gizmos,
     overlay: Res<DebugDrawOverlay>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
+    view_mode: RenderViewMode,
 ) {
     if map.is_none()
         || entity_system.is_none()
@@ -175,6 +340,14 @@ pub fn render_debug_draws_2d(
     for item in &overlay.commands {
         match item {
             DebugDrawPrimitive::Line { start, end, color } => {
+                if view_mode == RenderViewMode::ThreeD {
+                    gizmos.line(
+                        project_debug_point_3d(*start, map_size, tile_size),
+                        project_debug_point_3d(*end, map_size, tile_size),
+                        *color,
+                    );
+                    continue;
+                }
                 let p0 = project_debug_point(
                     &Point {
                         x: Some(start.x),
@@ -198,6 +371,10 @@ pub fn render_debug_draws_2d(
                 gizmos.line_2d(p0, p1, *color);
             }
             DebugDrawPrimitive::Box { min, max, color } => {
+                if view_mode == RenderViewMode::ThreeD {
+                    draw_debug_box_3d(&mut gizmos, *min, *max, map_size, tile_size, *color);
+                    continue;
+                }
                 let rect_min = project_debug_point(
                     &Point {
                         x: Some(min.x),
@@ -236,6 +413,11 @@ pub fn render_debug_draws_2d(
                 radius,
                 color,
             } => {
+                if view_mode == RenderViewMode::ThreeD {
+                    let center = project_debug_point_3d(*center, map_size, tile_size);
+                    draw_debug_sphere_3d(&mut gizmos, center, *radius * tile_size, *color);
+                    continue;
+                }
                 let center2 = project_debug_point(
                     &Point {
                         x: Some(center.x),
@@ -247,48 +429,6 @@ pub fn render_debug_draws_2d(
                     tile_size,
                 );
                 gizmos.circle_2d(center2, *radius * tile_size, *color);
-            }
-        }
-    }
-}
-
-pub fn render_debug_draws_3d(
-    mut gizmos: Gizmos,
-    overlay: Res<DebugDrawOverlay>,
-    layer_registry: Res<LayerRegistry>,
-    map: Option<Res<MapResource>>,
-    entity_system: Option<Res<crate::entity_system::EntitySystem>>,
-) {
-    if map.is_none()
-        || entity_system.is_none()
-        || !overlay.enabled
-        || !layer_registry.is_visible(RenderLayerKind::DebugOverlay)
-    {
-        return;
-    }
-
-    let map = map.unwrap();
-    let entity_system = entity_system.unwrap();
-    let map_size = map.static_layers.get_dimensions();
-    let tile_size = entity_system.map_config.tile_size;
-
-    for item in &overlay.commands {
-        match item {
-            DebugDrawPrimitive::Line { start, end, color } => gizmos.line(
-                project_debug_point_3d(*start, map_size, tile_size),
-                project_debug_point_3d(*end, map_size, tile_size),
-                *color,
-            ),
-            DebugDrawPrimitive::Box { min, max, color } => {
-                draw_debug_box_3d(&mut gizmos, *min, *max, map_size, tile_size, *color);
-            }
-            DebugDrawPrimitive::Sphere {
-                center,
-                radius,
-                color,
-            } => {
-                let center = project_debug_point_3d(*center, map_size, tile_size);
-                draw_debug_sphere_3d(&mut gizmos, center, *radius * tile_size, *color);
             }
         }
     }
@@ -354,19 +494,20 @@ pub fn debug_draw_request_from_sc2(request: &Request) -> Option<DebugDrawEvent> 
         return None;
     };
 
+    let mut commands = Vec::new();
+    let mut texts = Vec::new();
     for cmd in debug_req.get_debug() {
-        if matches!(
-            cmd.command.as_ref(),
-            Some(DebugCommand_oneof_command::draw(_))
-        ) {
-            return Some(DebugDrawEvent {
-                player_id: PlayerId::Player1,
-                commands: extract_debug_draw_commands(request),
-            });
+        if let Some(DebugCommand_oneof_command::draw(draw)) = cmd.command.as_ref() {
+            let (draw_commands, draw_texts) = extract_draw_content(draw);
+            commands.extend(draw_commands);
+            texts.extend(draw_texts);
         }
     }
-
-    None
+    (!commands.is_empty() || !texts.is_empty()).then_some(DebugDrawEvent {
+        player_id: PlayerId::Player1,
+        commands,
+        texts,
+    })
 }
 
 pub fn debug_command_to_event(
@@ -377,14 +518,15 @@ pub fn debug_command_to_event(
         return None;
     };
 
-    let commands = extract_draw_items(draw);
-    if commands.is_empty() {
+    let (commands, texts) = extract_draw_content(draw);
+    if commands.is_empty() && texts.is_empty() {
         return None;
     }
 
     Some(DebugDrawEvent {
         player_id,
         commands,
+        texts,
     })
 }
 
@@ -409,26 +551,31 @@ pub fn debug_draw_from_request(player_id: PlayerId, raw: &[u8]) -> Option<DebugD
     };
 
     let mut commands = Vec::new();
+    let mut texts = Vec::new();
     for cmd in debug_req.get_debug() {
         let Some(DebugCommand_oneof_command::draw(draw)) = cmd.command.as_ref() else {
             continue;
         };
-        commands.extend(extract_draw_items(draw));
+        let (draw_commands, draw_texts) = extract_draw_content(draw);
+        commands.extend(draw_commands);
+        texts.extend(draw_texts);
     }
 
-    if commands.is_empty() {
+    if commands.is_empty() && texts.is_empty() {
         return None;
     }
 
     Some(DebugDrawEvent {
         player_id,
         commands,
+        texts,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use protobuf::Message;
 
     #[test]
     fn project_debug_point_matches_map_space() {
@@ -452,5 +599,35 @@ mod tests {
             project_debug_point_3d(Vec3::new(2.0, 3.0, 4.0), (10, 8), 2.0),
             Vec3::new(-6.0, 8.0, -2.0)
         );
+    }
+
+    #[test]
+    fn extracts_virtual_debug_text_without_draw_primitives() {
+        let mut request = Request::new();
+        let mut command = DebugCommand::new();
+        let mut draw = DebugDraw::new();
+        let mut text = sc2_proto::debug::DebugText::new();
+        text.set_text("hello".to_owned());
+        text.set_virtual_pos(Point {
+            x: Some(0.25),
+            y: Some(0.75),
+            ..Default::default()
+        });
+        draw.mut_text().push(text);
+        command.set_draw(draw);
+        request.mut_debug().mut_debug().push(command);
+
+        let raw = request.write_to_bytes().unwrap();
+        let event = debug_draw_from_request(PlayerId::Player2, &raw).unwrap();
+
+        assert!(event.commands.is_empty());
+        assert_eq!(event.texts.len(), 1);
+        assert_eq!(event.texts[0].text, "hello");
+        assert_eq!(event.texts[0].size, 8.0);
+        assert_eq!(event.player_id, PlayerId::Player2);
+        assert!(matches!(
+            event.texts[0].position,
+            DebugTextPosition::Virtual(position) if position == Vec2::new(0.25, 0.75)
+        ));
     }
 }
