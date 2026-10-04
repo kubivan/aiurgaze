@@ -419,7 +419,10 @@ fn main() {
             emit_pending_bot_start.after(proxy_connect_on_docker_ready),
         )
         .add_systems(Update, bot_process_system.after(emit_pending_bot_start))
-        .add_systems(Update, debug_draw_message_system)
+        .add_systems(
+            Update,
+            debug_draw_message_system.after(current_frame_system),
+        )
         .add_systems(Update, update_chat_overlay)
         .add_systems(Update, render_debug_draws_2d.in_set(RenderViewSet::TwoD))
         .add_systems(Update, render_debug_draws_3d.in_set(RenderViewSet::ThreeD))

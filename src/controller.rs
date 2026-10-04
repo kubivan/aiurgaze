@@ -257,6 +257,39 @@ mod tests {
     }
 
     #[test]
+    fn paused_replay_frame_keeps_its_debug_text() {
+        let mut state = LoopPlaybackState::default();
+        let mut frame = ReplayFrame::new(
+            PlayerId::Player1,
+            20,
+            Some(ResponseObservation::new()),
+            None,
+            None,
+        );
+        frame
+            .debug_texts
+            .push(crate::debug_draw::DebugTextPrimitive {
+                text: "frame text".to_owned(),
+                position: crate::debug_draw::DebugTextPosition::Virtual(bevy::prelude::Vec2::new(
+                    0.5, 0.5,
+                )),
+                color: bevy::prelude::Color::WHITE,
+                size: 8.0,
+            });
+        state.history.push_frame(frame);
+        state.mode = LoopPlaybackMode::Paused;
+        state.selected_loop = 20;
+
+        let mut current = CurrentFrame::default();
+        state.apply_rewind_frame(&mut current);
+
+        assert_eq!(
+            current.frame.as_ref().unwrap().debug_texts[0].text,
+            "frame text"
+        );
+    }
+
+    #[test]
     fn loop_playback_navigates_unique_loops_and_resumes() {
         let mut state = LoopPlaybackState::default();
         for loop_id in [10, 10, 20, 20, 30, 30] {

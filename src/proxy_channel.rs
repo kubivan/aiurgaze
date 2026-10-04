@@ -377,6 +377,7 @@ mod tests {
             observation: None,
             game_info: None,
             debug: Some(vec![1, 2, 3]),
+            debug_texts: Vec::new(),
         };
 
         assert_eq!(frame.debug.as_deref(), Some(&[1, 2, 3][..]));

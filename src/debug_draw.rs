@@ -4,7 +4,7 @@ use sc2_proto::common::Point;
 use sc2_proto::debug::{Color as ProtoColor, DebugCommand, DebugCommand_oneof_command, DebugDraw};
 use sc2_proto::sc2api::{Request, Request_oneof_request};
 
-use crate::controller::MapResource;
+use crate::controller::{CurrentFrame, LoopPlaybackMode, LoopPlaybackState, MapResource};
 use crate::map::map_position_3d;
 use crate::proxy_channel::PlayerId;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
@@ -47,7 +47,6 @@ pub struct DebugTextPrimitive {
 pub struct DebugDrawOverlay {
     pub enabled: bool,
     pub commands: Vec<DebugDrawPrimitive>,
-    pub texts: Vec<DebugTextPrimitive>,
 }
 
 impl DebugDrawOverlay {
@@ -193,29 +192,46 @@ pub fn project_debug_point_3d(point: Vec3, map_size: (u32, u32), tile_size: f32)
 pub fn debug_draw_message_system(
     mut events: MessageReader<DebugDrawEvent>,
     mut overlay: ResMut<DebugDrawOverlay>,
+    mut playback: ResMut<LoopPlaybackState>,
+    mut current_frame: ResMut<CurrentFrame>,
 ) {
     let mut all_commands = Vec::new();
     let mut all_texts = Vec::new();
+    let mut received_event = false;
     for event in events.read() {
+        received_event = true;
         all_commands.extend(event.commands.iter().cloned());
         all_texts.extend(event.texts.iter().cloned());
     }
 
     overlay.commands = all_commands;
-    overlay.texts = all_texts;
     overlay.enabled = true;
+
+    if received_event && playback.mode == LoopPlaybackMode::Live {
+        let live_loop = playback.live_loop;
+        if let Some(frame) = playback.history.frame_for_loop_mut(live_loop) {
+            frame.debug_texts.clone_from(&all_texts);
+        }
+        if let Some(frame) = current_frame
+            .frame
+            .as_mut()
+            .filter(|frame| frame.game_loop == live_loop)
+        {
+            frame.debug_texts = all_texts;
+        }
+    }
 }
 
 pub fn render_debug_texts(
     ctx: &egui::Context,
-    overlay: &DebugDrawOverlay,
+    texts: &[DebugTextPrimitive],
     layer_registry: &LayerRegistry,
     map: Option<&MapResource>,
     entity_system: &crate::entity_system::EntitySystem,
     cameras: &Query<(&Camera, &GlobalTransform)>,
     view_mode: RenderViewMode,
 ) {
-    if !overlay.enabled || !layer_registry.is_visible(RenderLayerKind::DebugOverlay) {
+    if !layer_registry.is_visible(RenderLayerKind::DebugOverlay) {
         return;
     }
 
@@ -227,7 +243,7 @@ pub fn render_debug_texts(
     let pre_layout_bounds = viewport.expand(512.0);
     let active_camera = cameras.iter().find(|(camera, _)| camera.is_active);
 
-    for item in &overlay.texts {
+    for item in texts {
         let position = match &item.position {
             DebugTextPosition::Virtual(position) => Some(egui::pos2(
                 viewport.left() + position.x * viewport.width(),

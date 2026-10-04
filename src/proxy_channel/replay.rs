@@ -1,4 +1,5 @@
 use super::{PlayerId, TaggedResponse};
+use crate::debug_draw::DebugTextPrimitive;
 use protobuf::Message;
 use sc2_proto::sc2api::{Response, ResponseGameInfo, ResponseObservation};
 use std::collections::VecDeque;
@@ -12,6 +13,7 @@ pub struct ReplayFrame {
     pub observation: Option<ResponseObservation>,
     pub game_info: Option<ResponseGameInfo>,
     pub debug: Option<Vec<u8>>,
+    pub debug_texts: Vec<DebugTextPrimitive>,
 }
 
 /// Accumulates response data until a step response closes the frame.
@@ -83,6 +85,7 @@ impl ReplayFrame {
             observation,
             game_info,
             debug,
+            debug_texts: Vec::new(),
         }
     }
 
@@ -122,6 +125,7 @@ impl ReplayFrame {
             observation,
             game_info,
             debug,
+            debug_texts: Vec::new(),
         }
     }
 }
@@ -170,6 +174,13 @@ impl ReplayBuffer {
 
     pub fn latest_frame(&self) -> Option<&ReplayFrame> {
         self.frames.back()
+    }
+
+    pub fn frame_for_loop_mut(&mut self, loop_id: u32) -> Option<&mut ReplayFrame> {
+        self.frames
+            .iter_mut()
+            .rev()
+            .find(|frame| frame.game_loop == loop_id && frame.observation.is_some())
     }
 
     pub fn clear(&mut self) {
