@@ -5,7 +5,7 @@ use sc2_proto::debug::{Color as ProtoColor, DebugCommand, DebugCommand_oneof_com
 use sc2_proto::sc2api::{Request, Request_oneof_request};
 
 use crate::controller::{CurrentFrame, LoopPlaybackMode, LoopPlaybackState, MapResource};
-use crate::map::map_position_3d;
+use crate::map::{map_position_2d, map_position_3d};
 use crate::proxy_channel::PlayerId;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::render_view::RenderViewMode;
@@ -178,11 +178,12 @@ fn project_point(point: &Point) -> Vec3 {
 }
 
 pub fn project_debug_point(point: &Point, map_size: (u32, u32), tile_size: f32) -> Vec2 {
-    let x = point.get_x();
-    let y = point.get_y();
-    let world_x = x * tile_size - (map_size.0 as f32) * tile_size / 2.0;
-    let world_y = y * tile_size - (map_size.1 as f32) * tile_size / 2.0;
-    Vec2::new(world_x, world_y)
+    map_position_2d(
+        point.get_x(),
+        point.get_y(),
+        (map_size.0 as f32, map_size.1 as f32),
+        tile_size,
+    )
 }
 
 pub fn project_debug_point_3d(point: Vec3, map_size: (u32, u32), tile_size: f32) -> Vec3 {

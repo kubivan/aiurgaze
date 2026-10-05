@@ -188,6 +188,13 @@ pub fn terrain_height_to_world_y(value: u8, tile_size: f32, height_scale: f32) -
     (value as f32 - 128.0) * tile_size / 8.0 * height_scale
 }
 
+pub fn map_position_2d(x: f32, y: f32, map_size: (f32, f32), tile_size: f32) -> Vec2 {
+    Vec2::new(
+        x * tile_size - map_size.0 * tile_size / 2.0,
+        y * tile_size - map_size.1 * tile_size / 2.0,
+    )
+}
+
 pub fn map_position_3d(x: f32, y: f32, z: f32, map_size: (u32, u32), tile_size: f32) -> Vec3 {
     Vec3::new(
         x * tile_size - map_size.0 as f32 * tile_size / 2.0,
@@ -287,8 +294,16 @@ pub fn build_terrain_mesh(
 
 #[cfg(test)]
 mod tests {
-    use super::{map_position_3d, terrain_height_to_world_y};
-    use bevy::prelude::Vec3;
+    use super::{map_position_2d, map_position_3d, terrain_height_to_world_y};
+    use bevy::prelude::{Vec2, Vec3};
+
+    #[test]
+    fn map_position_2d_uses_centered_tilemap_coordinates() {
+        assert_eq!(
+            map_position_2d(0.5, 0.5, (10.0, 8.0), 2.0),
+            Vec2::new(-9.0, -7.0)
+        );
+    }
 
     #[test]
     fn map_position_centers_horizontal_axes_and_preserves_elevation() {

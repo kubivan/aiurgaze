@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::controller::MapResource;
 use crate::entity_system::EntitySystem;
-use crate::map::map_position_3d;
+use crate::map::{map_position_2d, map_position_3d};
 use crate::render_layers::ViewModeVisibility;
 use crate::render_view::RenderViewMode;
 use bevy_health_bar3d::prelude::*;
@@ -208,8 +208,7 @@ pub fn handle_observation(
         let build_progress = unit.build_progress.unwrap_or(0.0);
         let unit_type = unit.unit_type.unwrap();
         let tile_size = entity_system.map_config.tile_size;
-        let world_x = x * tile_size - map_size.0 * tile_size / 2.0;
-        let world_y = y * tile_size - map_size.1 * tile_size / 2.0;
+        let world_position = map_position_2d(x, y, map_size, tile_size);
 
         let unit_radius = unit.radius.unwrap_or(1.0);
 
@@ -232,7 +231,7 @@ pub fn handle_observation(
 
         if let Some(&entity) = registry.map.get(&tag) {
             commands.entity(entity).insert((
-                Transform::from_xyz(world_x, world_y, 1.0),
+                Transform::from_xyz(world_position.x, world_position.y, 1.0),
                 UnitHealth {
                     current: health,
                     max: max_health,
@@ -284,7 +283,7 @@ pub fn handle_observation(
                         color: sprite_color,
                         ..default()
                     },
-                    Transform::from_xyz(world_x, world_y, 1.0),
+                    Transform::from_xyz(world_position.x, world_position.y, 1.0),
                     UnitTag(tag),
                     UnitType(unit_type),
                     UnitHealth {
@@ -700,10 +699,10 @@ pub fn draw_unit_orders_2d(
     use sc2_proto::raw::UnitOrder_oneof_target;
 
     let tile_size = entity_system.map_config.tile_size;
-    let map_size = map_resource
-        .as_ref()
-        .map(|map| map.static_layers.get_dimensions())
-        .unwrap_or((200, 176));
+    let Some(map_resource) = map_resource else {
+        return;
+    };
+    let map_size = map_resource.static_layers.get_dimensions();
 
     for (transform, proto) in unit_query
         .iter()
@@ -717,13 +716,12 @@ pub fn draw_unit_orders_2d(
         match order.target.as_ref() {
             Some(UnitOrder_oneof_target::target_world_space_pos(point)) => {
                 // Target is a position
-                let target_x = point.x.unwrap_or(0.0);
-                let target_y = point.y.unwrap_or(0.0);
-
-                // Convert SC2 coordinates to world coordinates
-                let world_x = target_x * tile_size - map_size.0 as f32 * tile_size / 2.0;
-                let world_y = target_y * tile_size - map_size.1 as f32 * tile_size / 2.0;
-                let end_pos = Vec2::new(world_x, world_y);
+                let end_pos = map_position_2d(
+                    point.x.unwrap_or(0.0),
+                    point.y.unwrap_or(0.0),
+                    (map_size.0 as f32, map_size.1 as f32),
+                    tile_size,
+                );
 
                 // Draw dashed line to position target
                 draw_dashed_line(
