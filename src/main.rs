@@ -42,7 +42,6 @@ use crate::controller::{
 };
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws_2d, render_debug_draws_3d, DebugDrawEvent,
-    DebugDrawOverlay,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::map::{terrain_height_to_world_y, Terrain3dMeshDirty, Terrain3dSettings};
@@ -365,7 +364,6 @@ fn main() {
         .insert_resource(ProxyReadyResource::default())
         .insert_resource(PendingBotStart::default())
         .insert_resource(FogOfWarData::default())
-        .insert_resource(DebugDrawOverlay::default())
         .insert_resource(ChatOverlay::default())
         .insert_resource(LayerRegistry::default())
         .insert_resource(UnitCompositionVisibility::default())

@@ -1,5 +1,5 @@
 use super::{PlayerId, TaggedResponse};
-use crate::debug_draw::DebugTextPrimitive;
+use crate::debug_draw::{DebugDrawPrimitive, DebugTextPrimitive};
 use protobuf::Message;
 use sc2_proto::sc2api::{Response, ResponseGameInfo, ResponseObservation};
 use std::collections::VecDeque;
@@ -13,6 +13,7 @@ pub struct ReplayFrame {
     pub observation: Option<ResponseObservation>,
     pub game_info: Option<ResponseGameInfo>,
     pub debug: Option<Vec<u8>>,
+    pub debug_draws: Vec<DebugDrawPrimitive>,
     pub debug_texts: Vec<DebugTextPrimitive>,
 }
 
@@ -85,6 +86,7 @@ impl ReplayFrame {
             observation,
             game_info,
             debug,
+            debug_draws: Vec::new(),
             debug_texts: Vec::new(),
         }
     }
@@ -125,6 +127,7 @@ impl ReplayFrame {
             observation,
             game_info,
             debug,
+            debug_draws: Vec::new(),
             debug_texts: Vec::new(),
         }
     }

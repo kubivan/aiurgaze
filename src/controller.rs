@@ -267,6 +267,13 @@ mod tests {
             None,
         );
         frame
+            .debug_draws
+            .push(crate::debug_draw::DebugDrawPrimitive::Line {
+                start: bevy::prelude::Vec3::ZERO,
+                end: bevy::prelude::Vec3::X,
+                color: bevy::prelude::Color::WHITE,
+            });
+        frame
             .debug_texts
             .push(crate::debug_draw::DebugTextPrimitive {
                 text: "frame text".to_owned(),
@@ -287,6 +294,11 @@ mod tests {
             current.frame.as_ref().unwrap().debug_texts[0].text,
             "frame text"
         );
+        assert!(matches!(
+            &current.frame.as_ref().unwrap().debug_draws[0],
+            crate::debug_draw::DebugDrawPrimitive::Line { start, end, .. }
+                if *start == bevy::prelude::Vec3::ZERO && *end == bevy::prelude::Vec3::X
+        ));
     }
 
     #[test]

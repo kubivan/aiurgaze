@@ -2,7 +2,7 @@ use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::chat_overlay::ChatOverlay;
 use crate::controller::{CurrentFrame, MapResource, PlayerResources, ProtocolActivityState};
-use crate::debug_draw::{render_debug_texts, DebugDrawOverlay};
+use crate::debug_draw::render_debug_texts;
 use crate::entity_system::EntitySystem;
 use crate::map::Terrain3dSettings;
 use crate::observation_pipeline::VisionMode;
@@ -30,7 +30,6 @@ pub(crate) struct HudParams<'w, 's> {
     activity: Res<'w, ProtocolActivityState>,
     player_res: Res<'w, PlayerResources>,
     chat_overlay: Res<'w, ChatOverlay>,
-    debug_overlay: Res<'w, DebugDrawOverlay>,
     map: Option<Res<'w, MapResource>>,
     entity_system: Res<'w, EntitySystem>,
     current_frame: Res<'w, CurrentFrame>,

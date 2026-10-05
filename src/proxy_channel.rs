@@ -377,6 +377,7 @@ mod tests {
             observation: None,
             game_info: None,
             debug: Some(vec![1, 2, 3]),
+            debug_draws: Vec::new(),
             debug_texts: Vec::new(),
         };
 

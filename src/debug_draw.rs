@@ -43,18 +43,6 @@ pub struct DebugTextPrimitive {
     pub size: f32,
 }
 
-#[derive(Resource, Default, Clone)]
-pub struct DebugDrawOverlay {
-    pub enabled: bool,
-    pub commands: Vec<DebugDrawPrimitive>,
-}
-
-impl DebugDrawOverlay {
-    pub fn set_commands(&mut self, commands: Vec<DebugDrawPrimitive>) {
-        self.commands = commands;
-    }
-}
-
 #[derive(Message, Clone)]
 pub struct DebugDrawEvent {
     pub player_id: PlayerId,
@@ -192,7 +180,6 @@ pub fn project_debug_point_3d(point: Vec3, map_size: (u32, u32), tile_size: f32)
 
 pub fn debug_draw_message_system(
     mut events: MessageReader<DebugDrawEvent>,
-    mut overlay: ResMut<DebugDrawOverlay>,
     mut playback: ResMut<LoopPlaybackState>,
     mut current_frame: ResMut<CurrentFrame>,
 ) {
@@ -205,12 +192,10 @@ pub fn debug_draw_message_system(
         all_texts.extend(event.texts.iter().cloned());
     }
 
-    overlay.commands = all_commands;
-    overlay.enabled = true;
-
     if received_event && playback.mode == LoopPlaybackMode::Live {
         let live_loop = playback.live_loop;
         if let Some(frame) = playback.history.frame_for_loop_mut(live_loop) {
+            frame.debug_draws.clone_from(&all_commands);
             frame.debug_texts.clone_from(&all_texts);
         }
         if let Some(frame) = current_frame
@@ -218,6 +203,7 @@ pub fn debug_draw_message_system(
             .as_mut()
             .filter(|frame| frame.game_loop == live_loop)
         {
+            frame.debug_draws = all_commands;
             frame.debug_texts = all_texts;
         }
     }
@@ -301,14 +287,14 @@ pub fn render_debug_texts(
 
 pub fn render_debug_draws_2d(
     gizmos: Gizmos,
-    overlay: Res<DebugDrawOverlay>,
+    current_frame: Res<CurrentFrame>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
 ) {
     render_debug_draws_for_view(
         gizmos,
-        overlay,
+        current_frame,
         layer_registry,
         map,
         entity_system,
@@ -318,14 +304,14 @@ pub fn render_debug_draws_2d(
 
 pub fn render_debug_draws_3d(
     gizmos: Gizmos,
-    overlay: Res<DebugDrawOverlay>,
+    current_frame: Res<CurrentFrame>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
 ) {
     render_debug_draws_for_view(
         gizmos,
-        overlay,
+        current_frame,
         layer_registry,
         map,
         entity_system,
@@ -335,7 +321,7 @@ pub fn render_debug_draws_3d(
 
 fn render_debug_draws_for_view(
     mut gizmos: Gizmos,
-    overlay: Res<DebugDrawOverlay>,
+    current_frame: Res<CurrentFrame>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
@@ -343,18 +329,21 @@ fn render_debug_draws_for_view(
 ) {
     if map.is_none()
         || entity_system.is_none()
-        || !overlay.enabled
         || !layer_registry.is_visible(RenderLayerKind::DebugOverlay)
     {
         return;
     }
+
+    let Some(frame) = current_frame.frame.as_ref() else {
+        return;
+    };
 
     let map = map.unwrap();
     let entity_system = entity_system.unwrap();
     let map_size = map.static_layers.get_dimensions();
     let tile_size = entity_system.map_config.tile_size;
 
-    for item in &overlay.commands {
+    for item in &frame.debug_draws {
         match item {
             DebugDrawPrimitive::Line { start, end, color } => {
                 if view_mode == RenderViewMode::ThreeD {
