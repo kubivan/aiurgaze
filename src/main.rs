@@ -98,8 +98,7 @@ fn start_server_container(
 
     // Get absolute path to maps directory
     let maps_dir = get_maps_dir();
-    let maps_mount = format!("{}:/StarCraftII/maps", maps_dir.display());
-
+    let maps_mount = format!("{}:/StarCraftII/maps:ro,z", maps_dir.display());
     // Build port mappings, env vars, and multiplayer ports
     let port1_map = format!(
         "{}:{}",
