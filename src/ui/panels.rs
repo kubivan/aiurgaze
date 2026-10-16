@@ -13,7 +13,7 @@ use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::ui::DockerStatus;
 use crate::ui::{
     render_start_screen, AppState, GameConfigPanel, GameCreated, PendingBotStart,
-    PendingCreateGameRequest, VisionModeChannel,
+    PendingCreateGameRequest, ReplaySelection, StartScreenPanel, VisionModeChannel,
 };
 use crate::units::{
     CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
@@ -35,6 +35,8 @@ pub(crate) struct HudParams<'w, 's> {
     cameras: Query<'w, 's, (&'static Camera, &'static GlobalTransform)>,
     render_view_mode: ResMut<'w, RenderViewMode>,
     terrain_3d_settings: ResMut<'w, Terrain3dSettings>,
+    start_screen: ResMut<'w, StartScreenPanel>,
+    replay_selection: ResMut<'w, ReplaySelection>,
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
 }
 
@@ -196,6 +198,8 @@ pub fn ui_system(
             &mut pending_request,
             &app_settings,
             &mut pending_bot_start,
+            &mut hud.start_screen,
+            &mut hud.replay_selection,
         ),
         AppState::GameScreen => render_game_screen(
             &mut viewport_ui,

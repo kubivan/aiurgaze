@@ -1,4 +1,4 @@
-use crate::app_settings::AppSettings;
+use crate::app_settings::{get_replays_dir, AppSettings};
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::ui::{
     build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
@@ -6,9 +6,60 @@ use crate::ui::{
 };
 use bevy::prelude::*;
 use bevy_egui::egui;
+use std::fs;
 
 const CYAN: egui::Color32 = egui::Color32::from_rgb(76, 205, 238);
 const MUTED: egui::Color32 = egui::Color32::from_rgb(130, 157, 177);
+
+#[derive(Resource, Default)]
+pub(crate) struct StartScreenPanel {
+    page: StartScreenPage,
+}
+
+#[derive(Default, Clone, Copy)]
+enum StartScreenPage {
+    #[default]
+    Home,
+    CreateMatch,
+    WatchReplay,
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct ReplaySelection {
+    available_replays: Vec<String>,
+    selected_replay: Option<String>,
+}
+
+impl ReplaySelection {
+    fn refresh(&mut self) {
+        let replay_dir = get_replays_dir();
+        self.available_replays = match fs::read_dir(&replay_dir) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        return None;
+                    }
+                    let extension = path.extension()?.to_str()?;
+                    extension
+                        .eq_ignore_ascii_case("SC2Replay")
+                        .then(|| path.file_name()?.to_str().map(str::to_owned))
+                        .flatten()
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        self.available_replays.sort_unstable();
+        if !self
+            .selected_replay
+            .as_ref()
+            .is_some_and(|selected| self.available_replays.contains(selected))
+        {
+            self.selected_replay = self.available_replays.first().cloned();
+        }
+    }
+}
 
 pub(crate) fn render_start_screen(
     ui: &mut egui::Ui,
@@ -18,6 +69,8 @@ pub(crate) fn render_start_screen(
     pending_request: &mut ResMut<PendingCreateGameRequest>,
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
+    start_screen: &mut ResMut<StartScreenPanel>,
+    replay_selection: &mut ResMut<ReplaySelection>,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
@@ -38,7 +91,7 @@ pub(crate) fn render_start_screen(
                             ui.add_space(18.0);
                             render_masthead(ui);
                             ui.add_space(24.0);
-                            render_launch_layout(
+                            render_start_screen_layout(
                                 ui,
                                 game_config_panel,
                                 app_state,
@@ -46,6 +99,8 @@ pub(crate) fn render_start_screen(
                                 pending_request,
                                 app_settings,
                                 pending_bot_start,
+                                start_screen,
+                                replay_selection,
                             );
                         },
                     );
@@ -158,7 +213,7 @@ fn render_masthead(ui: &mut egui::Ui) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_launch_layout(
+fn render_start_screen_layout(
     ui: &mut egui::Ui,
     game_config_panel: &mut GameConfigPanel,
     app_state: &mut ResMut<AppState>,
@@ -166,6 +221,8 @@ fn render_launch_layout(
     pending_request: &mut ResMut<PendingCreateGameRequest>,
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
+    start_screen: &mut ResMut<StartScreenPanel>,
+    replay_selection: &mut ResMut<ReplaySelection>,
 ) {
     let available_width = ui.available_width();
     let left_width = (available_width * 0.36).clamp(250.0, 390.0);
@@ -193,51 +250,61 @@ fn render_launch_layout(
                     .inner_margin(egui::Margin::same(20))
                     .show(ui, |ui| {
                         ui.set_min_width(right_width - 40.0);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new("01")
-                                    .color(CYAN)
-                                    .size(11.0)
-                                    .strong(),
-                            );
-                            ui.label(
-                                egui::RichText::new("MISSION CONFIGURATION")
-                                    .color(egui::Color32::from_rgb(220, 233, 241))
-                                    .size(15.0)
-                                    .strong(),
-                            );
-                        });
-                        ui.label(
-                            egui::RichText::new("Define the battlefield and initialize a session.")
-                                .color(MUTED)
-                                .size(11.0),
-                        );
-                        ui.add_space(14.0);
-                        ui.separator();
+                        match start_screen.page {
+                            StartScreenPage::Home => render_home_panel(
+                                ui,
+                                start_screen,
+                                replay_selection,
+                            ),
+                            StartScreenPage::CreateMatch => {
+                                render_card_heading(ui, "01", "MISSION CONFIGURATION");
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Define the battlefield and initialize a session.",
+                                    )
+                                    .color(MUTED)
+                                    .size(11.0),
+                                );
+                                ui.add_space(14.0);
+                                ui.separator();
 
-                        let scroll_height = (available_height - 130.0).max(140.0);
-                        egui::ScrollArea::vertical()
-                            .max_height(scroll_height)
-                            .show(ui, |ui| {
-                                if show_game_config_panel(ui, game_config_panel) {
-                                    match build_create_game_request(game_config_panel) {
-                                        Ok(request) => {
-                                            println!("!!! CreateGame request: req={request:?}");
-                                            pending_request.0 = Some(request);
-                                            game_created.0 = true;
-                                            **app_state = AppState::GameScreen;
-                                            pending_bot_start.0 = build_pending_bot_start(
-                                                game_config_panel,
-                                                app_settings.starcraft.listen_port,
-                                            );
+                                let scroll_height = (available_height - 174.0).max(140.0);
+                                egui::ScrollArea::vertical()
+                                    .max_height(scroll_height)
+                                    .show(ui, |ui| {
+                                        if show_game_config_panel(ui, game_config_panel) {
+                                            match build_create_game_request(game_config_panel) {
+                                                Ok(request) => {
+                                                    println!(
+                                                        "!!! CreateGame request: req={request:?}"
+                                                    );
+                                                    pending_request.0 = Some(request);
+                                                    game_created.0 = true;
+                                                    **app_state = AppState::GameScreen;
+                                                    pending_bot_start.0 =
+                                                        build_pending_bot_start(
+                                                            game_config_panel,
+                                                            app_settings
+                                                                .starcraft
+                                                                .listen_port,
+                                                        );
+                                                }
+                                                Err(error) => {
+                                                    eprintln!("Create game failed: {error}");
+                                                    game_config_panel.error_message = Some(error);
+                                                }
+                                            }
                                         }
-                                        Err(error) => {
-                                            eprintln!("Create game failed: {error}");
-                                            game_config_panel.error_message = Some(error);
-                                        }
-                                    }
+                                    });
+                                ui.add_space(8.0);
+                                if ui.button("‹  BACK TO COMMAND DECK").clicked() {
+                                    start_screen.page = StartScreenPage::Home;
                                 }
-                            });
+                            }
+                            StartScreenPage::WatchReplay => {
+                                render_replay_panel(ui, start_screen, replay_selection);
+                            }
+                        }
                     });
             },
         );
@@ -277,6 +344,138 @@ fn render_welcome_panel(ui: &mut egui::Ui) {
     render_feature_line(ui, "02", "TACTICAL OVERLAYS", "Inspect terrain, vision, and units.");
     ui.add_space(14.0);
     render_feature_line(ui, "03", "BOT ARENA", "Run one or two local bot processes.");
+}
+
+fn render_home_panel(
+    ui: &mut egui::Ui,
+    start_screen: &mut StartScreenPanel,
+    replay_selection: &mut ReplaySelection,
+) {
+    render_card_heading(ui, "00", "COMMAND OPTIONS");
+    ui.label(
+        egui::RichText::new("Choose how you want to enter the battlefield.")
+            .color(MUTED)
+            .size(11.0),
+    );
+    ui.add_space(18.0);
+
+    if ui
+        .add_sized(
+            egui::vec2(ui.available_width(), 48.0),
+            themed_button("CREATE MATCH"),
+        )
+        .clicked()
+    {
+        start_screen.page = StartScreenPage::CreateMatch;
+    }
+    ui.add_space(8.0);
+    if ui
+        .add_sized(
+            egui::vec2(ui.available_width(), 48.0),
+            themed_button("WATCH REPLAY"),
+        )
+        .clicked()
+    {
+        replay_selection.refresh();
+        start_screen.page = StartScreenPage::WatchReplay;
+    }
+    ui.add_space(8.0);
+    if ui
+        .add_sized(
+            egui::vec2(ui.available_width(), 42.0),
+            egui::Button::new(
+                egui::RichText::new("EXIT")
+                    .color(MUTED)
+                    .size(12.0)
+                    .strong(),
+            ),
+        )
+        .clicked()
+    {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
+fn render_replay_panel(
+    ui: &mut egui::Ui,
+    start_screen: &mut StartScreenPanel,
+    replay_selection: &mut ReplaySelection,
+) {
+    render_card_heading(ui, "02", "WATCH REPLAY");
+    ui.label(
+        egui::RichText::new("Select a replay file to watch.")
+            .color(MUTED)
+            .size(11.0),
+    );
+    ui.add_space(16.0);
+    ui.label(
+        egui::RichText::new("REPLAY FILE")
+            .color(egui::Color32::from_rgb(142, 171, 190))
+            .size(9.0)
+            .strong(),
+    );
+
+    if replay_selection.available_replays.is_empty() {
+        ui.label(
+            egui::RichText::new(format!(
+                "No .SC2Replay files found in {}",
+                get_replays_dir().display()
+            ))
+            .color(egui::Color32::from_rgb(255, 194, 86))
+            .size(11.0),
+        );
+    } else {
+        egui::ComboBox::from_id_salt("replay_file_combo")
+            .selected_text(
+                replay_selection
+                    .selected_replay
+                    .as_deref()
+                    .unwrap_or("Select replay"),
+            )
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for replay in &replay_selection.available_replays {
+                    ui.selectable_value(
+                        &mut replay_selection.selected_replay,
+                        Some(replay.clone()),
+                        replay,
+                    );
+                }
+            });
+    }
+
+    ui.add_space(12.0);
+    if ui.button("↻  REFRESH REPLAY LIST").clicked() {
+        replay_selection.refresh();
+    }
+    ui.add_space(12.0);
+    ui.separator();
+    if ui.button("‹  BACK TO COMMAND DECK").clicked() {
+        start_screen.page = StartScreenPage::Home;
+    }
+}
+
+fn render_card_heading(ui: &mut egui::Ui, number: &str, title: &str) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(number).color(CYAN).size(11.0).strong());
+        ui.label(
+            egui::RichText::new(title)
+                .color(egui::Color32::from_rgb(220, 233, 241))
+                .size(15.0)
+                .strong(),
+        );
+    });
+}
+
+fn themed_button(label: &str) -> egui::Button<'_> {
+    egui::Button::new(
+        egui::RichText::new(label)
+            .color(egui::Color32::from_rgb(4, 17, 24))
+            .size(13.0)
+            .strong(),
+    )
+    .fill(CYAN)
 }
 
 fn render_feature_line(ui: &mut egui::Ui, number: &str, title: &str, detail: &str) {

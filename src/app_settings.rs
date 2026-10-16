@@ -45,6 +45,11 @@ pub fn get_maps_dir() -> PathBuf {
     local_or_xdg_fallback("maps")
 }
 
+/// Get the replay directory path
+pub fn get_replays_dir() -> PathBuf {
+    local_or_xdg_fallback("replays")
+}
+
 /// Get the config file path (for config.toml next to binary, not in config/)
 pub fn get_config_path() -> PathBuf {
     local_or_xdg_fallback("config.toml")

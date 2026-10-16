@@ -16,5 +16,5 @@ pub(crate) use game_config_panel::{show_game_config_panel, GameConfigPanel, Game
 pub(crate) use hud::DockerStatus;
 pub(crate) use panels::ui_system;
 pub(crate) use state::{AppState, GameCreated, PendingBotStart, PendingCreateGameRequest};
-pub(crate) use start_screen::render_start_screen;
+pub(crate) use start_screen::{render_start_screen, ReplaySelection, StartScreenPanel};
 pub(crate) use vision_mode::VisionModeChannel;
