@@ -1,4 +1,5 @@
 use crate::app_settings::{get_maps_dir, GameConfigPanelDefaults};
+use crate::ui::start_screen::beveled_button;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::common::Race;
@@ -99,7 +100,7 @@ pub fn list_maps_folder() -> Vec<String> {
 pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) -> bool {
     ui.label(
         egui::RichText::new("BATTLE PARAMETERS")
-            .color(egui::Color32::from_rgb(76, 205, 238))
+            .color(egui::Color32::from_rgb(105, 166, 213))
             .size(10.0)
             .strong(),
     );
@@ -208,7 +209,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
     ui.add_space(8.0);
     ui.label(
         egui::RichText::new("SESSION OPTIONS")
-            .color(egui::Color32::from_rgb(76, 205, 238))
+            .color(egui::Color32::from_rgb(105, 166, 213))
             .size(10.0)
             .strong(),
     );
@@ -241,18 +242,14 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         );
         ui.add_space(5.0);
     }
-    let create_clicked = ui
-        .add_enabled(
-            can_create_game,
-            egui::Button::new(
-                egui::RichText::new("INITIALIZE SIMULATION  ›")
-                    .color(egui::Color32::from_rgb(4, 17, 24))
-                    .size(13.0)
-                    .strong(),
-            )
-            .min_size(egui::vec2(ui.available_width(), 44.0)),
-        )
-        .clicked();
+    let create_clicked = beveled_button(
+        ui,
+        "INITIALIZE SIMULATION  >",
+        egui::vec2(ui.available_width(), 44.0),
+        can_create_game,
+        true,
+    )
+    .clicked();
     if create_clicked {
         panel.error_message = None;
     }

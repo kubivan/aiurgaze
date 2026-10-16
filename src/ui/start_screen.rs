@@ -8,8 +8,11 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use std::fs;
 
-const CYAN: egui::Color32 = egui::Color32::from_rgb(76, 205, 238);
-const MUTED: egui::Color32 = egui::Color32::from_rgb(130, 157, 177);
+const BLUE: egui::Color32 = egui::Color32::from_rgb(105, 166, 213);
+const ICE: egui::Color32 = egui::Color32::from_rgb(205, 224, 238);
+const MUTED: egui::Color32 = egui::Color32::from_rgb(137, 159, 180);
+const INK: egui::Color32 = egui::Color32::from_rgb(5, 10, 20);
+const ACTION_BUTTON_HEIGHT: f32 = 44.0;
 
 #[derive(Resource, Default)]
 pub(crate) struct StartScreenPanel {
@@ -112,58 +115,59 @@ pub(crate) fn render_start_screen(
 fn apply_terminal_theme(ui: &mut egui::Ui) {
     let style = ui.style_mut();
     style.visuals = egui::Visuals::dark();
-    style.visuals.panel_fill = egui::Color32::from_rgb(6, 12, 20);
-    style.visuals.window_fill = egui::Color32::from_rgb(10, 19, 29);
-    style.visuals.faint_bg_color = egui::Color32::from_rgb(14, 27, 39);
-    style.visuals.extreme_bg_color = egui::Color32::from_rgb(5, 10, 16);
-    style.visuals.text_edit_bg_color = Some(egui::Color32::from_rgb(7, 15, 23));
-    style.visuals.selection.bg_fill = egui::Color32::from_rgb(17, 88, 115);
-    style.visuals.selection.stroke = egui::Stroke::new(1.0, CYAN);
+    style.visuals.panel_fill = INK;
+    style.visuals.window_fill = egui::Color32::from_rgb(11, 17, 31);
+    style.visuals.faint_bg_color = egui::Color32::from_rgb(18, 32, 54);
+    style.visuals.extreme_bg_color = egui::Color32::from_rgb(4, 8, 16);
+    style.visuals.text_edit_bg_color = Some(egui::Color32::from_rgb(5, 12, 25));
+    style.visuals.selection.bg_fill = egui::Color32::from_rgb(30, 75, 120);
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, BLUE);
     style.visuals.widgets.noninteractive.fg_stroke.color =
-        egui::Color32::from_rgb(205, 221, 232);
-    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(12, 25, 36);
+        egui::Color32::from_rgb(205, 219, 231);
+    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(10, 20, 37);
     style.visuals.widgets.inactive.bg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(45, 75, 94));
-    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(17, 48, 65);
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, CYAN);
-    style.visuals.widgets.active.bg_fill = egui::Color32::from_rgb(20, 70, 88);
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, CYAN);
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 75, 111));
+    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(22, 48, 78);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, BLUE);
+    style.visuals.widgets.active.bg_fill = egui::Color32::from_rgb(27, 57, 89);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, BLUE);
     style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-    style.spacing.button_padding = egui::vec2(12.0, 8.0);
+    style.spacing.button_padding = egui::vec2(10.0, 6.0);
 }
 
 fn paint_backdrop(ui: &egui::Ui) {
     let rect = ui.max_rect();
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(6, 12, 20));
+    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(5, 9, 20));
 
-    let grid = egui::Color32::from_rgba_unmultiplied(42, 83, 105, 24);
-    let spacing = 56.0;
-    let mut x = rect.left();
-    while x < rect.right() {
-        painter.line_segment(
-            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-            egui::Stroke::new(1.0, grid),
+    let glow_center = egui::pos2(rect.left() + rect.width() * 0.23, rect.bottom() - 26.0);
+    for layer in (1..=12).rev() {
+        let radius = rect.width().min(rect.height()) * layer as f32 * 0.085;
+        let alpha = (14 - layer).max(1) as u8 * 3;
+        painter.circle_filled(
+            glow_center,
+            radius,
+            egui::Color32::from_rgba_unmultiplied(20, 93, 180, alpha),
         );
-        x += spacing;
     }
-    let mut y = rect.top();
-    while y < rect.bottom() {
-        painter.line_segment(
-            [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-            egui::Stroke::new(1.0, grid),
-        );
-        y += spacing;
-    }
+    let horizon = rect.bottom() - rect.height() * 0.22;
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(rect.left(), horizon),
+            egui::pos2(rect.right(), horizon + rect.height() * 0.12),
+        ),
+        0.0,
+        egui::Color32::from_rgba_unmultiplied(16, 73, 144, 25),
+    );
 
-    for index in 0..46 {
+    for index in 0..88 {
         let x = rect.left() + ((index * 73 % 997) as f32 / 997.0) * rect.width();
         let y = rect.top() + ((index * 193 % 991) as f32 / 991.0) * rect.height();
-        let alpha = 35 + (index % 4) as u8 * 18;
+        let alpha = 30 + (index % 4) as u8 * 18;
         painter.circle_filled(
             egui::pos2(x, y),
-            if index % 7 == 0 { 1.8 } else { 1.0 },
-            egui::Color32::from_rgba_unmultiplied(115, 205, 229, alpha),
+            if index % 9 == 0 { 1.5 } else { 0.9 },
+            egui::Color32::from_rgba_unmultiplied(187, 204, 231, alpha),
         );
     }
 
@@ -172,17 +176,17 @@ fn paint_backdrop(ui: &egui::Ui) {
             egui::pos2(rect.left(), rect.bottom() - 1.0),
             egui::pos2(rect.right(), rect.bottom() - 1.0),
         ],
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(29, 74, 96)),
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(37, 66, 105)),
     );
 }
 
 fn render_masthead(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("◈").color(CYAN).size(24.0).strong());
+        ui.label(egui::RichText::new("◈").color(BLUE).size(24.0).strong());
         ui.vertical(|ui| {
             ui.label(
                 egui::RichText::new("AIURGAZE")
-                    .color(egui::Color32::from_rgb(224, 237, 245))
+                    .color(ICE)
                     .size(19.0)
                     .strong(),
             );
@@ -196,7 +200,7 @@ fn render_masthead(ui: &mut egui::Ui) {
         ui.add_space(30.0);
         ui.label(
             egui::RichText::new("LOCAL COMMAND // READY")
-                .color(CYAN)
+                .color(BLUE)
                 .size(10.0)
                 .strong(),
         );
@@ -208,7 +212,7 @@ fn render_masthead(ui: &mut egui::Ui) {
     );
     ui.painter().line_segment(
         [line.left_top(), line.right_top()],
-        egui::Stroke::new(1.0, CYAN),
+        egui::Stroke::new(1.0, BLUE),
     );
 }
 
@@ -241,10 +245,10 @@ fn render_start_screen_layout(
             |ui| {
                 let available_height = ui.available_height();
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(9, 18, 28))
+                    .fill(egui::Color32::from_rgb(10, 16, 29))
                     .stroke(egui::Stroke::new(
                         1.0,
-                        egui::Color32::from_rgb(45, 91, 114),
+                        egui::Color32::from_rgb(47, 72, 111),
                     ))
                     .corner_radius(egui::CornerRadius::same(4))
                     .inner_margin(egui::Margin::same(20))
@@ -297,7 +301,15 @@ fn render_start_screen_layout(
                                         }
                                     });
                                 ui.add_space(8.0);
-                                if ui.button("‹  BACK TO COMMAND DECK").clicked() {
+                                if beveled_button(
+                                    ui,
+                                    "‹  BACK TO COMMAND DECK",
+                                    egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+                                    true,
+                                    false,
+                                )
+                                .clicked()
+                                {
                                     start_screen.page = StartScreenPage::Home;
                                 }
                             }
@@ -315,7 +327,7 @@ fn render_welcome_panel(ui: &mut egui::Ui) {
     ui.add_space(20.0);
     ui.label(
         egui::RichText::new("COMMAND DECK  /  01")
-            .color(CYAN)
+            .color(BLUE)
             .size(10.0)
             .strong(),
     );
@@ -359,38 +371,39 @@ fn render_home_panel(
     );
     ui.add_space(18.0);
 
-    if ui
-        .add_sized(
-            egui::vec2(ui.available_width(), 48.0),
-            themed_button("CREATE MATCH"),
-        )
-        .clicked()
+    if beveled_button(
+        ui,
+        "CREATE MATCH",
+        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+        true,
+        true,
+    )
+    .clicked()
     {
         start_screen.page = StartScreenPage::CreateMatch;
     }
     ui.add_space(8.0);
-    if ui
-        .add_sized(
-            egui::vec2(ui.available_width(), 48.0),
-            themed_button("WATCH REPLAY"),
-        )
-        .clicked()
+    if beveled_button(
+        ui,
+        "WATCH REPLAY",
+        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+        true,
+        true,
+    )
+    .clicked()
     {
         replay_selection.refresh();
         start_screen.page = StartScreenPage::WatchReplay;
     }
     ui.add_space(8.0);
-    if ui
-        .add_sized(
-            egui::vec2(ui.available_width(), 42.0),
-            egui::Button::new(
-                egui::RichText::new("EXIT")
-                    .color(MUTED)
-                    .size(12.0)
-                    .strong(),
-            ),
-        )
-        .clicked()
+    if beveled_button(
+        ui,
+        "EXIT",
+        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+        true,
+        false,
+    )
+    .clicked()
     {
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Close);
@@ -446,19 +459,35 @@ fn render_replay_panel(
     }
 
     ui.add_space(12.0);
-    if ui.button("↻  REFRESH REPLAY LIST").clicked() {
+    if beveled_button(
+        ui,
+        "REFRESH REPLAY LIST",
+        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+        true,
+        false,
+    )
+    .clicked()
+    {
         replay_selection.refresh();
     }
     ui.add_space(12.0);
     ui.separator();
-    if ui.button("‹  BACK TO COMMAND DECK").clicked() {
+    if beveled_button(
+        ui,
+        "‹  BACK TO COMMAND DECK",
+        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+        true,
+        false,
+    )
+    .clicked()
+    {
         start_screen.page = StartScreenPage::Home;
     }
 }
 
 fn render_card_heading(ui: &mut egui::Ui, number: &str, title: &str) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(number).color(CYAN).size(11.0).strong());
+        ui.label(egui::RichText::new(number).color(BLUE).size(11.0).strong());
         ui.label(
             egui::RichText::new(title)
                 .color(egui::Color32::from_rgb(220, 233, 241))
@@ -468,21 +497,69 @@ fn render_card_heading(ui: &mut egui::Ui, number: &str, title: &str) {
     });
 }
 
-fn themed_button(label: &str) -> egui::Button<'_> {
-    egui::Button::new(
-        egui::RichText::new(label)
-            .color(egui::Color32::from_rgb(4, 17, 24))
-            .size(13.0)
-            .strong(),
-    )
-    .fill(CYAN)
+pub(crate) fn beveled_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    size: egui::Vec2,
+    enabled: bool,
+    highlighted: bool,
+) -> egui::Response {
+    ui.add_enabled_ui(enabled, |ui| {
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        let outer = if response.is_pointer_button_down_on() {
+            egui::Color32::from_rgb(12, 24, 43)
+        } else if response.hovered() {
+            egui::Color32::from_rgb(76, 126, 177)
+        } else {
+            egui::Color32::from_rgb(49, 80, 123)
+        };
+        let face = if highlighted {
+            if response.hovered() {
+                egui::Color32::from_rgb(33, 67, 107)
+            } else {
+                egui::Color32::from_rgb(19, 39, 68)
+            }
+        } else if response.hovered() {
+            egui::Color32::from_rgb(23, 46, 77)
+        } else {
+            egui::Color32::from_rgb(10, 22, 42)
+        };
+
+        let painter = ui.painter();
+        painter.rect_filled(rect, egui::CornerRadius::same(4), outer);
+        let face_rect = rect.shrink(2.0);
+        painter.rect_filled(face_rect, egui::CornerRadius::same(3), face);
+        painter.line_segment(
+            [
+                face_rect.left_top() + egui::vec2(3.0, 1.0),
+                face_rect.right_top() + egui::vec2(-3.0, 1.0),
+            ],
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(106, 145, 185)),
+        );
+        painter.line_segment(
+            [
+                face_rect.left_bottom() + egui::vec2(3.0, -1.0),
+                face_rect.right_bottom() + egui::vec2(-3.0, -1.0),
+            ],
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(3, 8, 17)),
+        );
+        painter.text(
+            face_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(12.0),
+            if enabled { ICE } else { MUTED },
+        );
+        response
+    })
+    .inner
 }
 
 fn render_feature_line(ui: &mut egui::Ui, number: &str, title: &str, detail: &str) {
     ui.horizontal_top(|ui| {
         ui.label(
             egui::RichText::new(number)
-                .color(CYAN)
+                .color(BLUE)
                 .size(10.0)
                 .strong(),
         );
