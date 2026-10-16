@@ -10,32 +10,33 @@ pub(crate) fn render_selected_unit_info(
     registry: &Res<UnitRegistry>,
     unit_query: &Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
 ) {
-    ui.separator();
-    ui.heading("Selected Unit Info");
-    ui.separator();
+    egui::CollapsingHeader::new(
+        egui::RichText::new("SELECTED UNIT")
+            .color(egui::Color32::from_rgb(205, 224, 238))
+            .size(11.0)
+            .strong(),
+    )
+    .default_open(false)
+    .show(ui, |ui| {
+        let Some(tag) = selected.tag else {
+            ui.label("No unit selected.");
+            return;
+        };
 
-    let Some(tag) = selected.tag else {
-        ui.label("No unit selected.");
-        return;
-    };
+        let Some(&entity) = registry.map.get(&tag) else {
+            ui.label("No unit selected.");
+            return;
+        };
 
-    let Some(&entity) = registry.map.get(&tag) else {
-        ui.label("No unit selected.");
-        return;
-    };
+        let Ok((unit_proto, unit_tag, _, _)) = unit_query.get(entity) else {
+            ui.label("Unit data not found.");
+            return;
+        };
 
-    let Ok((unit_proto, unit_tag, _, _)) = unit_query.get(entity) else {
-        ui.label("Unit data not found.");
-        return;
-    };
-
-    egui::CollapsingHeader::new("Unit Details")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label(format!("Tag: {}", unit_tag.0));
-            ui.separator();
-            for (field, value) in get_set_fields(&unit_proto.0) {
-                ui.label(format!("{}: {}", field, value));
-            }
-        });
+        ui.label(format!("Tag: {}", unit_tag.0));
+        ui.separator();
+        for (field, value) in get_set_fields(&unit_proto.0) {
+            ui.label(format!("{}: {}", field, value));
+        }
+    });
 }

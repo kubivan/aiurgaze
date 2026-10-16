@@ -1,4 +1,5 @@
 use crate::app_settings::{get_maps_dir, GameConfigPanelDefaults};
+use crate::ui::start_screen::beveled_button;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use sc2_proto::common::Race;
@@ -97,124 +98,174 @@ pub fn list_maps_folder() -> Vec<String> {
 }
 
 pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) -> bool {
-    let mut start_game = false;
-    ui.heading("Configure Game");
-    ui.separator();
-
-    ui.label("Game Type:");
-    egui::ComboBox::from_id_salt("game_type_combo")
-        .selected_text(match panel.game_type {
-            GameType::VsAI => "vs AI",
-            GameType::VsBot => "vs Bot",
-        })
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut panel.game_type, GameType::VsAI, "vs AI");
-            ui.selectable_value(&mut panel.game_type, GameType::VsBot, "vs Bot");
+    ui.label(
+        egui::RichText::new("BATTLE PARAMETERS")
+            .color(egui::Color32::from_rgb(105, 166, 213))
+            .size(10.0)
+            .strong(),
+    );
+    ui.add_space(8.0);
+    ui.columns(2, |columns| {
+        labeled_control(&mut columns[0], "MATCH TYPE", |ui| {
+            egui::ComboBox::from_id_salt("game_type_combo")
+                .selected_text(match panel.game_type {
+                    GameType::VsAI => "vs AI",
+                    GameType::VsBot => "vs Bot",
+                })
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut panel.game_type, GameType::VsAI, "vs AI");
+                    ui.selectable_value(&mut panel.game_type, GameType::VsBot, "vs Bot");
+                });
         });
-
-    ui.label("Map Name:");
-    if panel.available_maps.is_empty() {
-        ui.label("No maps found in ./maps");
-    } else {
-        // Set default only if not already selected
-        if panel.map_name.is_none() {
-            panel.map_name = Some(panel.available_maps[0].clone());
-        }
-        egui::ComboBox::from_id_salt("map_name_combo")
-            .selected_text(
-                panel
-                    .map_name
-                    .clone()
-                    .unwrap_or_else(|| "Select map".to_string()),
-            )
-            .show_ui(ui, |ui| {
-                for map in &panel.available_maps {
-                    ui.selectable_value(&mut panel.map_name, Some(map.clone()), map);
+        labeled_control(&mut columns[1], "BATTLEFIELD", |ui| {
+            if panel.available_maps.is_empty() {
+                ui.label("No maps found in ./maps");
+            } else {
+                if panel.map_name.is_none() {
+                    panel.map_name = panel.available_maps.first().cloned();
                 }
-            });
-    }
+                egui::ComboBox::from_id_salt("map_name_combo")
+                    .selected_text(
+                        panel
+                            .map_name
+                            .as_deref()
+                            .unwrap_or("Select map"),
+                    )
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for map in &panel.available_maps {
+                            ui.selectable_value(&mut panel.map_name, Some(map.clone()), map);
+                        }
+                    });
+            }
+        });
+    });
 
-    ui.label("Player Name:");
-    ui.text_edit_singleline(&mut panel.player_name);
+    ui.add_space(8.0);
+    labeled_control(ui, "COMMANDER", |ui| {
+        ui.text_edit_singleline(&mut panel.player_name);
+    });
 
+    ui.add_space(8.0);
     match panel.game_type {
         GameType::VsAI => {
-            ui.label("AI Difficulty:");
-            egui::ComboBox::from_id_salt("ai_difficulty_combo")
-                .selected_text(
-                    panel
-                        .ai_difficulty
-                        .clone()
-                        .unwrap_or_else(|| "Select difficulty".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    for diff in ["Easy", "Medium", "Hard", "Cheat"] {
-                        ui.selectable_value(&mut panel.ai_difficulty, Some(diff.to_string()), diff);
-                    }
+            ui.columns(2, |columns| {
+                labeled_control(&mut columns[0], "AI DIFFICULTY", |ui| {
+                    egui::ComboBox::from_id_salt("ai_difficulty_combo")
+                        .selected_text(
+                            panel
+                                .ai_difficulty
+                                .as_deref()
+                                .unwrap_or("Select difficulty"),
+                        )
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for difficulty in ["Easy", "Medium", "Hard", "Cheat"] {
+                                ui.selectable_value(
+                                    &mut panel.ai_difficulty,
+                                    Some(difficulty.to_string()),
+                                    difficulty,
+                                );
+                            }
+                        });
                 });
-
-            ui.label("AI Race:");
-            egui::ComboBox::from_id_salt("ai_race_combo")
-                .selected_text(
-                    panel
-                        .ai_race
-                        .map(|r| format!("{:?}", r))
-                        .unwrap_or_else(|| "Select race".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    for &race in &[Race::Random, Race::Terran, Race::Zerg, Race::Protoss] {
-                        ui.selectable_value(&mut panel.ai_race, Some(race), format!("{:?}", race));
-                    }
+                labeled_control(&mut columns[1], "AI RACE", |ui| {
+                    egui::ComboBox::from_id_salt("ai_race_combo")
+                        .selected_text(
+                            panel
+                                .ai_race
+                                .map(|race| format!("{race:?}"))
+                                .unwrap_or_else(|| "Select race".to_string()),
+                        )
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for &race in &[Race::Random, Race::Terran, Race::Zerg, Race::Protoss] {
+                                ui.selectable_value(
+                                    &mut panel.ai_race,
+                                    Some(race),
+                                    format!("{race:?}"),
+                                );
+                            }
+                        });
                 });
+            });
         }
         GameType::VsBot => {
-            ui.label("Bot Name:");
-            ui.text_edit_singleline(panel.bot_name.get_or_insert_with(String::new));
-
-            ui.label("Bot Opponent Command:");
-            ui.text_edit_singleline(&mut panel.bot_opponent_command);
-            ui.label("(Bash command to run opponent bot)");
+            labeled_control(ui, "OPPONENT BOT NAME", |ui| {
+                ui.text_edit_singleline(panel.bot_name.get_or_insert_with(String::new));
+            });
+            ui.add_space(8.0);
+            labeled_control(ui, "OPPONENT LAUNCH COMMAND", |ui| {
+                ui.text_edit_singleline(&mut panel.bot_opponent_command);
+            });
         }
     }
 
-    ui.add_space(10.0);
-    ui.label("Bot Command:");
-    ui.text_edit_singleline(&mut panel.bot_command);
-    ui.label("(Optional: Bash command to run player bot)");
-
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        ui.checkbox(&mut panel.disable_fog, "Disable Fog");
+    ui.add_space(8.0);
+    labeled_control(ui, "PLAYER BOT LAUNCH COMMAND  ·  OPTIONAL", |ui| {
+        ui.text_edit_singleline(&mut panel.bot_command);
+    });
+    ui.add_space(8.0);
+    ui.label(
+        egui::RichText::new("SESSION OPTIONS")
+            .color(egui::Color32::from_rgb(105, 166, 213))
+            .size(10.0)
+            .strong(),
+    );
+    ui.horizontal_wrapped(|ui| {
+        ui.checkbox(&mut panel.disable_fog, "Disable fog");
         ui.checkbox(&mut panel.realtime, "Realtime");
-        ui.label("Random Seed:");
-        let mut seed_str = panel.random_seed.map(|v| v.to_string()).unwrap_or_default();
-        if ui.text_edit_singleline(&mut seed_str).changed() {
-            panel.random_seed = seed_str.parse().ok();
+        ui.label("Seed");
+        let mut seed = panel.random_seed.map(|value| value.to_string()).unwrap_or_default();
+        if ui
+            .add_sized(egui::vec2(90.0, 24.0), egui::TextEdit::singleline(&mut seed))
+            .changed()
+        {
+            panel.random_seed = seed.parse().ok();
         }
     });
-    ui.add_space(10.0);
 
-    // Display any error message
-    if let Some(ref err) = panel.error_message {
-        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+    if let Some(error) = &panel.error_message {
+        ui.colored_label(
+            egui::Color32::from_rgb(255, 104, 95),
+            format!("INITIALIZATION FAILED  /  {error}"),
+        );
         ui.add_space(5.0);
     }
 
     let can_create_game = !panel.available_maps.is_empty() && panel.map_name.is_some();
-    if ui
-        .add_enabled(can_create_game, egui::Button::new("Create Game"))
-        .clicked()
-    {
-        panel.error_message = None; // Clear previous error on new attempt
-        start_game = true;
-    }
     if !can_create_game {
         ui.colored_label(
-            egui::Color32::YELLOW,
-            "Cannot create game: no maps available in ./maps",
+            egui::Color32::from_rgb(255, 194, 86),
+            "No maps available in ./maps",
         );
+        ui.add_space(5.0);
     }
-    start_game
+    let create_clicked = beveled_button(
+        ui,
+        "INITIALIZE SIMULATION  >",
+        egui::vec2(ui.available_width(), 44.0),
+        can_create_game,
+        true,
+    )
+    .clicked();
+    if create_clicked {
+        panel.error_message = None;
+    }
+    create_clicked
+}
+
+fn labeled_control(ui: &mut egui::Ui, label: &str, add_control: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical(|ui| {
+        ui.label(
+            egui::RichText::new(label)
+                .color(egui::Color32::from_rgb(142, 171, 190))
+                .size(9.0)
+                .strong(),
+        );
+        add_control(ui);
+    });
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
