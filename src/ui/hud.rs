@@ -19,25 +19,62 @@ pub fn render_status_bar(
     docker_status: Res<DockerStatus>,
     activity: Res<ProtocolActivityState>,
 ) {
-    egui::Panel::bottom("status_bar").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label("Docker status:");
-            match &*docker_status {
-                DockerStatus::Idle => ui.colored_label(egui::Color32::GRAY, "Idle"),
-                DockerStatus::Running => ui.colored_label(egui::Color32::GREEN, "Running"),
-                DockerStatus::Starting => ui.colored_label(egui::Color32::YELLOW, "Starting"),
-                DockerStatus::NotFound => ui.colored_label(egui::Color32::RED, "Not Found"),
-                DockerStatus::Error(e) => {
-                    ui.colored_label(egui::Color32::RED, format!("Error: {}", e))
-                }
-            };
+    egui::Area::new("status_bar".into())
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
+        .order(egui::Order::Foreground)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgba_unmultiplied(8, 14, 26, 224))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgba_unmultiplied(68, 108, 154, 160),
+                ))
+                .corner_radius(egui::CornerRadius::same(4))
+                .inner_margin(egui::Margin::symmetric(10, 6))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("DOCKER")
+                                .color(egui::Color32::from_rgb(137, 159, 180))
+                                .size(9.0)
+                                .strong(),
+                        );
+                        match &*docker_status {
+                            DockerStatus::Idle => {
+                                ui.colored_label(egui::Color32::GRAY, "Idle");
+                            }
+                            DockerStatus::Running => {
+                                ui.colored_label(egui::Color32::GREEN, "Online");
+                            }
+                            DockerStatus::Starting => {
+                                ui.colored_label(egui::Color32::YELLOW, "Starting");
+                            }
+                            DockerStatus::NotFound => {
+                                ui.colored_label(egui::Color32::RED, "Not found");
+                            }
+                            DockerStatus::Error(error) => {
+                                ui.colored_label(
+                                    egui::Color32::RED,
+                                    format!("Error: {error}"),
+                                );
+                            }
+                        }
 
-            ui.separator();
-            ui.label(format!("P1: {}", activity.player1_last));
-            ui.separator();
-            ui.label(format!("P2: {}", activity.player2_last));
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(format!("P1 {}", activity.player1_last))
+                                .color(egui::Color32::from_rgb(165, 192, 220))
+                                .size(10.0),
+                        );
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(format!("P2 {}", activity.player2_last))
+                                .color(egui::Color32::from_rgb(222, 167, 159))
+                                .size(10.0),
+                        );
+                    });
+                });
         });
-    });
 }
 
 /// HUD overlay: resource counts, supply, build queue — shown in top-left corner during GameScreen.
@@ -64,13 +101,10 @@ pub fn render_hud(
     let dim_color = egui::Color32::from_rgb(150, 160, 175);
 
     let hud_frame = egui::Frame {
-        fill: egui::Color32::from_rgba_premultiplied(8, 14, 26, 215),
+        fill: egui::Color32::from_rgba_unmultiplied(8, 14, 26, 224),
         inner_margin: egui::Margin::same(12),
-        corner_radius: egui::CornerRadius::same(7),
-        stroke: egui::Stroke::new(
-            1.0,
-            egui::Color32::from_rgba_premultiplied(55, 110, 175, 110),
-        ),
+        corner_radius: egui::CornerRadius::same(4),
+        stroke: egui::Stroke::new(1.0, egui::Color32::from_rgb(68, 108, 154)),
         ..Default::default()
     };
 
@@ -169,14 +203,6 @@ pub fn render_hud(
                         });
                     }
                 });
-            }
-
-            if player_res.game_loop > 0 {
-                ui.label(
-                    egui::RichText::new(format!("loop {}", player_res.game_loop))
-                        .color(egui::Color32::from_rgba_premultiplied(100, 115, 140, 180))
-                        .size(10.0),
-                );
             }
         });
 

@@ -4,16 +4,15 @@ use crate::controller::{CurrentFrame, MapResource, PlayerResources, ProtocolActi
 use crate::debug_draw::render_debug_texts;
 use crate::entity_system::EntitySystem;
 use crate::map::Terrain3dSettings;
-use crate::observation_pipeline::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
-use crate::render_layers::{LayerRegistry, RenderLayerKind};
+use crate::render_layers::LayerRegistry;
 use crate::render_view::RenderViewMode;
 use crate::ui::hud::{render_hud, render_status_bar};
-use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::ui::DockerStatus;
 use crate::ui::{
-    render_start_screen, AppState, GameConfigPanel, GameCreated, PendingBotStart,
-    PendingCreateGameRequest, ReplaySelection, StartScreenPanel, VisionModeChannel,
+    render_start_screen, AppState, GameConfigPanel, GameControlsVisibility, GameCreated,
+    PendingBotStart, PendingCreateGameRequest, ReplaySelection, StartScreenPanel,
+    VisionModeChannel,
 };
 use crate::units::{
     CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
@@ -35,6 +34,7 @@ pub(crate) struct HudParams<'w, 's> {
     cameras: Query<'w, 's, (&'static Camera, &'static GlobalTransform)>,
     render_view_mode: ResMut<'w, RenderViewMode>,
     terrain_3d_settings: ResMut<'w, Terrain3dSettings>,
+    game_controls_visibility: ResMut<'w, GameControlsVisibility>,
     start_screen: ResMut<'w, StartScreenPanel>,
     replay_selection: ResMut<'w, ReplaySelection>,
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
@@ -52,109 +52,22 @@ fn render_game_screen(
     proxy_pause: &mut ResMut<ProxyStreamPause>,
     render_view_mode: &mut ResMut<RenderViewMode>,
     terrain_3d_settings: &mut ResMut<Terrain3dSettings>,
+    game_controls_visibility: &mut ResMut<GameControlsVisibility>,
 ) {
-    egui::Panel::right("unit_info_panel")
-        .resizable(true)
-        .default_size(300.0)
-        .show(ui, |ui| {
-            ui.heading("Game Controls");
-            ui.separator();
-
-            ui.label("Render View:");
-            egui::ComboBox::from_id_salt("render_view_mode_combo")
-                .selected_text(match **render_view_mode {
-                    RenderViewMode::TwoD => "2D",
-                    RenderViewMode::ThreeD => "3D (experimental)",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut **render_view_mode, RenderViewMode::TwoD, "2D");
-                    ui.selectable_value(
-                        &mut **render_view_mode,
-                        RenderViewMode::ThreeD,
-                        "3D (experimental)",
-                    );
-                });
-            let mut height_scale = terrain_3d_settings.height_scale;
-            if ui
-                .add_enabled(
-                    **render_view_mode == RenderViewMode::ThreeD,
-                    egui::Slider::new(&mut height_scale, 0.1..=4.0).text("Terrain height"),
-                )
-                .changed()
-            {
-                terrain_3d_settings.height_scale = height_scale;
-            }
-
-            ui.label("Vision Mode:");
-            let current_mode = vision_mode_channel.current;
-            egui::ComboBox::from_id_salt("vision_mode_combo")
-                .selected_text(format!("{}", current_mode))
-                .show_ui(ui, |ui| {
-                    for mode in [VisionMode::Player1, VisionMode::Player2, VisionMode::All] {
-                        if ui
-                            .selectable_label(current_mode == mode, format!("{}", mode))
-                            .clicked()
-                        {
-                            vision_mode_channel.set(mode);
-                        }
-                    }
-                });
-
-            ui.add_space(10.0);
-            ui.separator();
-            ui.heading("Replay");
-            ui.horizontal(|ui| {
-                if ui.button("Pause").clicked() {
-                    playback.pause();
-                    proxy_pause.set_paused(true);
-                }
-                if ui.button("Back").clicked() {
-                    playback.step_back();
-                }
-                if ui.button("Forward").clicked() {
-                    playback.step_forward();
-                }
-                if ui.button("Resume").clicked() {
-                    playback.resume();
-                    proxy_pause.set_paused(false);
-                }
-            });
-            ui.label(format!(
-                "mode: {:?}   loop: {}",
-                playback.mode,
-                playback.current_loop()
-            ));
-
-            ui.add_space(10.0);
-            ui.separator();
-            ui.heading("Map Layers");
-
-            for layer in [
-                RenderLayerKind::Pathing,
-                RenderLayerKind::Placement,
-                RenderLayerKind::HeightMap,
-                RenderLayerKind::Creep,
-                RenderLayerKind::Energy,
-                RenderLayerKind::DebugOverlay,
-                RenderLayerKind::Minimap,
-            ] {
-                let mut visible = layer_registry.is_visible(layer);
-                if ui.checkbox(&mut visible, layer.label()).changed() {
-                    layer_registry.set_visible(layer, visible);
-                }
-            }
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.heading("Unit Composition");
-
-            ui.checkbox(&mut unit_visibility.show_orders, "Order Indicators");
-            render_selected_unit_info(ui, selected, registry, unit_query);
-        });
-
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE)
-        .show(ui, |_ui| {});
+    crate::ui::game_controls::render_game_controls(
+        ui.ctx(),
+        game_controls_visibility,
+        selected,
+        registry,
+        unit_query,
+        vision_mode_channel,
+        layer_registry,
+        unit_visibility,
+        playback,
+        proxy_pause,
+        render_view_mode,
+        terrain_3d_settings,
+    );
 }
 
 pub fn ui_system(
@@ -187,20 +100,21 @@ pub fn ui_system(
             .max_rect(ctx.viewport_rect()),
     );
 
-    render_status_bar(&mut viewport_ui, hud.docker_status, hud.activity);
-
     match *app_state {
-        AppState::StartScreen => render_start_screen(
-            &mut viewport_ui,
-            &mut app_state,
-            &mut game_config_panel,
-            &mut game_created,
-            &mut pending_request,
-            &app_settings,
-            &mut pending_bot_start,
-            &mut hud.start_screen,
-            &mut hud.replay_selection,
-        ),
+        AppState::StartScreen => {
+            render_status_bar(&mut viewport_ui, hud.docker_status, hud.activity);
+            render_start_screen(
+                &mut viewport_ui,
+                &mut app_state,
+                &mut game_config_panel,
+                &mut game_created,
+                &mut pending_request,
+                &app_settings,
+                &mut pending_bot_start,
+                &mut hud.start_screen,
+                &mut hud.replay_selection,
+            );
+        }
         AppState::GameScreen => render_game_screen(
             &mut viewport_ui,
             &selected,
@@ -213,6 +127,7 @@ pub fn ui_system(
             &mut proxy_pause,
             &mut hud.render_view_mode,
             &mut hud.terrain_3d_settings,
+            &mut hud.game_controls_visibility,
         ),
     }
 

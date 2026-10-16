@@ -56,7 +56,8 @@ use crate::ui::GameType;
 use crate::ui::{
     camera_controls_2d, camera_controls_3d, setup_camera, switch_render_camera, ui_system,
     AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
-    PendingCreateGameRequest, ReplaySelection, StartScreenPanel, VisionModeChannel,
+    GameControlsVisibility, PendingCreateGameRequest, ReplaySelection, StartScreenPanel,
+    VisionModeChannel,
 };
 use crate::units::{
     cleanup_dead_units, unit_selection_2d, unit_selection_3d, update_unit_3d_billboards,
@@ -356,6 +357,7 @@ fn main() {
         .insert_resource(game_config_panel)
         .insert_resource(ReplaySelection::default())
         .insert_resource(StartScreenPanel::default())
+        .insert_resource(GameControlsVisibility::default())
         .insert_resource(docker_status)
         .insert_resource(pending_request)
         .insert_resource(app_settings) // use loaded settings
