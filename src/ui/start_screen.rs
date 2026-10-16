@@ -1,4 +1,4 @@
-use crate::app_settings::{get_replays_dir, AppSettings};
+use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
 use crate::ui::{
     build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
@@ -24,44 +24,6 @@ enum StartScreenPage {
     #[default]
     Home,
     CreateMatch,
-    WatchReplay,
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct ReplaySelection {
-    available_replays: Vec<String>,
-    selected_replay: Option<String>,
-}
-
-impl ReplaySelection {
-    fn refresh(&mut self) {
-        let replay_dir = get_replays_dir();
-        self.available_replays = match fs::read_dir(&replay_dir) {
-            Ok(entries) => entries
-                .filter_map(Result::ok)
-                .filter_map(|entry| {
-                    let path = entry.path();
-                    if !path.is_file() {
-                        return None;
-                    }
-                    let extension = path.extension()?.to_str()?;
-                    extension
-                        .eq_ignore_ascii_case("SC2Replay")
-                        .then(|| path.file_name()?.to_str().map(str::to_owned))
-                        .flatten()
-                })
-                .collect(),
-            Err(_) => Vec::new(),
-        };
-        self.available_replays.sort_unstable();
-        if !self
-            .selected_replay
-            .as_ref()
-            .is_some_and(|selected| self.available_replays.contains(selected))
-        {
-            self.selected_replay = self.available_replays.first().cloned();
-        }
-    }
 }
 
 pub(crate) fn render_start_screen(
@@ -73,7 +35,6 @@ pub(crate) fn render_start_screen(
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
     start_screen: &mut ResMut<StartScreenPanel>,
-    replay_selection: &mut ResMut<ReplaySelection>,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
@@ -103,7 +64,6 @@ pub(crate) fn render_start_screen(
                                 app_settings,
                                 pending_bot_start,
                                 start_screen,
-                                replay_selection,
                             );
                         },
                     );
@@ -226,7 +186,6 @@ fn render_start_screen_layout(
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
     start_screen: &mut ResMut<StartScreenPanel>,
-    replay_selection: &mut ResMut<ReplaySelection>,
 ) {
     let available_width = ui.available_width();
     let left_width = (available_width * 0.36).clamp(250.0, 390.0);
@@ -258,7 +217,6 @@ fn render_start_screen_layout(
                             StartScreenPage::Home => render_home_panel(
                                 ui,
                                 start_screen,
-                                replay_selection,
                             ),
                             StartScreenPage::CreateMatch => {
                                 render_card_heading(ui, "01", "MISSION CONFIGURATION");
@@ -313,9 +271,6 @@ fn render_start_screen_layout(
                                     start_screen.page = StartScreenPage::Home;
                                 }
                             }
-                            StartScreenPage::WatchReplay => {
-                                render_replay_panel(ui, start_screen, replay_selection);
-                            }
                         }
                     });
             },
@@ -361,7 +316,6 @@ fn render_welcome_panel(ui: &mut egui::Ui) {
 fn render_home_panel(
     ui: &mut egui::Ui,
     start_screen: &mut StartScreenPanel,
-    replay_selection: &mut ReplaySelection,
 ) {
     render_card_heading(ui, "00", "COMMAND OPTIONS");
     ui.label(
@@ -385,19 +339,6 @@ fn render_home_panel(
     ui.add_space(8.0);
     if beveled_button(
         ui,
-        "WATCH REPLAY",
-        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
-        true,
-        true,
-    )
-    .clicked()
-    {
-        replay_selection.refresh();
-        start_screen.page = StartScreenPage::WatchReplay;
-    }
-    ui.add_space(8.0);
-    if beveled_button(
-        ui,
         "EXIT",
         egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
         true,
@@ -407,81 +348,6 @@ fn render_home_panel(
     {
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Close);
-    }
-}
-
-fn render_replay_panel(
-    ui: &mut egui::Ui,
-    start_screen: &mut StartScreenPanel,
-    replay_selection: &mut ReplaySelection,
-) {
-    render_card_heading(ui, "02", "WATCH REPLAY");
-    ui.label(
-        egui::RichText::new("Select a replay file to watch.")
-            .color(MUTED)
-            .size(11.0),
-    );
-    ui.add_space(16.0);
-    ui.label(
-        egui::RichText::new("REPLAY FILE")
-            .color(egui::Color32::from_rgb(142, 171, 190))
-            .size(9.0)
-            .strong(),
-    );
-
-    if replay_selection.available_replays.is_empty() {
-        ui.label(
-            egui::RichText::new(format!(
-                "No .SC2Replay files found in {}",
-                get_replays_dir().display()
-            ))
-            .color(egui::Color32::from_rgb(255, 194, 86))
-            .size(11.0),
-        );
-    } else {
-        egui::ComboBox::from_id_salt("replay_file_combo")
-            .selected_text(
-                replay_selection
-                    .selected_replay
-                    .as_deref()
-                    .unwrap_or("Select replay"),
-            )
-            .width(ui.available_width())
-            .show_ui(ui, |ui| {
-                for replay in &replay_selection.available_replays {
-                    ui.selectable_value(
-                        &mut replay_selection.selected_replay,
-                        Some(replay.clone()),
-                        replay,
-                    );
-                }
-            });
-    }
-
-    ui.add_space(12.0);
-    if beveled_button(
-        ui,
-        "REFRESH REPLAY LIST",
-        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
-        true,
-        false,
-    )
-    .clicked()
-    {
-        replay_selection.refresh();
-    }
-    ui.add_space(12.0);
-    ui.separator();
-    if beveled_button(
-        ui,
-        "‹  BACK TO COMMAND DECK",
-        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
-        true,
-        false,
-    )
-    .clicked()
-    {
-        start_screen.page = StartScreenPage::Home;
     }
 }
 

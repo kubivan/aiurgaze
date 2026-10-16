@@ -56,7 +56,7 @@ use crate::ui::GameType;
 use crate::ui::{
     camera_controls_2d, camera_controls_3d, setup_camera, switch_render_camera, ui_system,
     AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
-    GameControlsVisibility, PendingCreateGameRequest, ReplaySelection, StartScreenPanel,
+    GameControlsVisibility, PendingCreateGameRequest, StartScreenPanel,
     VisionModeChannel,
 };
 use crate::units::{
@@ -355,7 +355,6 @@ fn main() {
         .insert_resource(Terrain3dMeshDirty::default())
         .insert_resource(BotProcessStatus::default())
         .insert_resource(game_config_panel)
-        .insert_resource(ReplaySelection::default())
         .insert_resource(StartScreenPanel::default())
         .insert_resource(GameControlsVisibility::default())
         .insert_resource(docker_status)
