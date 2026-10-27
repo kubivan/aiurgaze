@@ -302,6 +302,35 @@ mod tests {
     }
 
     #[test]
+    fn new_frame_keeps_latest_debug_draws_and_texts() {
+        let mut previous = ReplayFrame::new(PlayerId::Player1, 10, None, None, None);
+        previous
+            .debug_draws
+            .push(crate::debug_draw::DebugDrawPrimitive::Line {
+                start: bevy::prelude::Vec3::ZERO,
+                end: bevy::prelude::Vec3::X,
+                color: bevy::prelude::Color::WHITE,
+            });
+        previous
+            .debug_texts
+            .push(crate::debug_draw::DebugTextPrimitive {
+                text: "persistent".to_owned(),
+                position: crate::debug_draw::DebugTextPosition::Virtual(
+                    bevy::prelude::Vec2::new(0.5, 0.5),
+                ),
+                color: bevy::prelude::Color::WHITE,
+                size: 8.0,
+            });
+
+        let mut next = ReplayFrame::new(PlayerId::Player1, 11, None, None, None);
+        carry_forward_debug_draws(&mut next, Some(&previous));
+
+        assert_eq!(next.debug_draws.len(), 1);
+        assert_eq!(next.debug_texts.len(), 1);
+        assert_eq!(next.debug_texts[0].text, "persistent");
+    }
+
+    #[test]
     fn loop_playback_navigates_unique_loops_and_resumes() {
         let mut state = LoopPlaybackState::default();
         for loop_id in [10, 10, 20, 20, 30, 30] {
@@ -807,15 +836,29 @@ pub fn current_frame_system(
     mut current_frame: ResMut<CurrentFrame>,
 ) {
     for event in frame_events.read() {
-        playback.push_frame(event.frame.clone());
+        let mut frame = event.frame.clone();
+        carry_forward_debug_draws(&mut frame, playback.history.latest_frame());
+        playback.push_frame(frame.clone());
         if playback.mode == LoopPlaybackMode::Live {
-            playback.apply_live_frame(event.frame.clone(), &mut current_frame);
+            playback.apply_live_frame(frame, &mut current_frame);
         }
     }
 
     if playback.mode != LoopPlaybackMode::Live {
         playback.apply_rewind_frame(&mut current_frame);
     }
+}
+
+fn carry_forward_debug_draws(frame: &mut ReplayFrame, previous: Option<&ReplayFrame>) {
+    if !frame.debug_draws.is_empty() || !frame.debug_texts.is_empty() {
+        return;
+    }
+
+    let Some(previous) = previous else {
+        return;
+    };
+    frame.debug_draws.clone_from(&previous.debug_draws);
+    frame.debug_texts.clone_from(&previous.debug_texts);
 }
 
 fn calculate_layer_hash(layer: &Option<TerrainLayer>) -> u64 {
