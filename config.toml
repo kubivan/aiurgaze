@@ -15,13 +15,13 @@ container_name = "aiurgaze-sc2"
 
 # Game config panel defaults
 [game_config_panel]
-game_type = "VsBot"           # "VsAI" or "VsBot"
+game_type = "VsAI"           # "VsAI" or "VsBot"
 map_name = "AbyssalReefAIE.SC2Map"
 player_name = "Player1"
 ai_difficulty = "Medium"
 ai_race = "Random"
 bot_name = "BotOpponent"
-disable_fog = true
+disable_fog = false
 random_seed = 42
 realtime = false
 bot_command = "cd ~/src/sc2-workspace/install/sc2hs && bin/lambdarookie01 join"             # Bash command to run player bot (if set)
