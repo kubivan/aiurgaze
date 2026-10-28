@@ -52,6 +52,7 @@ config = "0.15"
 serde = "1.0.228"
 toml = "0.9.8"
 directories = "5"
+rfd = "0.15"
 
 [build-dependencies]
 tiled = { version = "0.15.0", default-features = false }

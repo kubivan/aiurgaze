@@ -1,12 +1,14 @@
 use crate::app_settings::AppSettings;
 use crate::bot_runner::StartBotProcessesEvent;
+use crate::controller::ReplayFileLoadedEvent;
 use crate::ui::{
-    build_create_game_request, show_game_config_panel, AppState, GameConfigPanel, GameCreated,
-    GameType, PendingBotStart, PendingCreateGameRequest,
+    build_create_game_request, build_start_replay_request, show_game_config_panel, AppState,
+    GameConfigPanel, GameCreated, GameType, PendingBotStart, PendingCreateGameRequest,
 };
 use bevy::prelude::*;
 use bevy_egui::egui;
-use std::fs;
+use bevy_tokio_tasks::TokioTasksRuntime;
+use tokio::task::spawn_blocking;
 
 const BLUE: egui::Color32 = egui::Color32::from_rgb(105, 166, 213);
 const ICE: egui::Color32 = egui::Color32::from_rgb(205, 224, 238);
@@ -17,6 +19,8 @@ const ACTION_BUTTON_HEIGHT: f32 = 44.0;
 #[derive(Resource, Default)]
 pub(crate) struct StartScreenPanel {
     page: StartScreenPage,
+    error_message: Option<String>,
+    loading_replay: bool,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -35,6 +39,7 @@ pub(crate) fn render_start_screen(
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
     start_screen: &mut ResMut<StartScreenPanel>,
+    runtime: &Res<TokioTasksRuntime>,
 ) {
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
@@ -64,12 +69,38 @@ pub(crate) fn render_start_screen(
                                 app_settings,
                                 pending_bot_start,
                                 start_screen,
+                                runtime,
                             );
                         },
                     );
                 });
             });
         });
+}
+
+pub(crate) fn replay_file_loaded_system(
+    mut events: MessageReader<ReplayFileLoadedEvent>,
+    mut start_screen: ResMut<StartScreenPanel>,
+    mut app_state: ResMut<AppState>,
+    mut game_created: ResMut<GameCreated>,
+    mut pending_request: ResMut<PendingCreateGameRequest>,
+    mut pending_bot_start: ResMut<PendingBotStart>,
+) {
+    for event in events.read() {
+        start_screen.loading_replay = false;
+        match &event.result {
+            Some(Ok(replay_data)) => {
+                pending_request.0 = Some(build_start_replay_request(replay_data.clone()));
+                pending_bot_start.0 = None;
+                game_created.0 = true;
+                *app_state = AppState::GameScreen;
+            }
+            Some(Err(error)) => {
+                start_screen.error_message = Some(format!("Could not read replay file: {error}"));
+            }
+            None => {}
+        }
+    }
 }
 
 fn apply_terminal_theme(ui: &mut egui::Ui) {
@@ -186,6 +217,7 @@ fn render_start_screen_layout(
     app_settings: &Res<AppSettings>,
     pending_bot_start: &mut ResMut<PendingBotStart>,
     start_screen: &mut ResMut<StartScreenPanel>,
+    runtime: &Res<TokioTasksRuntime>,
 ) {
     let available_width = ui.available_width();
     let left_width = (available_width * 0.36).clamp(250.0, 390.0);
@@ -217,6 +249,7 @@ fn render_start_screen_layout(
                             StartScreenPage::Home => render_home_panel(
                                 ui,
                                 start_screen,
+                                runtime,
                             ),
                             StartScreenPage::CreateMatch => {
                                 render_card_heading(ui, "01", "MISSION CONFIGURATION");
@@ -316,6 +349,7 @@ fn render_welcome_panel(ui: &mut egui::Ui) {
 fn render_home_panel(
     ui: &mut egui::Ui,
     start_screen: &mut StartScreenPanel,
+    runtime: &Res<TokioTasksRuntime>,
 ) {
     render_card_heading(ui, "00", "COMMAND OPTIONS");
     ui.label(
@@ -335,6 +369,48 @@ fn render_home_panel(
     .clicked()
     {
         start_screen.page = StartScreenPage::CreateMatch;
+    }
+    ui.add_space(8.0);
+    if beveled_button(
+        ui,
+        if start_screen.loading_replay {
+            "OPENING REPLAY..."
+        } else {
+            "PLAY REPLAY"
+        },
+        egui::vec2(ui.available_width(), ACTION_BUTTON_HEIGHT),
+        !start_screen.loading_replay,
+        false,
+    )
+    .clicked()
+    {
+        start_screen.error_message = None;
+        start_screen.loading_replay = true;
+        runtime.spawn_background_task(move |mut ctx| async move {
+            let file = rfd::AsyncFileDialog::new()
+                .add_filter("StarCraft II replay", &["SC2Replay"])
+                .pick_file()
+                .await;
+            let result = match file {
+                Some(file) => {
+                    let path = file.path().to_path_buf();
+                    Some(
+                        spawn_blocking(move || std::fs::read(path))
+                            .await
+                            .map_err(|error| error.to_string())
+                            .and_then(|result| result.map_err(|error| error.to_string())),
+                    )
+                }
+                None => None,
+            };
+            ctx.run_on_main_thread(move |world| {
+                world.world.write_message(ReplayFileLoadedEvent { result });
+            })
+            .await;
+        });
+    }
+    if let Some(error) = &start_screen.error_message {
+        ui.colored_label(egui::Color32::from_rgb(255, 104, 95), error);
     }
     ui.add_space(8.0);
     if beveled_button(

@@ -4,6 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use protobuf::Message;
 use protobuf::RepeatedField;
 use sc2_proto::debug::{DebugCommand, DebugGameState};
+use sc2_proto::sc2api::Request;
 use sc2_proto::sc2api::Request_oneof_request;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, connect_async};
@@ -106,6 +107,7 @@ pub(super) struct BridgeOptions {
     pub(super) debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
     pub(super) chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
     pub(super) pause_state: Option<Arc<AtomicBool>>,
+    pub(super) control_rx: Option<mpsc::UnboundedReceiver<ProxyControlCommand>>,
 }
 
 pub(super) fn advance_observer_game_loop(last_game_loop: &mut u32, current_game_loop: u32) -> bool {
@@ -224,6 +226,7 @@ pub(super) async fn accept_and_bridge(
         debug_tx,
         chat_tx,
         pause_state,
+        mut control_rx,
     } = options;
     let (mut client_write, mut client_read) = client_ws.split();
 
@@ -273,47 +276,77 @@ pub(super) async fn accept_and_bridge(
 
     let mut observer_last_game_loop = 0;
     loop {
-        while pause_state
-            .as_ref()
-            .is_some_and(|state| state.load(Ordering::SeqCst))
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        enum BridgeInput {
+            Client(Option<Result<tungstenite::Message, tungstenite::Error>>),
+            Control(Option<ProxyControlCommand>),
         }
 
-        let Some(message) = client_read.next().await else {
-            break;
+        let input = tokio::select! {
+            message = async {
+                while pause_state
+                    .as_ref()
+                    .is_some_and(|state| state.load(Ordering::SeqCst))
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                client_read.next().await
+            } => BridgeInput::Client(message),
+            command = async {
+                match control_rx.as_mut() {
+                    Some(receiver) => receiver.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => BridgeInput::Control(command),
         };
-        let raw = message?.into_data().to_vec();
 
-        if let Some(sender) = &debug_tx {
-            if let Some(event) = crate::debug_draw::debug_draw_from_request(player_id, &raw) {
-                let _ = sender.try_send(event);
+        match input {
+            BridgeInput::Client(None) => break,
+            BridgeInput::Client(Some(message)) => {
+                let raw = message?.into_data().to_vec();
+
+                if let Some(sender) = &debug_tx {
+                    if let Some(event) = crate::debug_draw::debug_draw_from_request(player_id, &raw) {
+                        let _ = sender.try_send(event);
+                    }
+                }
+                if let Some(sender) = &chat_tx {
+                    for event in crate::chat_overlay::chat_messages_from_request(player_id, &raw) {
+                        let _ = sender.try_send(event);
+                    }
+                }
+
+                let response_bytes = roundtrip(up_w, up_r, raw).await?;
+                if let Some(response) = try_parse_response(&response_bytes) {
+                    publisher.publish(player_id, response).await;
+                }
+                client_write
+                    .send(tungstenite::Message::Binary(Bytes::from(response_bytes)))
+                    .await?;
+
+                if let Some(observer_sender) = observer_sender.as_ref() {
+                    poll_observer(
+                        player_id,
+                        up_w,
+                        up_r,
+                        publisher,
+                        observer_sender,
+                        &mut observer_last_game_loop,
+                    )
+                    .await?;
+                }
             }
-        }
-        if let Some(sender) = &chat_tx {
-            for event in crate::chat_overlay::chat_messages_from_request(player_id, &raw) {
-                let _ = sender.try_send(event);
+            BridgeInput::Control(None) => control_rx = None,
+            BridgeInput::Control(Some(ProxyControlCommand::SaveReplay)) => {
+                let mut request = Request::new();
+                request.mut_save_replay();
+                let request_bytes = request
+                    .write_to_bytes()
+                    .map_err(|error| format!("Protobuf encode save_replay: {error}"))?;
+                let response_bytes = roundtrip(up_w, up_r, request_bytes).await?;
+                if let Some(response) = try_parse_response(&response_bytes) {
+                    publisher.publish(player_id, response).await;
+                }
             }
-        }
-
-        let response_bytes = roundtrip(up_w, up_r, raw).await?;
-        if let Some(response) = try_parse_response(&response_bytes) {
-            publisher.publish(player_id, response).await;
-        }
-        client_write
-            .send(tungstenite::Message::Binary(Bytes::from(response_bytes)))
-            .await?;
-
-        if let Some(observer_sender) = observer_sender.as_ref() {
-            poll_observer(
-                player_id,
-                up_w,
-                up_r,
-                publisher,
-                observer_sender,
-                &mut observer_last_game_loop,
-            )
-            .await?;
         }
     }
 

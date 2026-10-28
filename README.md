@@ -209,6 +209,10 @@ For example, after installation:
 
 The Docker container mounts the maps directory into its SC2 installation and the UI lists these map files by name. To change the default map, update `map_name` in `config.toml` to one of the filenames in your maps directory.
 
+### Replays
+
+Choose **Play Replay** on the command deck and select a `.SC2Replay` file. The viewer drives replay observations directly and displays each player's result when the game ends. Use **Save Replay** in the game view to export the current replay.
+
 ---
 
 ## Roadmap / Future Work

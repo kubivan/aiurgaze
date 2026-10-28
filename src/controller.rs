@@ -18,7 +18,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use sc2_proto::sc2api::{Request, ResponseGameInfo, ResponseObservation};
+use sc2_proto::sc2api::{Request, Request_oneof_request, ResponseGameInfo, ResponseObservation};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 
@@ -33,8 +33,8 @@ use crate::observation_pipeline::{
 };
 use crate::proxy_channel::{
     create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
-    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayAssembler, ReplayBuffer,
-    ReplayFrame, TaggedResponse,
+    MultiplayerPorts, PlayerId, ProxyControlCommand, ProxyDataChannel, ProxyReadySignal,
+    ReplayAssembler, ReplayBuffer, ReplayFrame, TaggedResponse,
 };
 use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
 use crate::render_view::RenderViewMode;
@@ -57,10 +57,68 @@ pub struct ObservationEvent {
     pub vision_mode: VisionMode,
 }
 
+#[derive(Message, Clone)]
+pub struct SaveReplayResponseEvent {
+    pub data: Option<Vec<u8>>,
+}
+
+#[derive(Message, Clone)]
+pub struct ReplayStatusEvent {
+    pub status: String,
+}
+
+#[derive(Message)]
+pub struct ReplayFileLoadedEvent {
+    pub result: Option<Result<Vec<u8>, String>>,
+}
+
+#[derive(Resource, Clone, Debug, Default)]
+pub struct GameResultState {
+    pub player_results: Vec<String>,
+    pub status: Option<String>,
+}
+
 /// A complete step frame committed by the proxy.
 #[derive(Message, Clone)]
 pub struct ReplayFrameEvent {
     pub frame: ReplayFrame,
+}
+
+pub fn save_replay_response_system(
+    mut events: MessageReader<SaveReplayResponseEvent>,
+    mut save_state: ResMut<crate::ui::ReplaySaveState>,
+    runtime: Res<TokioTasksRuntime>,
+) {
+    for event in events.read() {
+        let Some(path) = save_state.pending_path.clone() else {
+            continue;
+        };
+        let Some(data) = event.data.clone() else {
+            save_state.pending_path = None;
+            save_state.status = Some("SC2 returned no replay data.".to_string());
+            continue;
+        };
+
+        save_state.status = Some("Writing replay file...".to_string());
+        let display_path = path.display().to_string();
+        runtime.spawn_background_task(move |mut ctx| async move {
+            let result = tokio::task::spawn_blocking(move || std::fs::write(path, data)).await;
+            let status = match result {
+                Ok(Ok(())) => format!("Replay saved to {display_path}"),
+                Ok(Err(error)) => format!("Could not save replay: {error}"),
+                Err(error) => format!("Replay file writer failed: {error}"),
+            };
+            ctx.run_on_main_thread(move |world| {
+                if let Some(mut save_state) =
+                    world.world.get_resource_mut::<crate::ui::ReplaySaveState>()
+                {
+                    save_state.pending_path = None;
+                    save_state.status = Some(status);
+                }
+            })
+            .await;
+        });
+    }
 }
 
 /// Event emitted when game info is received.
@@ -464,6 +522,7 @@ pub fn setup_proxies(
     vision_mode_rx: watch::Receiver<VisionMode>,
     create_game_request: Option<Request>,
     pause_state: Arc<AtomicBool>,
+    control_rx: Option<mpsc::UnboundedReceiver<ProxyControlCommand>>,
 ) -> ProxyReadySignal {
     println!("====== setup_proxies (is_vs_bot={}) ======", is_vs_bot);
 
@@ -618,11 +677,40 @@ pub fn setup_proxies(
                 player_id: tagged.player_id,
                 response_kind: response_kind_name(&tagged.response),
             };
+            let save_replay_event = tagged
+                .response
+                .has_save_replay()
+                .then(|| SaveReplayResponseEvent {
+                    data: tagged
+                        .response
+                        .get_save_replay()
+                        .data
+                        .as_ref()
+                        .cloned(),
+                });
+            let replay_status_event = tagged
+                .response
+                .has_start_replay()
+                .then(|| tagged.response.get_start_replay())
+                .filter(|response| response.has_error())
+                .map(|response| ReplayStatusEvent {
+                    status: format!(
+                        "Could not start replay: {:?} - {}",
+                        response.get_error(),
+                        response.get_error_details()
+                    ),
+                });
 
             tokio::spawn(async move {
                 ctx_clone
                     .run_on_main_thread(move |ctx| {
                         ctx.world.write_message(activity_event);
+                        if let Some(event) = save_replay_event {
+                            ctx.world.write_message(event);
+                        }
+                        if let Some(event) = replay_status_event {
+                            ctx.world.write_message(event);
+                        }
                     })
                     .await;
             });
@@ -676,12 +764,37 @@ pub fn setup_proxies(
         });
     }
 
+    let is_replay = create_game_request.as_ref().is_some_and(|request| {
+        matches!(
+            request.request,
+            Some(Request_oneof_request::start_replay(_))
+        )
+    });
+
     // Spawn independent proxy tasks — each with its own upstream WS to SC2.
     // Only coordination: host sends CreateGame first, then signals guest.
     let ready_signal1 = ready_signal.clone();
     let ready_signal2 = ready_signal.clone();
 
-    if is_vs_bot {
+    if is_replay {
+        let Some(start_replay_request) = create_game_request else {
+            eprintln!("[Player1] No StartReplay request for replay mode");
+            return ready_signal;
+        };
+        let control_rx = control_rx.unwrap_or_else(|| {
+            let (sender, receiver) = mpsc::unbounded_channel();
+            drop(sender);
+            receiver
+        });
+        runtime.spawn_background_task(move |_ctx| async move {
+            if let Err(error) = channel1
+                .run_replay(ready_signal1, start_replay_request, control_rx)
+                .await
+            {
+                eprintln!("[Player1] Replay failed: {error}");
+            }
+        });
+    } else if is_vs_bot {
         let create_game_signal = CreateGameSignal::new();
         let cg_signal1 = create_game_signal.clone();
         let cg_signal2 = create_game_signal;
@@ -719,6 +832,7 @@ pub fn setup_proxies(
                     Some(debug_tx_host),
                     Some(chat_tx_host),
                     Some(pause_state_for_host.clone()),
+                    control_rx,
                 )
                 .await
             {
@@ -765,6 +879,7 @@ pub fn setup_proxies(
                     Some(debug_tx_solo),
                     Some(chat_tx_solo),
                     Some(pause_state_for_solo.clone()),
+                    control_rx,
                 )
                 .await
             {
@@ -802,9 +917,26 @@ pub fn protocol_activity_system(
 pub fn update_player_resources(
     mut events: MessageReader<ObservationEvent>,
     mut res: ResMut<PlayerResources>,
+    mut game_result: ResMut<GameResultState>,
     mut playback: ResMut<LoopPlaybackState>,
 ) {
     for event in events.read() {
+        if game_result.player_results.is_empty() {
+            game_result.player_results = event
+                .observation
+                .player_result
+                .iter()
+                .map(|result| {
+                    let player_id = result.get_player_id();
+                    let outcome = result
+                        .result
+                        .map(|result| format!("{result:?}"))
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    format!("Player {player_id}: {outcome}")
+                })
+                .collect();
+        }
+
         let Some(obs) = event.observation.observation.as_ref() else {
             continue;
         };
@@ -826,6 +958,15 @@ pub fn update_player_resources(
         res.army_count = pc.get_army_count();
         res.worker_count = pc.get_food_workers();
         res.idle_workers = pc.get_idle_worker_count();
+    }
+}
+
+pub fn replay_status_system(
+    mut events: MessageReader<ReplayStatusEvent>,
+    mut game_result: ResMut<GameResultState>,
+) {
+    for event in events.read() {
+        game_result.status = Some(event.status.clone());
     }
 }
 

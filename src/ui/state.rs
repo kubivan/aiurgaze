@@ -1,6 +1,7 @@
 use crate::bot_runner::StartBotProcessesEvent;
 use bevy::prelude::*;
 use sc2_proto::sc2api::Request;
+use std::path::PathBuf;
 
 #[derive(Resource, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AppState {
@@ -18,3 +19,9 @@ pub struct GameCreated(pub bool);
 /// Holds bot start info until proxies are ready to accept connections.
 #[derive(Resource, Default)]
 pub struct PendingBotStart(pub Option<StartBotProcessesEvent>);
+
+#[derive(Resource, Default)]
+pub struct ReplaySaveState {
+    pub pending_path: Option<PathBuf>,
+    pub status: Option<String>,
+}

@@ -1,6 +1,8 @@
 use crate::chat_overlay::ChatOverlay;
-use crate::controller::{PlayerResources, ProtocolActivityState};
-use crate::proxy_channel::PlayerId;
+use crate::controller::{GameResultState, PlayerResources, ProtocolActivityState};
+use crate::proxy_channel::{PlayerId, ProxyControlCommand, ProxyControlSender};
+use crate::ui::state::ReplaySaveState;
+use crate::ui::start_screen::beveled_button;
 use crate::units::{UnitBuildProgress, UnitType};
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -207,6 +209,92 @@ pub fn render_hud(
         });
 
     render_chat_bubble(ctx, &chat_overlay, player_res.game_loop);
+}
+
+pub fn render_game_result(
+    ctx: &egui::Context,
+    result: &GameResultState,
+    save_state: &mut ReplaySaveState,
+    control_sender: &ProxyControlSender,
+) {
+    egui::Area::new("game_result_panel".into())
+        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 12.0))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgba_unmultiplied(8, 14, 26, 236))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgb(68, 108, 154),
+                ))
+                .corner_radius(egui::CornerRadius::same(4))
+                .inner_margin(egui::Margin::same(10))
+                .show(ui, |ui| {
+                    if !result.player_results.is_empty() {
+                        ui.label(
+                            egui::RichText::new("MATCH RESULT")
+                                .color(egui::Color32::from_rgb(105, 166, 213))
+                                .size(10.0)
+                                .strong(),
+                        );
+                        for player_result in &result.player_results {
+                            ui.label(
+                                egui::RichText::new(player_result)
+                                    .color(egui::Color32::from_rgb(220, 233, 241))
+                                    .strong(),
+                            );
+                        }
+                    }
+                    if let Some(status) = &result.status {
+                        ui.label(
+                            egui::RichText::new(status)
+                                .color(egui::Color32::from_rgb(255, 104, 95))
+                                .size(10.0),
+                        );
+                    }
+
+                    let is_saving = save_state.pending_path.is_some();
+                    if beveled_button(
+                        ui,
+                        if is_saving {
+                            "SAVING REPLAY..."
+                        } else {
+                            "SAVE REPLAY"
+                        },
+                        egui::vec2(160.0, 36.0),
+                        !is_saving,
+                        true,
+                    )
+                    .clicked()
+                    {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("StarCraft II replay", &["SC2Replay"])
+                            .set_file_name("match.SC2Replay")
+                            .save_file()
+                        {
+                            save_state.pending_path = Some(path);
+                            save_state.status = Some("Requesting replay data...".to_string());
+                            if control_sender
+                                .0
+                                .send(ProxyControlCommand::SaveReplay)
+                                .is_err()
+                            {
+                                save_state.pending_path = None;
+                                save_state.status =
+                                    Some("The game proxy is no longer available.".to_string());
+                            }
+                        }
+                    }
+
+                    if let Some(status) = &save_state.status {
+                        ui.label(
+                            egui::RichText::new(status)
+                                .color(egui::Color32::from_rgb(165, 192, 220))
+                                .size(10.0),
+                        );
+                    }
+                });
+        });
 }
 
 fn render_chat_bubble(ctx: &egui::Context, overlay: &ChatOverlay, game_loop: u32) {
