@@ -13,7 +13,7 @@ mod bridge;
 mod coordination;
 mod replay;
 
-use bridge::{accept_proxy_client, connect_upstream, create_game, BridgeOptions};
+use bridge::{accept_proxy_client, connect_upstream, create_game, roundtrip, BridgeOptions};
 pub use coordination::{CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, ProxyReadySignal};
 use replay::ProxyPublisher;
 pub(crate) use replay::ReplayAssembler;
@@ -21,6 +21,7 @@ pub use replay::{ReplayBuffer, ReplayFrame};
 
 use bevy::prelude::Resource;
 use futures_util::StreamExt;
+use protobuf::Message;
 use sc2_proto::sc2api::{Request, Response};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -288,6 +289,117 @@ impl ProxyDataChannel {
             },
         )
         .await
+    }
+
+    /// Starts a replay and drives its observations without requiring a bot client.
+    pub async fn run_replay(
+        self,
+        ready_signal: ProxyReadySignal,
+        start_replay_request: Request,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let player_id = self.player_id;
+        let publisher = self.publisher.clone();
+        let upstream = connect_upstream(&self.upstream_url).await?;
+        let (mut up_w, mut up_r) = upstream.split();
+        ready_signal.signal_ready();
+
+        println!("[{player_id}] Starting replay");
+        let response_bytes = roundtrip(
+            &mut up_w,
+            &mut up_r,
+            start_replay_request
+                .write_to_bytes()
+                .map_err(|error| format!("Protobuf encode start_replay: {error}"))?,
+        )
+        .await?;
+        let response = bridge::try_parse_response(&response_bytes)
+            .ok_or("Failed to parse start_replay response")?;
+        if !response.has_start_replay() {
+            return Err("SC2 returned an unexpected response to start_replay".into());
+        }
+        let start_replay = response.get_start_replay();
+        if start_replay.has_error() {
+            let error = format!(
+                "StartReplay failed: {:?} - {}",
+                start_replay.get_error(),
+                start_replay.get_error_details()
+            );
+            publisher.publish(player_id, response).await;
+            return Err(error.into());
+        }
+        publisher.publish(player_id, response).await;
+
+        let mut game_info_request = Request::new();
+        game_info_request.mut_game_info();
+        let response_bytes = roundtrip(
+            &mut up_w,
+            &mut up_r,
+            game_info_request
+                .write_to_bytes()
+                .map_err(|error| format!("Protobuf encode game_info: {error}"))?,
+        )
+        .await?;
+        let response = bridge::try_parse_response(&response_bytes)
+            .ok_or("Failed to parse replay game_info response")?;
+        if !response.has_game_info() {
+            return Err("SC2 returned an unexpected response to replay game_info".into());
+        }
+        publisher.publish(player_id, response).await;
+
+        loop {
+            let mut observation_request = Request::new();
+            observation_request.mut_observation().set_disable_fog(true);
+            let response_bytes = roundtrip(
+                &mut up_w,
+                &mut up_r,
+                observation_request
+                    .write_to_bytes()
+                    .map_err(|error| format!("Protobuf encode observation: {error}"))?,
+            )
+            .await?;
+            let response = bridge::try_parse_response(&response_bytes)
+                .ok_or("Failed to parse replay observation response")?;
+            if !response.has_observation() {
+                return Err("SC2 returned an unexpected response to replay observation".into());
+            }
+            let ended = response
+                .get_observation()
+                .player_result
+                .iter()
+                .any(|result| result.has_result());
+            publisher.publish(player_id, response).await;
+
+            if ended {
+                match bridge::save_replay(&mut up_w, &mut up_r).await {
+                    Ok(response) => publisher.publish(player_id, response).await,
+                    Err(error) => {
+                        eprintln!("[{player_id}] Could not prepare replay export: {error}");
+                        let mut response = Response::new();
+                        response.mut_save_replay();
+                        publisher.publish(player_id, response).await;
+                    }
+                }
+                return Ok(());
+            }
+
+            let mut step_request = Request::new();
+            step_request.mut_step().set_count(1);
+            let response_bytes = roundtrip(
+                &mut up_w,
+                &mut up_r,
+                step_request
+                    .write_to_bytes()
+                    .map_err(|error| format!("Protobuf encode step: {error}"))?,
+            )
+            .await?;
+            let response = bridge::try_parse_response(&response_bytes)
+                .ok_or("Failed to parse replay step response")?;
+            if !response.has_step() {
+                return Err("SC2 returned an unexpected response to replay step".into());
+            }
+            publisher.publish(player_id, response).await;
+            tokio::time::sleep(std::time::Duration::from_millis(45)).await;
+        }
     }
 }
 

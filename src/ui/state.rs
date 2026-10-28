@@ -18,3 +18,9 @@ pub struct GameCreated(pub bool);
 /// Holds bot start info until proxies are ready to accept connections.
 #[derive(Resource, Default)]
 pub struct PendingBotStart(pub Option<StartBotProcessesEvent>);
+
+#[derive(Resource, Default)]
+pub struct ReplaySaveState {
+    pub saving: bool,
+    pub status: Option<String>,
+}

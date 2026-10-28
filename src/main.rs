@@ -35,10 +35,11 @@ use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesE
 use crate::chat_overlay::{update_chat_overlay, ChatMessageEvent, ChatOverlay};
 use crate::controller::{
     current_frame_system, map_init_system, protocol_activity_system, refresh_3d_terrain_mesh,
-    refresh_map_colors_on_layer_change, response_controller_system, setup_proxies,
-    update_player_resources, CurrentFrame, Fog3dMaterialHandle, FogMaterialHandle, FogOfWarData,
-    FogOfWarHandle, GameInfoEvent, LastVisionMode, MapResource, ObservationEvent, PlayerResources,
-    ProtocolActivityEvent, ProtocolActivityState, ReplayFrameEvent,
+    refresh_map_colors_on_layer_change, response_controller_system, save_replay_response_system,
+    setup_proxies, update_player_resources, CurrentFrame, Fog3dMaterialHandle, FogMaterialHandle,
+    FogOfWarData, FogOfWarHandle, GameInfoEvent, GameResultState, LastVisionMode, MapResource,
+    ObservationEvent, PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
+    ReplayFrameEvent, ReplayStatusEvent, SaveReplayResponseEvent,
 };
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws_2d, render_debug_draws_3d, DebugDrawEvent,
@@ -70,6 +71,7 @@ use bevy::color::palettes::basic::{GREEN, RED};
 use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
+use sc2_proto::sc2api::Request_oneof_request;
 use std::process::Command;
 
 /// Start the server inside Docker and wait until it's reachable.
@@ -165,6 +167,7 @@ fn docker_startup_system(
     docker_config: Res<AppSettings>,
     game_created: Res<GameCreated>,
     game_config: Res<GameConfigPanel>,
+    pending_request: Res<PendingCreateGameRequest>,
 ) {
     if *docker_status != DockerStatus::Idle || !game_created.0 {
         return;
@@ -172,7 +175,13 @@ fn docker_startup_system(
     docker_status.clone_from(&DockerStatus::Starting);
     // Clone config to own it in the task
     let starcraft_config = docker_config.starcraft.clone();
-    let multiplayer = game_config.game_type == GameType::VsBot;
+    let is_replay = pending_request.0.as_ref().is_some_and(|request| {
+        matches!(
+            request.request,
+            Some(Request_oneof_request::start_replay(_))
+        )
+    });
+    let multiplayer = !is_replay && game_config.game_type == GameType::VsBot;
     runtime.spawn_background_task(move |mut ctx| async move {
         // Use spawn_blocking for blocking code
         //let result = tokio::task::spawn_blocking(move ||
@@ -242,7 +251,13 @@ fn proxy_connect_on_docker_ready(
     proxy_pause: Res<ProxyStreamPause>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
-        let is_vs_bot = game_config.game_type == GameType::VsBot;
+        let is_replay = pending_request.0.as_ref().is_some_and(|request| {
+            matches!(
+                request.request,
+                Some(Request_oneof_request::start_replay(_))
+            )
+        });
+        let is_vs_bot = !is_replay && game_config.game_type == GameType::VsBot;
         let vision_rx = vision_mode_channel.sender.subscribe();
         let create_req = pending_request.0.take();
         let ready_signal = setup_proxies(
@@ -295,6 +310,10 @@ fn main() {
         .add_message::<ObservationEvent>()
         .add_message::<ReplayFrameEvent>()
         .add_message::<ProtocolActivityEvent>()
+        .add_message::<SaveReplayResponseEvent>()
+        .add_message::<ReplayStatusEvent>()
+        .add_message::<crate::controller::ReplayFileLoadedEvent>()
+        .add_message::<crate::controller::ReplayExportCompleteEvent>()
         .add_message::<DebugDrawEvent>()
         .add_message::<ChatMessageEvent>()
         .register_type::<UnitHealth>()
@@ -373,6 +392,8 @@ fn main() {
         .insert_resource(PlayerResources::default())
         .insert_resource(CurrentFrame::default())
         .insert_resource(ProxyStreamPause::new())
+        .insert_resource(crate::ui::ReplaySaveState::default())
+        .insert_resource(GameResultState::default())
         .insert_resource(crate::controller::LoopPlaybackState::default())
         .add_systems(Startup, setup_entity_system)
         .add_systems(Startup, setup_camera)
@@ -391,6 +412,7 @@ fn main() {
         .add_systems(Update, switch_render_camera)
         .add_systems(Update, docker_startup_system)
         .add_systems(EguiPrimaryContextPass, ui_system)
+        .add_systems(Update, crate::ui::replay_file_loaded_system)
         .add_systems(
             Update,
             map_init_system.run_if(not(resource_exists::<MapResource>)),
@@ -402,6 +424,9 @@ fn main() {
         )
         .add_systems(Update, protocol_activity_system)
         .add_systems(Update, update_player_resources)
+        .add_systems(Update, crate::controller::replay_status_system)
+        .add_systems(Update, save_replay_response_system)
+        .add_systems(Update, crate::controller::replay_export_complete_system)
         .add_systems(
             Update,
             refresh_map_colors_on_layer_change.after(response_controller_system),

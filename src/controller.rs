@@ -18,7 +18,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use sc2_proto::sc2api::{Request, ResponseGameInfo, ResponseObservation};
+use sc2_proto::sc2api::{Request, Request_oneof_request, ResponseGameInfo, ResponseObservation};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 
@@ -57,10 +57,73 @@ pub struct ObservationEvent {
     pub vision_mode: VisionMode,
 }
 
+#[derive(Message, Clone)]
+pub struct SaveReplayResponseEvent {
+    pub data: Option<Vec<u8>>,
+}
+
+#[derive(Message)]
+pub struct ReplayExportCompleteEvent {
+    pub result: Option<Result<String, String>>,
+}
+
+#[derive(Message, Clone)]
+pub struct ReplayStatusEvent {
+    pub status: String,
+}
+
+#[derive(Message)]
+pub struct ReplayFileLoadedEvent {
+    pub result: Option<Result<Vec<u8>, String>>,
+}
+
+#[derive(Resource, Clone, Debug, Default)]
+pub struct GameResultState {
+    pub player_results: Vec<String>,
+    pub status: Option<String>,
+    pub replay_data: Option<Vec<u8>>,
+}
+
 /// A complete step frame committed by the proxy.
 #[derive(Message, Clone)]
 pub struct ReplayFrameEvent {
     pub frame: ReplayFrame,
+}
+
+pub fn save_replay_response_system(
+    mut events: MessageReader<SaveReplayResponseEvent>,
+    mut game_result: ResMut<GameResultState>,
+    mut save_state: ResMut<crate::ui::ReplaySaveState>,
+) {
+    for event in events.read() {
+        let Some(data) = event
+            .data
+            .as_ref()
+            .filter(|data| !data.is_empty())
+            .cloned()
+        else {
+            save_state.status = Some("SC2 could not prepare replay data.".to_string());
+            continue;
+        };
+
+        game_result.replay_data = Some(data);
+        save_state.status = Some("Replay ready to save.".to_string());
+    }
+}
+
+pub fn replay_export_complete_system(
+    mut events: MessageReader<ReplayExportCompleteEvent>,
+    mut save_state: ResMut<crate::ui::ReplaySaveState>,
+) {
+    for event in events.read() {
+        save_state.saving = false;
+        if let Some(result) = &event.result {
+            save_state.status = Some(match result {
+                Ok(path) => format!("Replay saved to {path}"),
+                Err(error) => format!("Could not save replay: {error}"),
+            });
+        }
+    }
 }
 
 /// Event emitted when game info is received.
@@ -618,11 +681,40 @@ pub fn setup_proxies(
                 player_id: tagged.player_id,
                 response_kind: response_kind_name(&tagged.response),
             };
+            let save_replay_event = tagged
+                .response
+                .has_save_replay()
+                .then(|| SaveReplayResponseEvent {
+                    data: tagged
+                        .response
+                        .get_save_replay()
+                        .data
+                        .as_ref()
+                        .cloned(),
+                });
+            let replay_status_event = tagged
+                .response
+                .has_start_replay()
+                .then(|| tagged.response.get_start_replay())
+                .filter(|response| response.has_error())
+                .map(|response| ReplayStatusEvent {
+                    status: format!(
+                        "Could not start replay: {:?} - {}",
+                        response.get_error(),
+                        response.get_error_details()
+                    ),
+                });
 
             tokio::spawn(async move {
                 ctx_clone
                     .run_on_main_thread(move |ctx| {
                         ctx.world.write_message(activity_event);
+                        if let Some(event) = save_replay_event {
+                            ctx.world.write_message(event);
+                        }
+                        if let Some(event) = replay_status_event {
+                            ctx.world.write_message(event);
+                        }
                     })
                     .await;
             });
@@ -676,12 +768,32 @@ pub fn setup_proxies(
         });
     }
 
+    let is_replay = create_game_request.as_ref().is_some_and(|request| {
+        matches!(
+            request.request,
+            Some(Request_oneof_request::start_replay(_))
+        )
+    });
+
     // Spawn independent proxy tasks — each with its own upstream WS to SC2.
     // Only coordination: host sends CreateGame first, then signals guest.
     let ready_signal1 = ready_signal.clone();
     let ready_signal2 = ready_signal.clone();
 
-    if is_vs_bot {
+    if is_replay {
+        let Some(start_replay_request) = create_game_request else {
+            eprintln!("[Player1] No StartReplay request for replay mode");
+            return ready_signal;
+        };
+        runtime.spawn_background_task(move |_ctx| async move {
+            if let Err(error) = channel1
+                .run_replay(ready_signal1, start_replay_request)
+                .await
+            {
+                eprintln!("[Player1] Replay failed: {error}");
+            }
+        });
+    } else if is_vs_bot {
         let create_game_signal = CreateGameSignal::new();
         let cg_signal1 = create_game_signal.clone();
         let cg_signal2 = create_game_signal;
@@ -802,9 +914,31 @@ pub fn protocol_activity_system(
 pub fn update_player_resources(
     mut events: MessageReader<ObservationEvent>,
     mut res: ResMut<PlayerResources>,
+    mut game_result: ResMut<GameResultState>,
+    mut replay_save_state: ResMut<crate::ui::ReplaySaveState>,
     mut playback: ResMut<LoopPlaybackState>,
 ) {
     for event in events.read() {
+        if game_result.player_results.is_empty() {
+            let player_results: Vec<String> = event
+                .observation
+                .player_result
+                .iter()
+                .map(|result| {
+                    let player_id = result.get_player_id();
+                    let outcome = result
+                        .result
+                        .map(|result| format!("{result:?}"))
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    format!("Player {player_id}: {outcome}")
+                })
+                .collect();
+            if !player_results.is_empty() {
+                replay_save_state.status = Some("Preparing replay export...".to_string());
+                game_result.player_results = player_results;
+            }
+        }
+
         let Some(obs) = event.observation.observation.as_ref() else {
             continue;
         };
@@ -826,6 +960,15 @@ pub fn update_player_resources(
         res.army_count = pc.get_army_count();
         res.worker_count = pc.get_food_workers();
         res.idle_workers = pc.get_idle_worker_count();
+    }
+}
+
+pub fn replay_status_system(
+    mut events: MessageReader<ReplayStatusEvent>,
+    mut game_result: ResMut<GameResultState>,
+) {
+    for event in events.read() {
+        game_result.status = Some(event.status.clone());
     }
 }
 

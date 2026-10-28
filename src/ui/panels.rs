@@ -1,18 +1,19 @@
 use crate::app_settings::AppSettings;
 use crate::chat_overlay::ChatOverlay;
-use crate::controller::{CurrentFrame, MapResource, PlayerResources, ProtocolActivityState};
+use crate::controller::{
+    CurrentFrame, GameResultState, MapResource, PlayerResources, ProtocolActivityState,
+};
 use crate::debug_draw::render_debug_texts;
 use crate::entity_system::EntitySystem;
 use crate::map::Terrain3dSettings;
 use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::LayerRegistry;
 use crate::render_view::RenderViewMode;
-use crate::ui::hud::{render_hud, render_status_bar};
+use crate::ui::hud::{render_game_result, render_hud, render_status_bar};
 use crate::ui::DockerStatus;
 use crate::ui::{
     render_start_screen, AppState, GameConfigPanel, GameControlsVisibility, GameCreated,
-    PendingBotStart, PendingCreateGameRequest, StartScreenPanel,
-    VisionModeChannel,
+    PendingBotStart, PendingCreateGameRequest, ReplaySaveState, StartScreenPanel, VisionModeChannel,
 };
 use crate::units::{
     CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
@@ -21,6 +22,7 @@ use crate::units::{
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
+use bevy_tokio_tasks::TokioTasksRuntime;
 
 #[derive(SystemParam)]
 pub(crate) struct HudParams<'w, 's> {
@@ -37,6 +39,9 @@ pub(crate) struct HudParams<'w, 's> {
     game_controls_visibility: ResMut<'w, GameControlsVisibility>,
     start_screen: ResMut<'w, StartScreenPanel>,
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
+    game_result: Res<'w, GameResultState>,
+    replay_save_state: ResMut<'w, ReplaySaveState>,
+    runtime: Res<'w, TokioTasksRuntime>,
 }
 
 fn render_game_screen(
@@ -111,6 +116,7 @@ pub fn ui_system(
                 &app_settings,
                 &mut pending_bot_start,
                 &mut hud.start_screen,
+                &hud.runtime,
             );
         }
         AppState::GameScreen => render_game_screen(
@@ -135,6 +141,12 @@ pub fn ui_system(
             hud.player_res,
             hud.in_progress_query,
             hud.chat_overlay,
+        );
+        render_game_result(
+            &ctx,
+            &hud.game_result,
+            &mut hud.replay_save_state,
+            &hud.runtime,
         );
         render_debug_texts(
             &ctx,
