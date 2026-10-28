@@ -1,4 +1,4 @@
-use crate::observation_pipeline::VisionMode;
+use crate::sources::game::VisionMode;
 use bevy::prelude::*;
 use tokio::sync::watch;
 

@@ -10,14 +10,15 @@ mod chat_overlay;
 mod controller;
 mod debug_draw;
 mod entity_system;
+mod frame;
 mod fog_material;
 mod helpers;
 mod map;
 mod net_helpers;
-mod observation_pipeline;
 mod proxy_channel;
 mod render_layers;
 mod render_view;
+mod sources;
 mod ui;
 mod units;
 use bevy::mesh::{Mesh2d, Mesh3d};
@@ -35,12 +36,14 @@ use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesE
 use crate::chat_overlay::{update_chat_overlay, ChatMessageEvent, ChatOverlay};
 use crate::controller::{
     current_frame_system, map_init_system, protocol_activity_system, refresh_3d_terrain_mesh,
-    refresh_map_colors_on_layer_change, response_controller_system, save_replay_response_system,
-    setup_proxies, update_player_resources, CurrentFrame, Fog3dMaterialHandle, FogMaterialHandle,
+    refresh_map_colors_on_layer_change, render_current_frame, save_replay_response_system,
+    update_player_resources, CurrentFrame, Fog3dMaterialHandle, FogMaterialHandle,
     FogOfWarData, FogOfWarHandle, GameInfoEvent, GameResultState, LastVisionMode, MapResource,
-    ObservationEvent, PlayerResources, ProtocolActivityEvent, ProtocolActivityState,
-    ReplayFrameEvent, ReplayStatusEvent, SaveReplayResponseEvent,
+    PlayerResources, ProtocolActivityEvent, ProtocolActivityState, ReplayStatusEvent,
+    SaveReplayResponseEvent,
 };
+use crate::controller::setup_proxies;
+use crate::frame::FrameEvent;
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws_2d, render_debug_draws_3d, DebugDrawEvent,
 };
@@ -245,7 +248,6 @@ fn proxy_connect_on_docker_ready(
     game_created: ResMut<GameCreated>,
     settings: Res<AppSettings>,
     game_config: Res<GameConfigPanel>,
-    vision_mode_channel: Res<VisionModeChannel>,
     mut proxy_ready: ResMut<ProxyReadyResource>,
     mut pending_request: ResMut<PendingCreateGameRequest>,
     proxy_pause: Res<ProxyStreamPause>,
@@ -258,13 +260,11 @@ fn proxy_connect_on_docker_ready(
             )
         });
         let is_vs_bot = !is_replay && game_config.game_type == GameType::VsBot;
-        let vision_rx = vision_mode_channel.sender.subscribe();
         let create_req = pending_request.0.take();
         let ready_signal = setup_proxies(
             &runtime,
             &settings,
             is_vs_bot,
-            vision_rx,
             create_req,
             proxy_pause.paused.clone(),
         );
@@ -307,8 +307,7 @@ fn main() {
     App::new()
         .add_message::<StartBotProcessesEvent>()
         .add_message::<GameInfoEvent>()
-        .add_message::<ObservationEvent>()
-        .add_message::<ReplayFrameEvent>()
+        .add_message::<FrameEvent>()
         .add_message::<ProtocolActivityEvent>()
         .add_message::<SaveReplayResponseEvent>()
         .add_message::<ReplayStatusEvent>()
@@ -404,7 +403,7 @@ fn main() {
         .add_systems(
             Update,
             update_unit_3d_billboards
-                .after(response_controller_system)
+                .after(render_current_frame)
                 .in_set(RenderViewSet::ThreeD),
         )
         .add_systems(Update, camera_controls_2d.in_set(RenderViewSet::TwoD))
@@ -420,7 +419,7 @@ fn main() {
         .add_systems(Update, current_frame_system)
         .add_systems(
             Update,
-            response_controller_system.after(current_frame_system),
+            render_current_frame.after(current_frame_system),
         )
         .add_systems(Update, protocol_activity_system)
         .add_systems(Update, update_player_resources)
@@ -429,15 +428,15 @@ fn main() {
         .add_systems(Update, crate::controller::replay_export_complete_system)
         .add_systems(
             Update,
-            refresh_map_colors_on_layer_change.after(response_controller_system),
+            refresh_map_colors_on_layer_change.after(render_current_frame),
         )
         .add_systems(
             Update,
             refresh_3d_terrain_mesh
-                .after(response_controller_system)
+                .after(render_current_frame)
                 .after(refresh_map_colors_on_layer_change),
         )
-        .add_systems(Update, cleanup_dead_units.after(response_controller_system))
+        .add_systems(Update, cleanup_dead_units.after(render_current_frame))
         .add_systems(Update, proxy_connect_on_docker_ready)
         .add_systems(
             Update,
@@ -464,7 +463,7 @@ fn main() {
                 .run_if(resource_added::<FogOfWarHandle>)
                 .after(map_init_system),
         )
-        .add_systems(Update, update_fog_texture.after(response_controller_system))
+        .add_systems(Update, update_fog_texture.after(render_current_frame))
         .add_systems(
             Update,
             update_fog_uniforms

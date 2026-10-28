@@ -1,14 +1,14 @@
 use crate::controller::{LoopPlaybackMode, LoopPlaybackState};
 use crate::map::Terrain3dSettings;
-use crate::observation_pipeline::VisionMode;
+use crate::sources::game::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::render_view::RenderViewMode;
 use crate::ui::start_screen::beveled_button;
 use crate::ui::selected_unit_info::render_selected_unit_info;
 use crate::units::{
-    CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto, UnitRegistry, UnitTag,
-    UnitType,
+    CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitFrameData, UnitRegistry,
+    UnitTag, UnitType,
 };
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -35,7 +35,7 @@ pub(crate) fn render_game_controls(
     visibility: &mut GameControlsVisibility,
     selected: &Res<SelectedUnit>,
     registry: &Res<UnitRegistry>,
-    unit_query: &Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
+    unit_query: &Query<(&UnitFrameData, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     vision_mode_channel: &mut ResMut<crate::ui::VisionModeChannel>,
     layer_registry: &mut ResMut<LayerRegistry>,
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,

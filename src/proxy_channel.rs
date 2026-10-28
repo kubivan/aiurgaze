@@ -9,19 +9,15 @@
 //! - After JoinGame, each proxy fetches a silent GameInfo for map data.
 //! - Then the proxy enters the bridge loop forwarding traffic in both directions.
 
-mod bridge;
+pub(crate) mod bridge;
 mod coordination;
-mod replay;
 
-use bridge::{accept_proxy_client, connect_upstream, create_game, roundtrip, BridgeOptions};
+use bridge::{accept_proxy_client, connect_upstream, create_game, BridgeOptions};
 pub use coordination::{CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, ProxyReadySignal};
-use replay::ProxyPublisher;
-pub(crate) use replay::ReplayAssembler;
-pub use replay::{ReplayBuffer, ReplayFrame};
+pub use crate::frame::PlayerId;
 
 use bevy::prelude::Resource;
 use futures_util::StreamExt;
-use protobuf::Message;
 use sc2_proto::sc2api::{Request, Response};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -30,28 +26,42 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_tungstenite::WebSocketStream;
 
 type WsStream = WebSocketStream<tokio::net::TcpStream>;
-type UpstreamWs = WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+pub(crate) type UpstreamWs =
+    WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Size of the broadcast channel buffer.
 const CHANNEL_BUFFER_SIZE: usize = 64;
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-/// Identifier for the player/bot this channel belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PlayerId {
-    Player1,
-    Player2,
+#[derive(Clone)]
+pub(crate) struct ProxyPublisher {
+    response_sender: broadcast::Sender<TaggedResponse>,
+    frame_response_sender: mpsc::Sender<TaggedResponse>,
 }
 
-impl std::fmt::Display for PlayerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PlayerId::Player1 => write!(f, "Player1"),
-            PlayerId::Player2 => write!(f, "Player2"),
+impl ProxyPublisher {
+    pub(crate) async fn publish(&self, player_id: PlayerId, response: Response) {
+        self.publish_to(&self.response_sender, player_id, response)
+            .await;
+    }
+
+    async fn publish_to(
+        &self,
+        sender: &broadcast::Sender<TaggedResponse>,
+        player_id: PlayerId,
+        response: Response,
+    ) {
+        let tagged = TaggedResponse {
+            player_id,
+            response,
+        };
+        let _ = sender.send(tagged.clone());
+        if self.frame_response_sender.send(tagged).await.is_err() {
+            eprintln!("[ProxyPublisher] Frame consumer has stopped");
         }
     }
 }
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 /// Shared pause state for live bot/server communication.
 /// When paused, the proxy stops reading client requests until resumed.
@@ -117,7 +127,7 @@ impl ProxyDataChannel {
                 upstream_url: upstream_url.into(),
                 publisher: ProxyPublisher {
                     response_sender,
-                    replay_response_sender,
+                    frame_response_sender: replay_response_sender,
                 },
             },
             response_receiver,
@@ -141,6 +151,10 @@ impl ProxyDataChannel {
             BroadcastStream::new(self.publisher.response_sender.subscribe()),
             |r| r.ok(),
         )
+    }
+
+    pub(crate) fn into_replay_parts(self) -> (PlayerId, String, ProxyPublisher) {
+        (self.player_id, self.upstream_url, self.publisher)
     }
 
     // ── Run modes ───────────────────────────────────────────────────────
@@ -291,116 +305,6 @@ impl ProxyDataChannel {
         .await
     }
 
-    /// Starts a replay and drives its observations without requiring a bot client.
-    pub async fn run_replay(
-        self,
-        ready_signal: ProxyReadySignal,
-        start_replay_request: Request,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let player_id = self.player_id;
-        let publisher = self.publisher.clone();
-        let upstream = connect_upstream(&self.upstream_url).await?;
-        let (mut up_w, mut up_r) = upstream.split();
-        ready_signal.signal_ready();
-
-        println!("[{player_id}] Starting replay");
-        let response_bytes = roundtrip(
-            &mut up_w,
-            &mut up_r,
-            start_replay_request
-                .write_to_bytes()
-                .map_err(|error| format!("Protobuf encode start_replay: {error}"))?,
-        )
-        .await?;
-        let response = bridge::try_parse_response(&response_bytes)
-            .ok_or("Failed to parse start_replay response")?;
-        if !response.has_start_replay() {
-            return Err("SC2 returned an unexpected response to start_replay".into());
-        }
-        let start_replay = response.get_start_replay();
-        if start_replay.has_error() {
-            let error = format!(
-                "StartReplay failed: {:?} - {}",
-                start_replay.get_error(),
-                start_replay.get_error_details()
-            );
-            publisher.publish(player_id, response).await;
-            return Err(error.into());
-        }
-        publisher.publish(player_id, response).await;
-
-        let mut game_info_request = Request::new();
-        game_info_request.mut_game_info();
-        let response_bytes = roundtrip(
-            &mut up_w,
-            &mut up_r,
-            game_info_request
-                .write_to_bytes()
-                .map_err(|error| format!("Protobuf encode game_info: {error}"))?,
-        )
-        .await?;
-        let response = bridge::try_parse_response(&response_bytes)
-            .ok_or("Failed to parse replay game_info response")?;
-        if !response.has_game_info() {
-            return Err("SC2 returned an unexpected response to replay game_info".into());
-        }
-        publisher.publish(player_id, response).await;
-
-        loop {
-            let mut observation_request = Request::new();
-            observation_request.mut_observation().set_disable_fog(true);
-            let response_bytes = roundtrip(
-                &mut up_w,
-                &mut up_r,
-                observation_request
-                    .write_to_bytes()
-                    .map_err(|error| format!("Protobuf encode observation: {error}"))?,
-            )
-            .await?;
-            let response = bridge::try_parse_response(&response_bytes)
-                .ok_or("Failed to parse replay observation response")?;
-            if !response.has_observation() {
-                return Err("SC2 returned an unexpected response to replay observation".into());
-            }
-            let ended = response
-                .get_observation()
-                .player_result
-                .iter()
-                .any(|result| result.has_result());
-            publisher.publish(player_id, response).await;
-
-            if ended {
-                match bridge::save_replay(&mut up_w, &mut up_r).await {
-                    Ok(response) => publisher.publish(player_id, response).await,
-                    Err(error) => {
-                        eprintln!("[{player_id}] Could not prepare replay export: {error}");
-                        let mut response = Response::new();
-                        response.mut_save_replay();
-                        publisher.publish(player_id, response).await;
-                    }
-                }
-                return Ok(());
-            }
-
-            let mut step_request = Request::new();
-            step_request.mut_step().set_count(1);
-            let response_bytes = roundtrip(
-                &mut up_w,
-                &mut up_r,
-                step_request
-                    .write_to_bytes()
-                    .map_err(|error| format!("Protobuf encode step: {error}"))?,
-            )
-            .await?;
-            let response = bridge::try_parse_response(&response_bytes)
-                .ok_or("Failed to parse replay step response")?;
-            if !response.has_step() {
-                return Err("SC2 returned an unexpected response to replay step".into());
-            }
-            publisher.publish(player_id, response).await;
-            tokio::time::sleep(std::time::Duration::from_millis(45)).await;
-        }
-    }
 }
 
 // ─── Observer broadcast channel helper ──────────────────────────────────────
@@ -427,6 +331,7 @@ pub fn observer_response_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame::{Frame, FrameSource};
     use sc2_proto::sc2api::ResponseObservation;
 
     #[test]
@@ -436,13 +341,13 @@ mod tests {
     }
 
     #[test]
-    fn replay_buffer_keeps_latest_frames() {
-        let mut buffer = ReplayBuffer::new(3);
+    fn frame_history_keeps_latest_frames() {
+        let mut buffer = crate::frame::FrameHistory::new(3);
 
-        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 10, None, None, None));
-        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 11, None, None, None));
-        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 12, None, None, None));
-        buffer.push_frame(ReplayFrame::new(PlayerId::Player1, 13, None, None, None));
+        buffer.push_frame(Frame::new(FrameSource::Game, PlayerId::Player1, 10));
+        buffer.push_frame(Frame::new(FrameSource::Game, PlayerId::Player1, 11));
+        buffer.push_frame(Frame::new(FrameSource::Game, PlayerId::Player1, 12));
+        buffer.push_frame(Frame::new(FrameSource::Game, PlayerId::Player1, 13));
 
         assert_eq!(buffer.len(), 3);
         assert_eq!(buffer.latest_loop(), Some(13));
@@ -450,10 +355,12 @@ mod tests {
     }
 
     #[test]
-    fn replay_assembler_closes_frames_on_step_responses() {
-        let mut assembler = ReplayAssembler::default();
+    fn game_assembler_closes_frames_on_step_responses() {
+        let mut assembler = crate::sources::game::FrameAssembler::default();
         let mut observation_response = Response::new();
-        observation_response.set_observation(ResponseObservation::new());
+        let mut observation = ResponseObservation::new();
+        observation.mut_observation().set_game_loop(1);
+        observation_response.set_observation(observation);
 
         assert!(assembler
             .push(TaggedResponse {
@@ -472,7 +379,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(frame.player_id, PlayerId::Player1);
-        assert!(frame.observation.is_some());
+        assert_eq!(frame.game_loop, 1);
+        assert_eq!(frame.source, FrameSource::Game);
         assert!(assembler
             .push(TaggedResponse {
                 player_id: PlayerId::Player1,
@@ -482,33 +390,47 @@ mod tests {
     }
 
     #[test]
-    fn replay_frame_tracks_optional_debug_data() {
-        let frame = ReplayFrame {
-            player_id: PlayerId::Player2,
-            game_loop: 42,
-            observation: None,
-            game_info: None,
-            debug: Some(vec![1, 2, 3]),
-            debug_draws: Vec::new(),
-            debug_texts: Vec::new(),
-        };
+    fn replay_assembler_tags_frames_as_replay() {
+        let mut assembler = crate::sources::replay::FrameAssembler::default();
+        let mut observation_response = Response::new();
+        let mut observation = ResponseObservation::new();
+        observation.mut_observation().set_game_loop(1);
+        observation_response.set_observation(observation);
 
-        assert_eq!(frame.debug.as_deref(), Some(&[1, 2, 3][..]));
+        assert!(assembler
+            .push(TaggedResponse {
+                player_id: PlayerId::Player1,
+                response: observation_response,
+            })
+            .is_none());
+
+        let mut step_response = Response::new();
+        step_response.mut_step();
+        let frame = assembler
+            .push(TaggedResponse {
+                player_id: PlayerId::Player1,
+                response: step_response,
+            })
+            .unwrap();
+
+        assert_eq!(frame.source, FrameSource::Replay);
     }
 
     #[tokio::test]
     async fn publisher_routes_observer_responses_and_captures_replay() {
         let (response_sender, mut response_receiver) = broadcast::channel(4);
-        let (replay_response_sender, mut replay_response_receiver) = mpsc::channel(4);
+        let (frame_response_sender, mut frame_response_receiver) = mpsc::channel(4);
         let (observer_sender, mut observer_receiver) = broadcast::channel(4);
         let publisher = ProxyPublisher {
             response_sender,
-            replay_response_sender,
+            frame_response_sender,
         };
-        let mut assembler = ReplayAssembler::default();
+        let mut assembler = crate::sources::game::FrameAssembler::default();
 
         let mut observation_response = Response::new();
-        observation_response.set_observation(ResponseObservation::new());
+        let mut observation = ResponseObservation::new();
+        observation.mut_observation().set_game_loop(1);
+        observation_response.set_observation(observation);
         publisher
             .publish_to(&observer_sender, PlayerId::Player2, observation_response)
             .await;
@@ -517,7 +439,7 @@ mod tests {
         assert_eq!(observer_message.player_id, PlayerId::Player2);
         assert!(response_receiver.try_recv().is_err());
         assert!(assembler
-            .push(replay_response_receiver.try_recv().unwrap())
+            .push(frame_response_receiver.try_recv().unwrap())
             .is_none());
 
         let mut step_response = Response::new();
@@ -526,18 +448,18 @@ mod tests {
 
         assert!(response_receiver.try_recv().unwrap().response.has_step());
         let frame = assembler
-            .push(replay_response_receiver.try_recv().unwrap())
+            .push(frame_response_receiver.try_recv().unwrap())
             .unwrap();
-        assert!(frame.observation.is_some());
+        assert_eq!(frame.game_loop, 1);
     }
 
     #[tokio::test]
     async fn publisher_waits_when_replay_queue_is_full() {
         let (response_sender, _response_receiver) = broadcast::channel(1);
-        let (replay_response_sender, mut replay_response_receiver) = mpsc::channel(1);
+        let (frame_response_sender, mut frame_response_receiver) = mpsc::channel(1);
         let publisher = ProxyPublisher {
             response_sender,
-            replay_response_sender,
+            frame_response_sender,
         };
         publisher.publish(PlayerId::Player1, Response::new()).await;
 
@@ -548,12 +470,12 @@ mod tests {
 
         let first_response = tokio::select! {
             _ = &mut publish_step => panic!("publisher should wait for queue capacity"),
-            response = replay_response_receiver.recv() => response.unwrap(),
+            response = frame_response_receiver.recv() => response.unwrap(),
         };
         assert!(!first_response.response.has_step());
 
         publish_step.await;
-        assert!(replay_response_receiver
+        assert!(frame_response_receiver
             .recv()
             .await
             .unwrap()

@@ -16,7 +16,7 @@ use crate::ui::{
     PendingBotStart, PendingCreateGameRequest, ReplaySaveState, StartScreenPanel, VisionModeChannel,
 };
 use crate::units::{
-    CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
+    CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitFrameData,
     UnitRegistry, UnitTag, UnitType,
 };
 use bevy::ecs::system::SystemParam;
@@ -48,7 +48,7 @@ fn render_game_screen(
     ui: &mut egui::Ui,
     selected: &Res<SelectedUnit>,
     registry: &Res<UnitRegistry>,
-    unit_query: &Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
+    unit_query: &Query<(&UnitFrameData, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     vision_mode_channel: &mut ResMut<VisionModeChannel>,
     layer_registry: &mut ResMut<LayerRegistry>,
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,
@@ -82,7 +82,7 @@ pub fn ui_system(
     mut pending_request: ResMut<PendingCreateGameRequest>,
     selected: Res<SelectedUnit>,
     registry: Res<UnitRegistry>,
-    unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
+    unit_query: Query<(&UnitFrameData, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
     mut pending_bot_start: ResMut<PendingBotStart>,
     mut vision_mode_channel: ResMut<VisionModeChannel>,

@@ -24,6 +24,14 @@ fn unpack_bits(bytes: &[u8]) -> Vec<bool> {
     bits
 }
 impl TerrainLayer {
+    pub fn from_frame_layer(layer: &crate::frame::RasterLayer) -> Self {
+        Self {
+            width: layer.width,
+            height: layer.height,
+            data: layer.data.clone(),
+        }
+    }
+
     pub fn from_image_data1(data: &[u8], width: u32, height: u32) -> Self {
         // 1 bit per pixel: unpack each bit
         let bits = unpack_bits(data);
