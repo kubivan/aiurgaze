@@ -1,5 +1,6 @@
 use crate::units::{
-    get_set_fields, CurrentOrderAbility, SelectedUnit, UnitProto, UnitRegistry, UnitTag, UnitType,
+    unit_display_fields, CurrentOrderAbility, SelectedUnit, UnitProto, UnitRegistry, UnitTag,
+    UnitType,
 };
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -35,7 +36,7 @@ pub(crate) fn render_selected_unit_info(
 
         ui.label(format!("Tag: {}", unit_tag.0));
         ui.separator();
-        for (field, value) in get_set_fields(&unit_proto.0) {
+        for (field, value) in unit_display_fields(&unit_proto.0) {
             ui.label(format!("{}: {}", field, value));
         }
     });

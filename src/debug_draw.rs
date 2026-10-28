@@ -4,7 +4,7 @@ use sc2_proto::common::Point;
 use sc2_proto::debug::{Color as ProtoColor, DebugCommand, DebugCommand_oneof_command, DebugDraw};
 use sc2_proto::sc2api::{Request, Request_oneof_request};
 
-use crate::controller::{CurrentFrame, LoopPlaybackMode, LoopPlaybackState, MapResource};
+use crate::controller::{LoopPlaybackMode, LoopPlaybackState, MapResource};
 use crate::map::{map_position_2d, map_position_3d};
 use crate::proxy_channel::PlayerId;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
@@ -181,7 +181,6 @@ pub fn project_debug_point_3d(point: Vec3, map_size: (u32, u32), tile_size: f32)
 pub fn debug_draw_message_system(
     mut events: MessageReader<DebugDrawEvent>,
     mut playback: ResMut<LoopPlaybackState>,
-    mut current_frame: ResMut<CurrentFrame>,
 ) {
     let mut all_commands = Vec::new();
     let mut all_texts = Vec::new();
@@ -195,14 +194,6 @@ pub fn debug_draw_message_system(
     if received_event && playback.mode == LoopPlaybackMode::Live {
         let live_loop = playback.live_loop;
         if let Some(frame) = playback.history.frame_for_loop_mut(live_loop) {
-            frame.debug_draws.clone_from(&all_commands);
-            frame.debug_texts.clone_from(&all_texts);
-        }
-        if let Some(frame) = current_frame
-            .frame
-            .as_mut()
-            .filter(|frame| frame.game_loop == live_loop)
-        {
             frame.debug_draws = all_commands;
             frame.debug_texts = all_texts;
         }
@@ -287,14 +278,14 @@ pub fn render_debug_texts(
 
 pub fn render_debug_draws_2d(
     gizmos: Gizmos,
-    current_frame: Res<CurrentFrame>,
+    playback: Res<LoopPlaybackState>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
 ) {
     render_debug_draws_for_view(
         gizmos,
-        current_frame,
+        playback,
         layer_registry,
         map,
         entity_system,
@@ -304,14 +295,14 @@ pub fn render_debug_draws_2d(
 
 pub fn render_debug_draws_3d(
     gizmos: Gizmos,
-    current_frame: Res<CurrentFrame>,
+    playback: Res<LoopPlaybackState>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
 ) {
     render_debug_draws_for_view(
         gizmos,
-        current_frame,
+        playback,
         layer_registry,
         map,
         entity_system,
@@ -321,7 +312,7 @@ pub fn render_debug_draws_3d(
 
 fn render_debug_draws_for_view(
     mut gizmos: Gizmos,
-    current_frame: Res<CurrentFrame>,
+    playback: Res<LoopPlaybackState>,
     layer_registry: Res<LayerRegistry>,
     map: Option<Res<MapResource>>,
     entity_system: Option<Res<crate::entity_system::EntitySystem>>,
@@ -334,7 +325,7 @@ fn render_debug_draws_for_view(
         return;
     }
 
-    let Some(frame) = current_frame.frame.as_ref() else {
+    let Some(frame) = playback.current_frame() else {
         return;
     };
 

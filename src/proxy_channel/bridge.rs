@@ -15,7 +15,7 @@ pub(super) fn try_parse_request(raw: &[u8]) -> Option<Request> {
     request.merge_from_bytes(raw).ok().map(|_| request)
 }
 
-pub(super) fn try_parse_response(raw: &[u8]) -> Option<Response> {
+pub(crate) fn try_parse_response(raw: &[u8]) -> Option<Response> {
     let mut response = Response::new();
     response.merge_from_bytes(raw).ok().map(|_| response)
 }
@@ -52,7 +52,7 @@ fn make_reveal_map_debug_request() -> Result<Vec<u8>, String> {
         .map_err(|error| format!("Protobuf encode: {error}"))
 }
 
-pub(super) async fn connect_upstream(url: &str) -> Result<UpstreamWs, tungstenite::Error> {
+pub(crate) async fn connect_upstream(url: &str) -> Result<UpstreamWs, tungstenite::Error> {
     let mut retries = 10u32;
     let delay = std::time::Duration::from_secs(2);
     println!("[connect_upstream] Connecting to {url}");
@@ -89,7 +89,7 @@ async fn accept_one_client(
     }
 }
 
-pub(super) async fn roundtrip(
+pub(crate) async fn roundtrip(
     write: &mut futures_util::stream::SplitSink<UpstreamWs, tungstenite::Message>,
     read: &mut futures_util::stream::SplitStream<UpstreamWs>,
     data: Vec<u8>,
@@ -110,7 +110,7 @@ pub(super) struct BridgeOptions {
     pub(super) pause_state: Option<Arc<AtomicBool>>,
 }
 
-pub(super) async fn save_replay(
+pub(crate) async fn save_replay(
     write: &mut futures_util::stream::SplitSink<UpstreamWs, tungstenite::Message>,
     read: &mut futures_util::stream::SplitStream<UpstreamWs>,
 ) -> Result<Response, Box<dyn std::error::Error + Send + Sync>> {

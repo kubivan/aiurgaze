@@ -1,6 +1,6 @@
 use crate::controller::{LoopPlaybackMode, LoopPlaybackState};
 use crate::map::Terrain3dSettings;
-use crate::observation_pipeline::VisionMode;
+use crate::sources::game::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::render_view::RenderViewMode;

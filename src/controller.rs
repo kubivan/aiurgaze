@@ -19,43 +19,30 @@ use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use sc2_proto::sc2api::{Request, Request_oneof_request, ResponseGameInfo, ResponseObservation};
-use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 
 use crate::app_settings::AppSettings;
 use crate::entity_system::EntitySystem;
+use crate::frame::{Frame, FrameEvent, FrameHistory, PendingFrames};
 use crate::map::{
     blend_tile_color, build_terrain_mesh, spawn_tilemap, Terrain3dMeshDirty, Terrain3dSettings,
     TerrainLayer, TerrainLayers,
 };
-use crate::observation_pipeline::{
-    create_game_info_stream, create_observation_stream, TaggedResponseStream, VisionMode,
-};
+use crate::sources::game::{create_game_info_stream, GameResponseStream, VisionMode};
 use crate::proxy_channel::{
     create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
-    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayAssembler, ReplayBuffer,
-    ReplayFrame, TaggedResponse,
+    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, TaggedResponse,
 };
 use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
 use crate::render_view::RenderViewMode;
 use crate::ui::VisionModeChannel;
 use crate::units::{
-    handle_observation, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
+    apply_observation_units, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
-static LOGGED_VIS_FORMAT: AtomicBool = AtomicBool::new(false);
-
-/// Event emitted when an observation is received from the pipeline.
-#[derive(Message, Clone)]
-pub struct ObservationEvent {
-    pub player_id: PlayerId,
-    pub observation: ResponseObservation,
-    pub vision_mode: VisionMode,
-}
 
 #[derive(Message, Clone)]
 pub struct SaveReplayResponseEvent {
@@ -82,12 +69,6 @@ pub struct GameResultState {
     pub player_results: Vec<String>,
     pub status: Option<String>,
     pub replay_data: Option<Vec<u8>>,
-}
-
-/// A complete step frame committed by the proxy.
-#[derive(Message, Clone)]
-pub struct ReplayFrameEvent {
-    pub frame: ReplayFrame,
 }
 
 pub fn save_replay_response_system(
@@ -154,21 +135,13 @@ impl Default for LoopPlaybackMode {
     }
 }
 
-/// The currently selected/rendered frame. This is the view-facing state:
-/// the renderer consumes only this single frame, regardless of whether it came
-/// from the live proxy stream or from the replay history.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct CurrentFrame {
-    pub frame: Option<ReplayFrame>,
-}
-
 /// Stateful loop playback and replay history.
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Debug)]
 pub struct LoopPlaybackState {
     pub mode: LoopPlaybackMode,
     pub selected_loop: u32,
     pub live_loop: u32,
-    pub history: ReplayBuffer,
+    pub history: FrameHistory,
 }
 
 impl Default for LoopPlaybackState {
@@ -177,7 +150,7 @@ impl Default for LoopPlaybackState {
             mode: LoopPlaybackMode::Live,
             selected_loop: 0,
             live_loop: 0,
-            history: ReplayBuffer::new(512),
+            history: FrameHistory::new(512),
         }
     }
 }
@@ -258,34 +231,37 @@ impl LoopPlaybackState {
         loops
     }
 
-    pub fn push_frame(&mut self, frame: ReplayFrame) {
+    pub fn push_frame(&mut self, frame: Frame) {
         if frame.game_loop == 0 {
             return;
         }
-        self.history.push_frame(frame.clone());
         self.live_loop = frame.game_loop;
         if self.mode == LoopPlaybackMode::Live {
             self.selected_loop = frame.game_loop;
         }
+        self.history.push_frame(frame);
+        // A paused selection must stay within the bounded history it borrows.
+        if let Some(oldest_loop) = self.history.oldest_loop() {
+            self.selected_loop = self.selected_loop.max(oldest_loop);
+        }
     }
 
-    pub fn frame_for_loop(&self, loop_id: u32) -> Option<&ReplayFrame> {
+    pub fn frame_for_loop(&self, loop_id: u32) -> Option<&Frame> {
         self.history
             .frames()
-            .filter(|frame| frame.game_loop > 0 && frame.observation.is_some())
+            .filter(|frame| frame.game_loop > 0)
             .filter(|frame| frame.game_loop <= loop_id)
             .last()
     }
 
-    pub fn apply_live_frame(&self, frame: ReplayFrame, current: &mut CurrentFrame) {
-        current.frame = Some(frame.clone());
-    }
-
-    pub fn apply_rewind_frame(&self, current: &mut CurrentFrame) {
-        let Some(frame) = self.frame_for_loop(self.selected_loop).cloned() else {
-            return;
-        };
-        current.frame = Some(frame);
+    /// Borrow the selected frame for the duration of a system call.
+    /// Keeping selection and storage together avoids storing a self-reference.
+    pub fn current_frame(&self) -> Option<&Frame> {
+        if self.mode == LoopPlaybackMode::Live {
+            self.history.latest_frame()
+        } else {
+            self.frame_for_loop(self.selected_loop)
+        }
     }
 }
 
@@ -294,25 +270,115 @@ mod tests {
     use super::*;
 
     #[test]
+    fn frame_system_reads_notifications_without_consuming_other_readers_messages() {
+        use bevy::prelude::{App, IntoScheduleConfigs, Update};
+
+        #[derive(Resource, Default)]
+        struct NotificationCount(usize);
+
+        fn count_notifications(
+            mut events: MessageReader<FrameEvent>,
+            mut count: ResMut<NotificationCount>,
+        ) {
+            for _event in events.read() {
+                count.0 += 1;
+            }
+        }
+
+        let mut app = App::new();
+        app.add_message::<FrameEvent>()
+            .init_resource::<PendingFrames>()
+            .init_resource::<LoopPlaybackState>()
+            .init_resource::<VisionModeChannel>()
+            .init_resource::<NotificationCount>()
+            .init_resource::<PlayerResources>()
+            .init_resource::<GameResultState>()
+            .init_resource::<crate::ui::ReplaySaveState>()
+            .add_systems(
+                Update,
+                (current_frame_system, update_player_resources, count_notifications).chain(),
+            );
+
+        // Startup without observations must leave both systems runnable.
+        app.update();
+        assert!(app.world().resource::<LoopPlaybackState>().current_frame().is_none());
+
+        for game_loop in [10, 20] {
+            let mut frame = Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, game_loop);
+            frame.observation.mut_observation().mut_player_common().set_minerals(game_loop);
+            crate::frame::publish_frame(app.world_mut(), frame);
+        }
+        app.update();
+        assert_eq!(app.world().resource::<NotificationCount>().0, 2);
+        let playback = app.world().resource::<LoopPlaybackState>();
+        assert_eq!(playback.history.len(), 2);
+        assert_eq!(playback.current_frame().unwrap().game_loop, 20);
+        assert!(app.world().resource::<PendingFrames>().0.is_empty());
+        assert_eq!(app.world().resource::<PlayerResources>().minerals, 20);
+        app.world_mut().resource_mut::<PlayerResources>().minerals = 99;
+
+        app.update();
+        // No new notification means the resource system does no work.
+        assert_eq!(app.world().resource::<PlayerResources>().minerals, 99);
+        assert_eq!(app.world().resource::<NotificationCount>().0, 2);
+        assert_eq!(app.world().resource::<LoopPlaybackState>().history.len(), 2);
+    }
+
+    #[test]
+    fn consumers_borrow_live_and_paused_frames_from_history() {
+        let mut state = LoopPlaybackState::default();
+        for game_loop in [10, 20] {
+            state.push_frame(Frame::new(
+                crate::frame::FrameSource::Game,
+                PlayerId::Player1,
+                game_loop,
+            ));
+        }
+        assert!(std::ptr::eq(
+            state.current_frame().unwrap(),
+            state.history.latest_frame().unwrap(),
+        ));
+        state.pause();
+        state.selected_loop = 10;
+        state.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            30,
+        ));
+        assert!(std::ptr::eq(
+            state.current_frame().unwrap(),
+            state.history.frames().next().unwrap(),
+        ));
+        assert_eq!(state.current_frame().unwrap().game_loop, 10);
+        state.resume();
+        assert_eq!(state.current_frame().unwrap().game_loop, 30);
+    }
+
+    #[test]
+    fn paused_selection_advances_when_its_frame_is_evicted() {
+        let mut state = LoopPlaybackState {
+            history: FrameHistory::new(1),
+            ..Default::default()
+        };
+        state.push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 10));
+        state.pause();
+        state.push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 20));
+        assert_eq!(state.selected_loop, 20);
+        assert_eq!(state.current_frame().unwrap().game_loop, 20);
+    }
+
+    #[test]
     fn loop_playback_selects_latest_known_frame() {
         let mut state = LoopPlaybackState::default();
         state
             .history
-            .push_frame(ReplayFrame::new(PlayerId::Player1, 10, None, None, None));
-        state.history.push_frame(ReplayFrame::new(
-            PlayerId::Player1,
-            20,
-            Some(ResponseObservation::new()),
-            None,
-            None,
-        ));
-        state.history.push_frame(ReplayFrame::new(
-            PlayerId::Player1,
-            30,
-            Some(ResponseObservation::new()),
-            None,
-            None,
-        ));
+            .push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 10));
+        state
+            .history
+            .push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 20));
+        state
+            .history
+            .push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 30));
 
         state.selected_loop = 25;
         let frame = state.frame_for_loop(state.selected_loop).unwrap();
@@ -322,13 +388,7 @@ mod tests {
     #[test]
     fn paused_replay_frame_keeps_its_debug_text() {
         let mut state = LoopPlaybackState::default();
-        let mut frame = ReplayFrame::new(
-            PlayerId::Player1,
-            20,
-            Some(ResponseObservation::new()),
-            None,
-            None,
-        );
+        let mut frame = Frame::new(crate::frame::FrameSource::Replay, PlayerId::Player1, 20);
         frame
             .debug_draws
             .push(crate::debug_draw::DebugDrawPrimitive::Line {
@@ -350,15 +410,14 @@ mod tests {
         state.mode = LoopPlaybackMode::Paused;
         state.selected_loop = 20;
 
-        let mut current = CurrentFrame::default();
-        state.apply_rewind_frame(&mut current);
+        let current = state.current_frame().unwrap();
 
         assert_eq!(
-            current.frame.as_ref().unwrap().debug_texts[0].text,
+            current.debug_texts[0].text,
             "frame text"
         );
         assert!(matches!(
-            &current.frame.as_ref().unwrap().debug_draws[0],
+            &current.debug_draws[0],
             crate::debug_draw::DebugDrawPrimitive::Line { start, end, .. }
                 if *start == bevy::prelude::Vec3::ZERO && *end == bevy::prelude::Vec3::X
         ));
@@ -366,7 +425,7 @@ mod tests {
 
     #[test]
     fn new_frame_keeps_latest_debug_draws_and_texts() {
-        let mut previous = ReplayFrame::new(PlayerId::Player1, 10, None, None, None);
+        let mut previous = Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 10);
         previous
             .debug_draws
             .push(crate::debug_draw::DebugDrawPrimitive::Line {
@@ -385,7 +444,7 @@ mod tests {
                 size: 8.0,
             });
 
-        let mut next = ReplayFrame::new(PlayerId::Player1, 11, None, None, None);
+        let mut next = Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 11);
         carry_forward_debug_draws(&mut next, Some(&previous));
 
         assert_eq!(next.debug_draws.len(), 1);
@@ -397,12 +456,10 @@ mod tests {
     fn loop_playback_navigates_unique_loops_and_resumes() {
         let mut state = LoopPlaybackState::default();
         for loop_id in [10, 10, 20, 20, 30, 30] {
-            state.history.push_frame(ReplayFrame::new(
+            state.history.push_frame(Frame::new(
+                crate::frame::FrameSource::Replay,
                 PlayerId::Player1,
                 loop_id,
-                Some(ResponseObservation::new()),
-                None,
-                None,
             ));
         }
         state.live_loop = 30;
@@ -495,27 +552,192 @@ pub struct Fog3dMaterialHandle {
     pub handle: Handle<crate::fog_material::FogOfWarMaterial3d>,
 }
 
-/// Set up proxy channels and the observation pipeline.
+/// Start the configured game or replay source.
 ///
 /// Creates one or two proxy channels depending on game mode,
-/// merges their streams with vision filtering, and emits Bevy events.
 /// Returns a ProxyReadySignal that will be signaled when all proxies are ready.
-fn spawn_replay_assembler(
+fn forward_messages<M>(
     runtime: &TokioTasksRuntime,
-    mut responses: mpsc::Receiver<TaggedResponse>,
+    mut messages: tokio::sync::mpsc::Receiver<M>,
+) where
+    M: Message + Send + Sync + 'static,
+{
+    runtime.spawn_background_task(move |mut ctx| async move {
+        while let Some(message) = messages.recv().await {
+            ctx.run_on_main_thread(move |ctx| {
+                ctx.world.write_message(message);
+            })
+            .await;
+        }
+    });
+}
+
+fn forward_game_info(
+    runtime: &TokioTasksRuntime,
+    p1_stream: GameResponseStream,
+    p2_stream: Option<GameResponseStream>,
 ) {
-    runtime.spawn_background_task(move |ctx| async move {
-        let mut assembler = ReplayAssembler::default();
-        while let Some(response) = responses.recv().await {
-            let Some(frame) = assembler.push(response) else {
-                continue;
+    runtime.spawn_background_task(move |mut ctx| async move {
+        let mut game_info_stream = Box::pin(create_game_info_stream(p1_stream, p2_stream));
+        while let Some(tagged_info) = game_info_stream.next().await {
+            ctx.run_on_main_thread(move |ctx| {
+                ctx.world.write_message(GameInfoEvent {
+                    player_id: tagged_info.player_id,
+                    game_info: tagged_info.game_info,
+                });
+            })
+            .await;
+        }
+    });
+}
+
+fn forward_protocol_activity(
+    runtime: &TokioTasksRuntime,
+    mut responses: GameResponseStream,
+    include_replay_events: bool,
+) {
+    runtime.spawn_background_task(move |mut ctx| async move {
+        while let Some(tagged) = responses.next().await {
+            let activity = ProtocolActivityEvent {
+                player_id: tagged.player_id,
+                response_kind: response_kind_name(&tagged.response),
             };
-            let mut ctx_clone = ctx.clone();
-            ctx_clone
-                .run_on_main_thread(move |ctx| {
-                    ctx.world.write_message(ReplayFrameEvent { frame });
-                })
-                .await;
+            let save_replay = (include_replay_events && tagged.response.has_save_replay())
+                .then(|| SaveReplayResponseEvent {
+                    data: tagged.response.get_save_replay().data.as_ref().cloned(),
+                });
+            let replay_status = (include_replay_events && tagged.response.has_start_replay())
+                .then(|| tagged.response.get_start_replay())
+                .filter(|response| response.has_error())
+                .map(|response| ReplayStatusEvent {
+                    status: format!(
+                        "Could not start replay: {:?} - {}",
+                        response.get_error(),
+                        response.get_error_details()
+                    ),
+                });
+            ctx.run_on_main_thread(move |ctx| {
+                ctx.world.write_message(activity);
+                if let Some(event) = save_replay {
+                    ctx.world.write_message(event);
+                }
+                if let Some(event) = replay_status {
+                    ctx.world.write_message(event);
+                }
+            })
+            .await;
+        }
+    });
+}
+
+fn start_replay_proxy(
+    runtime: &TokioTasksRuntime,
+    channel: ProxyDataChannel,
+    ready_signal: ProxyReadySignal,
+    request: Option<Request>,
+) {
+    let Some(request) = request else {
+        eprintln!("[Player1] No StartReplay request for replay mode");
+        return;
+    };
+    runtime.spawn_background_task(move |_ctx| async move {
+        if let Err(error) = crate::sources::replay::run(channel, ready_signal, request).await {
+            eprintln!("[Player1] Replay failed: {error}");
+        }
+    });
+}
+
+fn start_multiplayer_proxies(
+    runtime: &TokioTasksRuntime,
+    host: ProxyDataChannel,
+    guest: ProxyDataChannel,
+    ready_host: ProxyReadySignal,
+    ready_guest: ProxyReadySignal,
+    create_game_request: Option<Request>,
+    upstream_port: u16,
+    debug_tx: tokio::sync::mpsc::Sender<crate::debug_draw::DebugDrawEvent>,
+    chat_tx: tokio::sync::mpsc::Sender<crate::chat_overlay::ChatMessageEvent>,
+    pause_state: Arc<AtomicBool>,
+) {
+    let create_game_signal = CreateGameSignal::new();
+    let guest_signal = create_game_signal.clone();
+    let join_barrier = JoinResponseBarrier::new(2);
+    let host_barrier = Some(join_barrier.clone());
+    let guest_barrier = Some(join_barrier);
+    let multiplayer_ports = MultiplayerPorts::from_base(upstream_port + 2, 2);
+    println!("[setup_proxies] Multiplayer ports: {:?}", multiplayer_ports);
+    let host_ports = Some(multiplayer_ports.clone());
+    let guest_ports = Some(multiplayer_ports);
+    let host_debug_tx = debug_tx.clone();
+    let host_chat_tx = chat_tx.clone();
+    let host_pause = pause_state.clone();
+    runtime.spawn_background_task(move |_ctx| async move {
+        let Some(request) = create_game_request else {
+            eprintln!("[Player1] No CreateGame request for host mode");
+            return;
+        };
+        if let Err(error) = host
+            .run_host(
+                ready_host,
+                create_game_signal,
+                host_barrier,
+                request,
+                host_ports,
+                Some(host_debug_tx),
+                Some(host_chat_tx),
+                Some(host_pause),
+            )
+            .await
+        {
+            eprintln!("[Player1] Proxy failed: {error}");
+        }
+    });
+
+    runtime.spawn_background_task(move |_ctx| async move {
+        if let Err(error) = guest
+            .run_guest(
+                ready_guest,
+                guest_signal,
+                guest_barrier,
+                guest_ports,
+                Some(debug_tx),
+                Some(chat_tx),
+                Some(pause_state),
+            )
+            .await
+        {
+            eprintln!("[Player2] Proxy failed: {error}");
+        }
+    });
+}
+
+fn start_solo_proxy(
+    runtime: &TokioTasksRuntime,
+    channel: ProxyDataChannel,
+    ready_signal: ProxyReadySignal,
+    request: Option<Request>,
+    observer_sender: Option<tokio::sync::broadcast::Sender<TaggedResponse>>,
+    debug_tx: tokio::sync::mpsc::Sender<crate::debug_draw::DebugDrawEvent>,
+    chat_tx: tokio::sync::mpsc::Sender<crate::chat_overlay::ChatMessageEvent>,
+    pause_state: Arc<AtomicBool>,
+) {
+    runtime.spawn_background_task(move |_ctx| async move {
+        let Some(request) = request else {
+            eprintln!("[Player1] No CreateGame request for solo mode");
+            return;
+        };
+        if let Err(error) = channel
+            .run_solo(
+                ready_signal,
+                request,
+                observer_sender,
+                Some(debug_tx),
+                Some(chat_tx),
+                Some(pause_state),
+            )
+            .await
+        {
+            eprintln!("[Player1] Proxy failed: {error}");
         }
     });
 }
@@ -524,17 +746,22 @@ pub fn setup_proxies(
     runtime: &TokioTasksRuntime,
     settings: &AppSettings,
     is_vs_bot: bool,
-    vision_mode_rx: watch::Receiver<VisionMode>,
     create_game_request: Option<Request>,
     pause_state: Arc<AtomicBool>,
 ) -> ProxyReadySignal {
     println!("====== setup_proxies (is_vs_bot={}) ======", is_vs_bot);
+    let is_replay = create_game_request.as_ref().is_some_and(|request| {
+        matches!(
+            request.request,
+            Some(Request_oneof_request::start_replay(_))
+        )
+    });
 
     // Create ready signal - expect 1 proxy for VsAI, 2 for VsBot
     let expected_proxies = if is_vs_bot { 2 } else { 1 };
     let ready_signal = ProxyReadySignal::new(expected_proxies);
-    let (debug_tx, mut debug_rx) = tokio::sync::mpsc::channel(64);
-    let (chat_tx, mut chat_rx) = tokio::sync::mpsc::channel(64);
+    let (debug_tx, debug_rx) = tokio::sync::mpsc::channel(64);
+    let (chat_tx, chat_rx) = tokio::sync::mpsc::channel(64);
 
     let base_port = settings.starcraft.listen_port;
     let listen_url = settings.starcraft.listen_url.clone();
@@ -546,343 +773,97 @@ pub fn setup_proxies(
 
     // Create Player1 proxy channel (each gets its own upstream URL)
     let listen_addr1 = format!("{}:{}", listen_url, base_port);
-    let (channel1, _response_rx1, p1_replay_responses) = ProxyDataChannel::new(
+    let (channel1, _response_rx1, p1_frame_responses) = ProxyDataChannel::new(
         PlayerId::Player1,
         listen_addr1.clone(),
         upstream_addr1.clone(),
     );
 
     // Create Player2 proxy channel if VsBot mode — connects to the 2nd SC2 instance
-    let (channel2, p2_gi_stream, p2_obs_stream, p2_replay_responses) = if is_vs_bot {
+    let (channel2, p2_gi_stream, p2_replay_responses) = if is_vs_bot {
         let listen_addr2 = format!("{}:{}", listen_url, base_port + 1);
         let (ch, _response_rx, replay_responses) =
             ProxyDataChannel::new(PlayerId::Player2, listen_addr2, upstream_addr2.clone());
-        let gi: TaggedResponseStream = Box::pin(ch.response_stream());
-        let obs: TaggedResponseStream = Box::pin(ch.response_stream());
-        (Some(ch), Some(gi), Some(obs), Some(replay_responses))
+        let gi: GameResponseStream = Box::pin(ch.response_stream());
+        (Some(ch), Some(gi), Some(replay_responses))
     } else {
-        (None, None, None, None)
+        (None, None, None)
     };
 
     // In VsAI mode, create an observer broadcast channel. The proxy will
     // interleave `disable_fog` observation requests in its bridge loop and
     // publish responses here, providing full-visibility data on the same
     // upstream WS connection (SC2 only allows one WS per port).
-    let (observer_sender, obs_gi_stream, obs_obs_stream) = if !is_vs_bot {
+    let (observer_sender, obs_gi_stream) = if !is_vs_bot {
         let (sender, _rx) = create_observer_channel();
-        let gi: TaggedResponseStream = Box::pin(observer_response_stream(&sender));
-        let obs: TaggedResponseStream = Box::pin(observer_response_stream(&sender));
-        (Some(sender), Some(gi), Some(obs))
+        let gi: GameResponseStream = Box::pin(observer_response_stream(&sender));
+        (Some(sender), Some(gi))
     } else {
-        (None, None, None)
+        (None, None)
     };
 
-    spawn_replay_assembler(runtime, p1_replay_responses);
+    if is_replay {
+        crate::sources::replay::spawn_frames(runtime, p1_frame_responses);
+    } else {
+        crate::sources::game::spawn_frames(runtime, p1_frame_responses);
+    }
     if let Some(p2_replay_responses) = p2_replay_responses {
-        spawn_replay_assembler(runtime, p2_replay_responses);
+        crate::sources::game::spawn_frames(runtime, p2_replay_responses);
     }
 
     // Merge P2 streams: either from VsBot channel2 or from VsAI observer
     let merged_p2_gi = p2_gi_stream.or(obs_gi_stream);
-    let merged_p2_obs = p2_obs_stream.or(obs_obs_stream);
-    let is_p2_observer = !is_vs_bot; // observer provides P2 data in VsAI mode
-    let pause_state_for_host = pause_state.clone();
-    let pause_state_for_guest = pause_state.clone();
-    let pause_state_for_solo = pause_state.clone();
+    forward_messages(runtime, debug_rx);
+    forward_messages(runtime, chat_rx);
 
-    runtime.spawn_background_task(move |ctx| async move {
-        while let Some(evt) = debug_rx.recv().await {
-            let mut ctx_clone = ctx.clone();
-            tokio::spawn(async move {
-                ctx_clone
-                    .run_on_main_thread(move |world| {
-                        world.world.write_message(evt);
-                    })
-                    .await;
-            });
-        }
-    });
-
-    runtime.spawn_background_task(move |ctx| async move {
-        while let Some(evt) = chat_rx.recv().await {
-            let mut ctx_clone = ctx.clone();
-            tokio::spawn(async move {
-                ctx_clone
-                    .run_on_main_thread(move |world| {
-                        world.world.write_message(evt);
-                    })
-                    .await;
-            });
-        }
-    });
-
-    // Spawn game_info consumer (cold — fires once per player at startup)
-    let p1_gi: TaggedResponseStream = Box::pin(channel1.response_stream());
-    runtime.spawn_background_task(move |ctx| async move {
-        let gi_stream = create_game_info_stream(p1_gi, merged_p2_gi);
-        tokio::pin!(gi_stream);
-
-        while let Some(tagged_gi) = gi_stream.next().await {
-            let mut ctx_clone = ctx.clone();
-            let gi_message = GameInfoEvent {
-                player_id: tagged_gi.player_id,
-                game_info: tagged_gi.game_info,
-            };
-
-            tokio::spawn(async move {
-                ctx_clone
-                    .run_on_main_thread(move |ctx| {
-                        ctx.world.write_message(gi_message);
-                    })
-                    .await;
-            });
-        }
-
-        println!("GameInfo stream finished");
-    });
-
-    // Spawn observation consumer (hot — continuous during game)
-    let p1_obs: TaggedResponseStream = Box::pin(channel1.response_stream());
-    println!(
-        "[setup_proxies] Creating observation stream (is_p2_observer={is_p2_observer}, has_p2={})",
-        merged_p2_obs.is_some()
-    );
-    runtime.spawn_background_task(move |ctx| async move {
-        let obs_stream =
-            create_observation_stream(p1_obs, merged_p2_obs, vision_mode_rx, is_p2_observer);
-        tokio::pin!(obs_stream);
-
-        while let Some(tagged_obs) = obs_stream.next().await {
-            let mut ctx_clone = ctx.clone();
-            let obs_event = ObservationEvent {
-                player_id: tagged_obs.player_id,
-                observation: tagged_obs.observation,
-                vision_mode: tagged_obs.vision_mode,
-            };
-            tokio::spawn(async move {
-                ctx_clone
-                    .run_on_main_thread(move |ctx| {
-                        ctx.world.write_message(obs_event);
-                    })
-                    .await;
-            });
-        }
-        println!("Observation stream finished");
-    });
+    // GameInfo supplies static map geometry to the renderer.
+    let p1_gi: GameResponseStream = Box::pin(channel1.response_stream());
+    forward_game_info(runtime, p1_gi, merged_p2_gi);
 
     // Spawn protocol activity consumer (all responses, independent from observation/game_info pipelines).
-    let p1_activity: TaggedResponseStream = Box::pin(channel1.response_stream());
-    runtime.spawn_background_task(move |ctx| async move {
-        tokio::pin!(p1_activity);
-
-        while let Some(tagged) = p1_activity.next().await {
-            let mut ctx_clone = ctx.clone();
-            let activity_event = ProtocolActivityEvent {
-                player_id: tagged.player_id,
-                response_kind: response_kind_name(&tagged.response),
-            };
-            let save_replay_event = tagged
-                .response
-                .has_save_replay()
-                .then(|| SaveReplayResponseEvent {
-                    data: tagged
-                        .response
-                        .get_save_replay()
-                        .data
-                        .as_ref()
-                        .cloned(),
-                });
-            let replay_status_event = tagged
-                .response
-                .has_start_replay()
-                .then(|| tagged.response.get_start_replay())
-                .filter(|response| response.has_error())
-                .map(|response| ReplayStatusEvent {
-                    status: format!(
-                        "Could not start replay: {:?} - {}",
-                        response.get_error(),
-                        response.get_error_details()
-                    ),
-                });
-
-            tokio::spawn(async move {
-                ctx_clone
-                    .run_on_main_thread(move |ctx| {
-                        ctx.world.write_message(activity_event);
-                        if let Some(event) = save_replay_event {
-                            ctx.world.write_message(event);
-                        }
-                        if let Some(event) = replay_status_event {
-                            ctx.world.write_message(event);
-                        }
-                    })
-                    .await;
-            });
-        }
-    });
+    let p1_activity: GameResponseStream = Box::pin(channel1.response_stream());
+    forward_protocol_activity(runtime, p1_activity, true);
 
     if let Some(ref channel2_for_activity) = channel2 {
-        let p2_activity: TaggedResponseStream = Box::pin(channel2_for_activity.response_stream());
-        runtime.spawn_background_task(move |ctx| async move {
-            tokio::pin!(p2_activity);
-
-            while let Some(tagged) = p2_activity.next().await {
-                let mut ctx_clone = ctx.clone();
-                let activity_event = ProtocolActivityEvent {
-                    player_id: tagged.player_id,
-                    response_kind: response_kind_name(&tagged.response),
-                };
-
-                tokio::spawn(async move {
-                    ctx_clone
-                        .run_on_main_thread(move |ctx| {
-                            ctx.world.write_message(activity_event);
-                        })
-                        .await;
-                });
-            }
-        });
+        let p2_activity: GameResponseStream = Box::pin(channel2_for_activity.response_stream());
+        forward_protocol_activity(runtime, p2_activity, false);
     }
 
     if let Some(ref observer_sender_for_activity) = observer_sender {
-        let obs_activity: TaggedResponseStream =
+        let obs_activity: GameResponseStream =
             Box::pin(observer_response_stream(observer_sender_for_activity));
-        runtime.spawn_background_task(move |ctx| async move {
-            tokio::pin!(obs_activity);
-
-            while let Some(tagged) = obs_activity.next().await {
-                let mut ctx_clone = ctx.clone();
-                let activity_event = ProtocolActivityEvent {
-                    player_id: tagged.player_id,
-                    response_kind: response_kind_name(&tagged.response),
-                };
-
-                tokio::spawn(async move {
-                    ctx_clone
-                        .run_on_main_thread(move |ctx| {
-                            ctx.world.write_message(activity_event);
-                        })
-                        .await;
-                });
-            }
-        });
+        forward_protocol_activity(runtime, obs_activity, false);
     }
-
-    let is_replay = create_game_request.as_ref().is_some_and(|request| {
-        matches!(
-            request.request,
-            Some(Request_oneof_request::start_replay(_))
-        )
-    });
 
     // Spawn independent proxy tasks — each with its own upstream WS to SC2.
     // Only coordination: host sends CreateGame first, then signals guest.
-    let ready_signal1 = ready_signal.clone();
-    let ready_signal2 = ready_signal.clone();
-
     if is_replay {
-        let Some(start_replay_request) = create_game_request else {
-            eprintln!("[Player1] No StartReplay request for replay mode");
-            return ready_signal;
-        };
-        runtime.spawn_background_task(move |_ctx| async move {
-            if let Err(error) = channel1
-                .run_replay(ready_signal1, start_replay_request)
-                .await
-            {
-                eprintln!("[Player1] Replay failed: {error}");
-            }
-        });
+        start_replay_proxy(runtime, channel1, ready_signal.clone(), create_game_request);
     } else if is_vs_bot {
-        let create_game_signal = CreateGameSignal::new();
-        let cg_signal1 = create_game_signal.clone();
-        let cg_signal2 = create_game_signal;
         let channel2 = channel2.unwrap();
-        let join_barrier = JoinResponseBarrier::new(2);
-        let barrier1 = Some(join_barrier.clone());
-        let barrier2 = Some(join_barrier);
-
-        // Compute multiplayer ports for SC2 internal game sync.
-        // These are TCP ports that the two SC2 instances use for their internal
-        // LAN protocol. They are separate from both the WebSocket ports and the
-        // proxy listen ports. We pick upstream_port+2..+7 and map them through
-        // Docker so both SC2 processes can reach them.
-        // Layout: server=(up+2, up+3), client1=(up+4, up+5), client2=(up+6, up+7)
-        let mp = MultiplayerPorts::from_base(upstream_port + 2, 2);
-        println!("[setup_proxies] Multiplayer ports: {:?}", mp);
-        let mp1 = Some(mp.clone());
-        let mp2 = Some(mp);
-
-        // Host (Player1): CreateGame → signal → JoinGame → bridge
-        let debug_tx_host = debug_tx.clone();
-        let chat_tx_host = chat_tx.clone();
-        runtime.spawn_background_task(move |_ctx| async move {
-            let Some(cg_req) = create_game_request else {
-                eprintln!("[Player1] No CreateGame request for host mode");
-                return;
-            };
-            if let Err(e) = channel1
-                .run_host(
-                    ready_signal1,
-                    cg_signal1,
-                    barrier1,
-                    cg_req,
-                    mp1,
-                    Some(debug_tx_host),
-                    Some(chat_tx_host),
-                    Some(pause_state_for_host.clone()),
-                )
-                .await
-            {
-                eprintln!("[Player1] Proxy failed: {e}");
-            }
-        });
-
-        // Guest (Player2): wait signal → JoinGame → bridge
-        let debug_tx_guest = debug_tx.clone();
-        let chat_tx_guest = chat_tx.clone();
-        runtime.spawn_background_task(move |_ctx| async move {
-            if let Err(e) = channel2
-                .run_guest(
-                    ready_signal2,
-                    cg_signal2,
-                    barrier2,
-                    mp2,
-                    Some(debug_tx_guest),
-                    Some(chat_tx_guest),
-                    Some(pause_state_for_guest.clone()),
-                )
-                .await
-            {
-                eprintln!("[Player2] Proxy failed: {e}");
-            }
-        });
+        start_multiplayer_proxies(
+            runtime,
+            channel1,
+            channel2,
+            ready_signal.clone(),
+            ready_signal.clone(),
+            create_game_request,
+            upstream_port,
+            debug_tx,
+            chat_tx,
+            pause_state,
+        );
     } else {
-        // Solo (VsAI) with interleaved observer:
-        // The proxy sends disable_fog observation requests after each bot
-        // roundtrip and publishes responses on observer_sender as Player2.
-        // No separate WS connection needed — uses the same upstream.
-        let debug_tx_solo = debug_tx.clone();
-        let chat_tx_solo = chat_tx.clone();
-        runtime.spawn_background_task(move |_ctx| async move {
-            let Some(cg_req) = create_game_request else {
-                eprintln!("[Player1] No CreateGame request for solo mode");
-                return;
-            };
-            if let Err(e) = channel1
-                .run_solo(
-                    ready_signal1,
-                    cg_req,
-                    observer_sender,
-                    Some(debug_tx_solo),
-                    Some(chat_tx_solo),
-                    Some(pause_state_for_solo.clone()),
-                )
-                .await
-            {
-                eprintln!("[Player1] Proxy failed: {e}");
-            }
-        });
+        start_solo_proxy(
+            runtime,
+            channel1,
+            ready_signal.clone(),
+            create_game_request,
+            observer_sender,
+            debug_tx,
+            chat_tx,
+            pause_state,
+        );
     }
 
     println!("====== Proxy tasks spawned ======");
@@ -910,56 +891,54 @@ pub fn protocol_activity_system(
     }
 }
 
-/// System: reads the latest ObservationEvent and updates PlayerResources.
+/// Borrow the selected frame to update HUD resources.
 pub fn update_player_resources(
-    mut events: MessageReader<ObservationEvent>,
+    mut events: MessageReader<FrameEvent>,
+    playback: Res<LoopPlaybackState>,
     mut res: ResMut<PlayerResources>,
     mut game_result: ResMut<GameResultState>,
     mut replay_save_state: ResMut<crate::ui::ReplaySaveState>,
-    mut playback: ResMut<LoopPlaybackState>,
 ) {
-    for event in events.read() {
-        if game_result.player_results.is_empty() {
-            let player_results: Vec<String> = event
-                .observation
+    for _event in events.read() {
+        let Some(latest) = playback.history.latest_frame() else {
+            continue;
+        };
+        let observation = &latest.observation;
+        if game_result.player_results.is_empty() && !observation.player_result.is_empty() {
+            replay_save_state.status = Some("Preparing replay export...".to_string());
+            game_result.player_results = observation
                 .player_result
                 .iter()
                 .map(|result| {
-                    let player_id = result.get_player_id();
                     let outcome = result
                         .result
                         .map(|result| format!("{result:?}"))
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    format!("Player {player_id}: {outcome}")
+                        .unwrap_or_else(|| "Unknown".to_owned());
+                    format!("Player {}: {outcome}", result.get_player_id())
                 })
                 .collect();
-            if !player_results.is_empty() {
-                replay_save_state.status = Some("Preparing replay export...".to_string());
-                game_result.player_results = player_results;
-            }
         }
 
-        let Some(obs) = event.observation.observation.as_ref() else {
+        let Some(frame) = playback.current_frame() else {
             continue;
         };
-        let loop_id = obs.get_game_loop();
-        if playback.mode == LoopPlaybackMode::Live {
-            res.game_loop = loop_id;
-            playback.selected_loop = loop_id;
-        } else {
-            res.game_loop = playback.selected_loop;
-        }
+        let Some(player) = frame
+            .observation
+            .observation
+            .as_ref()
+            .and_then(|observation| observation.player_common.as_ref())
+        else {
+            continue;
+        };
+        res.game_loop = frame.game_loop;
 
-        let Some(pc) = obs.player_common.as_ref() else {
-            continue;
-        };
-        res.minerals = pc.get_minerals();
-        res.vespene = pc.get_vespene();
-        res.food_used = pc.get_food_used();
-        res.food_cap = pc.get_food_cap();
-        res.army_count = pc.get_army_count();
-        res.worker_count = pc.get_food_workers();
-        res.idle_workers = pc.get_idle_worker_count();
+        res.minerals = player.get_minerals();
+        res.vespene = player.get_vespene();
+        res.food_used = player.get_food_used();
+        res.food_cap = player.get_food_cap();
+        res.army_count = player.get_army_count();
+        res.worker_count = player.get_food_workers();
+        res.idle_workers = player.get_idle_worker_count();
     }
 }
 
@@ -972,27 +951,32 @@ pub fn replay_status_system(
     }
 }
 
-/// Selects the single frame consumed by rendering.
+/// Move incoming frames into history; consumers borrow the selected frame.
 pub fn current_frame_system(
-    mut frame_events: MessageReader<ReplayFrameEvent>,
+    mut events: MessageReader<FrameEvent>,
+    mut pending: ResMut<PendingFrames>,
     mut playback: ResMut<LoopPlaybackState>,
-    mut current_frame: ResMut<CurrentFrame>,
+    vision_mode: Res<VisionModeChannel>,
 ) {
-    for event in frame_events.read() {
-        let mut frame = event.frame.clone();
-        carry_forward_debug_draws(&mut frame, playback.history.latest_frame());
-        playback.push_frame(frame.clone());
-        if playback.mode == LoopPlaybackMode::Live {
-            playback.apply_live_frame(frame, &mut current_frame);
+    for _event in events.read() {
+        let Some(mut frame) = pending.0.pop_front() else {
+            continue;
+        };
+        if vision_mode.current != VisionMode::All
+            && !matches!(
+                (vision_mode.current, frame.player_id),
+                (VisionMode::Player1, PlayerId::Player1)
+                    | (VisionMode::Player2, PlayerId::Player2)
+            )
+        {
+            continue;
         }
-    }
-
-    if playback.mode != LoopPlaybackMode::Live {
-        playback.apply_rewind_frame(&mut current_frame);
+        carry_forward_debug_draws(&mut frame, playback.history.latest_frame());
+        playback.push_frame(frame);
     }
 }
 
-fn carry_forward_debug_draws(frame: &mut ReplayFrame, previous: Option<&ReplayFrame>) {
+fn carry_forward_debug_draws(frame: &mut Frame, previous: Option<&Frame>) {
     if !frame.debug_draws.is_empty() || !frame.debug_texts.is_empty() {
         return;
     }
@@ -1089,7 +1073,7 @@ fn handle_vision_mode_change(
 }
 
 fn update_map_from_observation(
-    obs: &ResponseObservation,
+    observation: &ResponseObservation,
     map_res: &mut Option<ResMut<MapResource>>,
     tile_color_query: &mut Query<&mut TileColor>,
     entity_system: &Res<EntitySystem>,
@@ -1098,41 +1082,26 @@ fn update_map_from_observation(
     terrain_mesh_dirty: &mut ResMut<Terrain3dMeshDirty>,
 ) -> Option<()> {
     let map_res = map_res.as_mut()?;
-    let map_state = obs
+    let map_state = observation
         .observation
         .as_ref()?
         .raw_data
         .as_ref()?
         .map_state
         .as_ref()?;
-
     let creep_layer = map_state.creep.as_ref().map(TerrainLayer::from_image_data);
-
-    if let Some(vis_data) = map_state.visibility.as_ref() {
-        if !LOGGED_VIS_FORMAT.swap(true, Ordering::Relaxed) {
-            let bits = vis_data.bits_per_pixel.unwrap_or_default();
-            let data_len = vis_data.data.as_ref().map(|v| v.len()).unwrap_or_default();
-            let size = vis_data.size.as_ref();
-            let w = size.and_then(|s| s.x).unwrap_or_default();
-            let h = size.and_then(|s| s.y).unwrap_or_default();
-            eprintln!(
-                "[fog] visibility format: bpp={bits}, bytes={data_len}, size={}x{}",
-                w, h
-            );
-        }
-    }
-
     let visibility_layer = map_state
         .visibility
         .as_ref()
         .map(TerrainLayer::from_image_data);
+    let energy_layer = None;
 
     let new_creep_hash = calculate_layer_hash(&creep_layer);
     let new_visibility_hash = calculate_layer_hash(&visibility_layer);
-    let new_energy_hash = 0;
+    let new_energy_hash = calculate_layer_hash(&energy_layer);
 
     map_res.latest_creep_layer = creep_layer.clone();
-    map_res.latest_energy_layer = None;
+    map_res.latest_energy_layer = energy_layer.clone();
     map_res.latest_visibility_layer = visibility_layer.clone();
 
     if new_creep_hash != map_res.last_creep_hash
@@ -1147,7 +1116,7 @@ fn update_map_from_observation(
             &map_res.tile_storage,
             &map_res.static_layers,
             creep_layer.as_ref(),
-            None,
+            energy_layer.as_ref(),
             visibility_layer.as_ref(),
             tile_color_query,
             entity_system,
@@ -1284,12 +1253,12 @@ pub fn refresh_3d_terrain_mesh(
     dirty.0 = false;
 }
 
-fn handle_units_for_observation(
+fn handle_units_for_frame(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
     registry: &mut ResMut<UnitRegistry>,
     entity_system: &Res<EntitySystem>,
-    obs: &ResponseObservation,
+    units: &[sc2_proto::raw::Unit],
     unit_query: Query<&UnitBuildProgress>,
     seen_tags: &mut ResMut<ObservationUnitTags>,
     map_res: &Option<ResMut<MapResource>>,
@@ -1300,12 +1269,12 @@ fn handle_units_for_observation(
         (width as f32, height as f32)
     });
 
-    handle_observation(
+    apply_observation_units(
         commands,
         asset_server,
         registry,
         entity_system,
-        obs,
+        units,
         unit_query,
         seen_tags,
         map_size,
@@ -1331,17 +1300,31 @@ pub fn map_init_system(
 ) {
     // Drain all events in this batch; only process the first valid one.
     let events: Vec<_> = gi_events.read().collect();
-    let Some(event) = events.iter().find(|e| e.game_info.start_raw.is_some()) else {
+    let Some(event) = events.iter().find(|event| {
+        event
+            .game_info
+            .start_raw
+            .as_ref()
+            .and_then(|raw| raw.pathing_grid.as_ref())
+            .is_some()
+    })
+    else {
         return;
     };
 
-    let gi = &event.game_info;
-    let start_raw = gi.start_raw.as_ref().unwrap();
-    let _start_pos = start_raw.start_locations.first();
-
-    let path_layer = TerrainLayer::from_image_data(start_raw.pathing_grid.as_ref().unwrap());
-    let placement_layer = TerrainLayer::from_image_data(start_raw.placement_grid.as_ref().unwrap());
-    let height_layer = TerrainLayer::from_image_data(start_raw.terrain_height.as_ref().unwrap());
+    let Some(start_raw) = event.game_info.start_raw.as_ref() else {
+        return;
+    };
+    let (Some(pathing), Some(placement), Some(height)) = (
+        start_raw.pathing_grid.as_ref(),
+        start_raw.placement_grid.as_ref(),
+        start_raw.terrain_height.as_ref(),
+    ) else {
+        return;
+    };
+    let path_layer = TerrainLayer::from_image_data(pathing);
+    let placement_layer = TerrainLayer::from_image_data(placement);
+    let height_layer = TerrainLayer::from_image_data(height);
 
     println!(
         "[{}] Got game info: map size {} x {}",
@@ -1419,7 +1402,7 @@ fn create_fog_of_war_texture(width: u32, height: u32) -> Image {
 }
 
 /// System to handle observation events from the pipeline.
-pub fn response_controller_system(
+pub fn render_current_frame(
     mut last_vision_mode: ResMut<LastVisionMode>,
     mut map_res: Option<ResMut<MapResource>>,
     mut commands: Commands,
@@ -1433,35 +1416,15 @@ pub fn response_controller_system(
     mut fog_data: Option<ResMut<FogOfWarData>>,
     mut terrain_mesh_dirty: ResMut<Terrain3dMeshDirty>,
     mut logged_first_obs: Local<bool>,
-    current_frame: Res<CurrentFrame>,
+    playback: Res<LoopPlaybackState>,
     vision_mode: Res<VisionModeChannel>,
     mut visual_assets: Unit3dRenderAssets,
 ) {
     seen_tags.seen_tags.clear();
 
-    let Some(frame) = current_frame.frame.as_ref() else {
+    let Some(frame) = playback.current_frame() else {
         return;
     };
-    let Some(obs) = frame.observation.as_ref() else {
-        return;
-    };
-
-    // One-time diagnostic on first observation.
-    if !*logged_first_obs {
-        let has_vis = obs
-            .observation
-            .as_ref()
-            .and_then(|o| o.raw_data.as_ref())
-            .and_then(|r| r.map_state.as_ref())
-            .and_then(|m| m.visibility.as_ref())
-            .is_some();
-        eprintln!(
-            "[fog] first observation received. visibility layer present: {has_vis}. \
-             If false, enable raw interface in your bot's JoinGameRequest."
-        );
-        *logged_first_obs = true;
-    }
-
     handle_vision_mode_change(
         vision_mode.current,
         &mut last_vision_mode,
@@ -1470,28 +1433,48 @@ pub fn response_controller_system(
         &mut seen_tags,
     );
 
-    if update_map_from_observation(
-        obs,
-        &mut map_res,
-        &mut tile_color_query,
-        &entity_system,
-        &layer_registry,
-        &mut fog_data,
-        &mut terrain_mesh_dirty,
-    )
-    .is_none()
+    let observation = &frame.observation;
+    if observation
+        .observation
+        .as_ref()
+        .and_then(|data| data.raw_data.as_ref())
+        .and_then(|raw| raw.map_state.as_ref())
+        .is_some()
     {
-        eprintln!(
-            "[response_controller_system] Skipped map update: missing map resource or observation raw map_state"
+        if !*logged_first_obs {
+            eprintln!(
+                "[fog] first frame received. visibility layer present: {}.",
+                observation
+                    .observation
+                    .as_ref()
+                    .and_then(|data| data.raw_data.as_ref())
+                    .and_then(|raw| raw.map_state.as_ref())
+                    .is_some_and(|map| map.visibility.is_some())
+            );
+            *logged_first_obs = true;
+        }
+        let _ = update_map_from_observation(
+            observation,
+            &mut map_res,
+            &mut tile_color_query,
+            &entity_system,
+            &layer_registry,
+            &mut fog_data,
+            &mut terrain_mesh_dirty,
         );
     }
 
-    handle_units_for_observation(
+    handle_units_for_frame(
         &mut commands,
         &asset_server,
         &mut registry,
         &entity_system,
-        obs,
+        &observation
+            .observation
+            .as_ref()
+            .and_then(|data| data.raw_data.as_ref())
+            .map(|raw| raw.units.as_slice())
+            .unwrap_or_default(),
         unit_query,
         &mut seen_tags,
         &map_res,
