@@ -6,7 +6,7 @@ use crate::controller::{
 use crate::debug_draw::render_debug_texts;
 use crate::entity_system::EntitySystem;
 use crate::map::Terrain3dSettings;
-use crate::proxy_channel::{ProxyControlSender, ProxyStreamPause};
+use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::LayerRegistry;
 use crate::render_view::RenderViewMode;
 use crate::ui::hud::{render_game_result, render_hud, render_status_bar};
@@ -41,7 +41,6 @@ pub(crate) struct HudParams<'w, 's> {
     in_progress_query: Query<'w, 's, (&'static UnitType, &'static UnitBuildProgress)>,
     game_result: Res<'w, GameResultState>,
     replay_save_state: ResMut<'w, ReplaySaveState>,
-    replay_control_sender: Res<'w, ProxyControlSender>,
     runtime: Res<'w, TokioTasksRuntime>,
 }
 
@@ -147,7 +146,7 @@ pub fn ui_system(
             &ctx,
             &hud.game_result,
             &mut hud.replay_save_state,
-            &hud.replay_control_sender,
+            &hud.runtime,
         );
         render_debug_texts(
             &ctx,

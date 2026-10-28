@@ -1,11 +1,15 @@
 use crate::chat_overlay::ChatOverlay;
-use crate::controller::{GameResultState, PlayerResources, ProtocolActivityState};
-use crate::proxy_channel::{PlayerId, ProxyControlCommand, ProxyControlSender};
+use crate::controller::{
+    GameResultState, PlayerResources, ProtocolActivityState, ReplayExportCompleteEvent,
+};
+use crate::proxy_channel::PlayerId;
 use crate::ui::state::ReplaySaveState;
 use crate::ui::start_screen::beveled_button;
 use crate::units::{UnitBuildProgress, UnitType};
 use bevy::prelude::*;
 use bevy_egui::egui;
+use bevy_tokio_tasks::TokioTasksRuntime;
+use tokio::task::spawn_blocking;
 
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub enum DockerStatus {
@@ -215,8 +219,12 @@ pub fn render_game_result(
     ctx: &egui::Context,
     result: &GameResultState,
     save_state: &mut ReplaySaveState,
-    control_sender: &ProxyControlSender,
+    runtime: &TokioTasksRuntime,
 ) {
+    if result.player_results.is_empty() {
+        return;
+    }
+
     egui::Area::new("game_result_panel".into())
         .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 12.0))
         .order(egui::Order::Foreground)
@@ -253,37 +261,52 @@ pub fn render_game_result(
                         );
                     }
 
-                    let is_saving = save_state.pending_path.is_some();
+                    let is_saving = save_state.saving;
                     if beveled_button(
                         ui,
                         if is_saving {
-                            "SAVING REPLAY..."
+                            "PREPARING SAVE..."
                         } else {
                             "SAVE REPLAY"
                         },
                         egui::vec2(160.0, 36.0),
-                        !is_saving,
+                        !is_saving && result.replay_data.is_some(),
                         true,
                     )
                     .clicked()
                     {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("StarCraft II replay", &["SC2Replay"])
-                            .set_file_name("match.SC2Replay")
-                            .save_file()
-                        {
-                            save_state.pending_path = Some(path);
-                            save_state.status = Some("Requesting replay data...".to_string());
-                            if control_sender
-                                .0
-                                .send(ProxyControlCommand::SaveReplay)
-                                .is_err()
-                            {
-                                save_state.pending_path = None;
-                                save_state.status =
-                                    Some("The game proxy is no longer available.".to_string());
-                            }
-                        }
+                        save_state.saving = true;
+                        save_state.status = Some("Choose where to save the replay.".to_string());
+                        let replay_data = result.replay_data.clone().unwrap_or_default();
+                        runtime.spawn_background_task(move |mut ctx| async move {
+                            let selected_file = rfd::AsyncFileDialog::new()
+                                .add_filter("StarCraft II replay", &["SC2Replay"])
+                                .set_file_name("match.SC2Replay")
+                                .save_file()
+                                .await;
+                            let export_result = match selected_file {
+                                Some(file) => {
+                                    let path = file.path().to_path_buf();
+                                    let display_path = path.display().to_string();
+                                    match spawn_blocking(move || std::fs::write(path, replay_data))
+                                        .await
+                                    {
+                                        Ok(Ok(())) => Some(Ok(display_path)),
+                                        Ok(Err(error)) => Some(Err(error.to_string())),
+                                        Err(error) => Some(Err(format!(
+                                            "Replay file writer failed: {error}"
+                                        ))),
+                                    }
+                                }
+                                None => None,
+                            };
+                            ctx.run_on_main_thread(move |main_thread| {
+                                main_thread.world.write_message(ReplayExportCompleteEvent {
+                                    result: export_result,
+                                });
+                            })
+                            .await;
+                        });
                     }
 
                     if let Some(status) = &save_state.status {

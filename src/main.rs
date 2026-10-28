@@ -46,9 +46,7 @@ use crate::debug_draw::{
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
 use crate::map::{terrain_height_to_world_y, Terrain3dMeshDirty, Terrain3dSettings};
-use crate::proxy_channel::{
-    ProxyControlReceiver, ProxyControlSender, ProxyReadySignal, ProxyStreamPause,
-};
+use crate::proxy_channel::{ProxyReadySignal, ProxyStreamPause};
 use crate::render_layers::{
     layer_visibility_system, view_mode_visibility_system, LayerRegistry, RenderLayerKind,
     RenderLayerMarker,
@@ -251,7 +249,6 @@ fn proxy_connect_on_docker_ready(
     mut proxy_ready: ResMut<ProxyReadyResource>,
     mut pending_request: ResMut<PendingCreateGameRequest>,
     proxy_pause: Res<ProxyStreamPause>,
-    control_rx: ResMut<ProxyControlReceiver>,
 ) {
     if !*has_connected && *docker_status == DockerStatus::Running && game_created.0 {
         let is_replay = pending_request.0.as_ref().is_some_and(|request| {
@@ -270,7 +267,6 @@ fn proxy_connect_on_docker_ready(
             vision_rx,
             create_req,
             proxy_pause.paused.clone(),
-            control_rx.0.lock().unwrap().take(),
         );
         proxy_ready.0 = Some(ready_signal);
         *has_connected = true;
@@ -304,7 +300,6 @@ fn main() {
     let app_state = AppState::StartScreen;
     let pending_request = PendingCreateGameRequest::default();
     let docker_status = DockerStatus::Idle;
-    let (control_sender, control_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     // Get assets directory for Bevy's AssetPlugin
     let assets_dir = get_assets_dir();
@@ -318,6 +313,7 @@ fn main() {
         .add_message::<SaveReplayResponseEvent>()
         .add_message::<ReplayStatusEvent>()
         .add_message::<crate::controller::ReplayFileLoadedEvent>()
+        .add_message::<crate::controller::ReplayExportCompleteEvent>()
         .add_message::<DebugDrawEvent>()
         .add_message::<ChatMessageEvent>()
         .register_type::<UnitHealth>()
@@ -396,10 +392,6 @@ fn main() {
         .insert_resource(PlayerResources::default())
         .insert_resource(CurrentFrame::default())
         .insert_resource(ProxyStreamPause::new())
-        .insert_resource(ProxyControlSender(control_sender))
-        .insert_resource(ProxyControlReceiver(std::sync::Mutex::new(Some(
-            control_receiver,
-        ))))
         .insert_resource(crate::ui::ReplaySaveState::default())
         .insert_resource(GameResultState::default())
         .insert_resource(crate::controller::LoopPlaybackState::default())
@@ -434,6 +426,7 @@ fn main() {
         .add_systems(Update, update_player_resources)
         .add_systems(Update, crate::controller::replay_status_system)
         .add_systems(Update, save_replay_response_system)
+        .add_systems(Update, crate::controller::replay_export_complete_system)
         .add_systems(
             Update,
             refresh_map_colors_on_layer_change.after(response_controller_system),

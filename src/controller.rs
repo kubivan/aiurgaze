@@ -33,8 +33,8 @@ use crate::observation_pipeline::{
 };
 use crate::proxy_channel::{
     create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
-    MultiplayerPorts, PlayerId, ProxyControlCommand, ProxyDataChannel, ProxyReadySignal,
-    ReplayAssembler, ReplayBuffer, ReplayFrame, TaggedResponse,
+    MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, ReplayAssembler, ReplayBuffer,
+    ReplayFrame, TaggedResponse,
 };
 use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
 use crate::render_view::RenderViewMode;
@@ -62,6 +62,11 @@ pub struct SaveReplayResponseEvent {
     pub data: Option<Vec<u8>>,
 }
 
+#[derive(Message)]
+pub struct ReplayExportCompleteEvent {
+    pub result: Option<Result<String, String>>,
+}
+
 #[derive(Message, Clone)]
 pub struct ReplayStatusEvent {
     pub status: String,
@@ -76,6 +81,7 @@ pub struct ReplayFileLoadedEvent {
 pub struct GameResultState {
     pub player_results: Vec<String>,
     pub status: Option<String>,
+    pub replay_data: Option<Vec<u8>>,
 }
 
 /// A complete step frame committed by the proxy.
@@ -86,38 +92,37 @@ pub struct ReplayFrameEvent {
 
 pub fn save_replay_response_system(
     mut events: MessageReader<SaveReplayResponseEvent>,
+    mut game_result: ResMut<GameResultState>,
     mut save_state: ResMut<crate::ui::ReplaySaveState>,
-    runtime: Res<TokioTasksRuntime>,
 ) {
     for event in events.read() {
-        let Some(path) = save_state.pending_path.clone() else {
-            continue;
-        };
-        let Some(data) = event.data.clone() else {
-            save_state.pending_path = None;
-            save_state.status = Some("SC2 returned no replay data.".to_string());
+        let Some(data) = event
+            .data
+            .as_ref()
+            .filter(|data| !data.is_empty())
+            .cloned()
+        else {
+            save_state.status = Some("SC2 could not prepare replay data.".to_string());
             continue;
         };
 
-        save_state.status = Some("Writing replay file...".to_string());
-        let display_path = path.display().to_string();
-        runtime.spawn_background_task(move |mut ctx| async move {
-            let result = tokio::task::spawn_blocking(move || std::fs::write(path, data)).await;
-            let status = match result {
-                Ok(Ok(())) => format!("Replay saved to {display_path}"),
-                Ok(Err(error)) => format!("Could not save replay: {error}"),
-                Err(error) => format!("Replay file writer failed: {error}"),
-            };
-            ctx.run_on_main_thread(move |world| {
-                if let Some(mut save_state) =
-                    world.world.get_resource_mut::<crate::ui::ReplaySaveState>()
-                {
-                    save_state.pending_path = None;
-                    save_state.status = Some(status);
-                }
-            })
-            .await;
-        });
+        game_result.replay_data = Some(data);
+        save_state.status = Some("Replay ready to save.".to_string());
+    }
+}
+
+pub fn replay_export_complete_system(
+    mut events: MessageReader<ReplayExportCompleteEvent>,
+    mut save_state: ResMut<crate::ui::ReplaySaveState>,
+) {
+    for event in events.read() {
+        save_state.saving = false;
+        if let Some(result) = &event.result {
+            save_state.status = Some(match result {
+                Ok(path) => format!("Replay saved to {path}"),
+                Err(error) => format!("Could not save replay: {error}"),
+            });
+        }
     }
 }
 
@@ -522,7 +527,6 @@ pub fn setup_proxies(
     vision_mode_rx: watch::Receiver<VisionMode>,
     create_game_request: Option<Request>,
     pause_state: Arc<AtomicBool>,
-    control_rx: Option<mpsc::UnboundedReceiver<ProxyControlCommand>>,
 ) -> ProxyReadySignal {
     println!("====== setup_proxies (is_vs_bot={}) ======", is_vs_bot);
 
@@ -781,14 +785,9 @@ pub fn setup_proxies(
             eprintln!("[Player1] No StartReplay request for replay mode");
             return ready_signal;
         };
-        let control_rx = control_rx.unwrap_or_else(|| {
-            let (sender, receiver) = mpsc::unbounded_channel();
-            drop(sender);
-            receiver
-        });
         runtime.spawn_background_task(move |_ctx| async move {
             if let Err(error) = channel1
-                .run_replay(ready_signal1, start_replay_request, control_rx)
+                .run_replay(ready_signal1, start_replay_request)
                 .await
             {
                 eprintln!("[Player1] Replay failed: {error}");
@@ -832,7 +831,6 @@ pub fn setup_proxies(
                     Some(debug_tx_host),
                     Some(chat_tx_host),
                     Some(pause_state_for_host.clone()),
-                    control_rx,
                 )
                 .await
             {
@@ -879,7 +877,6 @@ pub fn setup_proxies(
                     Some(debug_tx_solo),
                     Some(chat_tx_solo),
                     Some(pause_state_for_solo.clone()),
-                    control_rx,
                 )
                 .await
             {
@@ -918,11 +915,12 @@ pub fn update_player_resources(
     mut events: MessageReader<ObservationEvent>,
     mut res: ResMut<PlayerResources>,
     mut game_result: ResMut<GameResultState>,
+    mut replay_save_state: ResMut<crate::ui::ReplaySaveState>,
     mut playback: ResMut<LoopPlaybackState>,
 ) {
     for event in events.read() {
         if game_result.player_results.is_empty() {
-            game_result.player_results = event
+            let player_results: Vec<String> = event
                 .observation
                 .player_result
                 .iter()
@@ -935,6 +933,10 @@ pub fn update_player_resources(
                     format!("Player {player_id}: {outcome}")
                 })
                 .collect();
+            if !player_results.is_empty() {
+                replay_save_state.status = Some("Preparing replay export...".to_string());
+                game_result.player_results = player_results;
+            }
         }
 
         let Some(obs) = event.observation.observation.as_ref() else {

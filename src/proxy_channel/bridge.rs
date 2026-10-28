@@ -4,6 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use protobuf::Message;
 use protobuf::RepeatedField;
 use sc2_proto::debug::{DebugCommand, DebugGameState};
+use sc2_proto::sc2api::Response;
 use sc2_proto::sc2api::Request;
 use sc2_proto::sc2api::Request_oneof_request;
 use tokio::net::TcpListener;
@@ -107,7 +108,45 @@ pub(super) struct BridgeOptions {
     pub(super) debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
     pub(super) chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
     pub(super) pause_state: Option<Arc<AtomicBool>>,
-    pub(super) control_rx: Option<mpsc::UnboundedReceiver<ProxyControlCommand>>,
+}
+
+pub(super) async fn save_replay(
+    write: &mut futures_util::stream::SplitSink<UpstreamWs, tungstenite::Message>,
+    read: &mut futures_util::stream::SplitStream<UpstreamWs>,
+) -> Result<Response, Box<dyn std::error::Error + Send + Sync>> {
+    let mut request = Request::new();
+    request.mut_save_replay();
+    let response_bytes = roundtrip(
+        write,
+        read,
+        request
+            .write_to_bytes()
+            .map_err(|error| format!("Protobuf encode save_replay: {error}"))?,
+    )
+    .await?;
+    let response = try_parse_response(&response_bytes).ok_or("Failed to parse save_replay response")?;
+    if !response.has_save_replay() {
+        return Err("SC2 returned an unexpected response to save_replay".into());
+    }
+    Ok(response)
+}
+
+fn is_bot_disconnect(error: &tungstenite::Error) -> bool {
+    matches!(
+        error,
+        tungstenite::Error::Protocol(
+            tungstenite::error::ProtocolError::ResetWithoutClosingHandshake
+        )
+    ) || matches!(
+        error,
+        tungstenite::Error::Io(io_error)
+            if matches!(
+                io_error.kind(),
+                std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::UnexpectedEof
+            )
+    )
 }
 
 pub(super) fn advance_observer_game_loop(last_game_loop: &mut u32, current_game_loop: u32) -> bool {
@@ -226,7 +265,6 @@ pub(super) async fn accept_and_bridge(
         debug_tx,
         chat_tx,
         pause_state,
-        mut control_rx,
     } = options;
     let (mut client_write, mut client_read) = client_ws.split();
 
@@ -275,34 +313,26 @@ pub(super) async fn accept_and_bridge(
     }
 
     let mut observer_last_game_loop = 0;
+    let mut replay_saved = false;
     loop {
-        enum BridgeInput {
-            Client(Option<Result<tungstenite::Message, tungstenite::Error>>),
-            Control(Option<ProxyControlCommand>),
+        while pause_state
+            .as_ref()
+            .is_some_and(|state| state.load(Ordering::SeqCst))
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
 
-        let input = tokio::select! {
-            message = async {
-                while pause_state
-                    .as_ref()
-                    .is_some_and(|state| state.load(Ordering::SeqCst))
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-                client_read.next().await
-            } => BridgeInput::Client(message),
-            command = async {
-                match control_rx.as_mut() {
-                    Some(receiver) => receiver.recv().await,
-                    None => std::future::pending().await,
-                }
-            } => BridgeInput::Control(command),
-        };
-
-        match input {
-            BridgeInput::Client(None) => break,
-            BridgeInput::Client(Some(message)) => {
-                let raw = message?.into_data().to_vec();
+        match client_read.next().await {
+            None => break,
+            Some(Err(error)) if is_bot_disconnect(&error) => {
+                eprintln!(
+                    "[{player_id}] Bot client disconnected without a WebSocket close handshake"
+                );
+                break;
+            }
+            Some(Err(error)) => return Err(error.into()),
+            Some(Ok(message)) => {
+                let raw = message.into_data().to_vec();
 
                 if let Some(sender) = &debug_tx {
                     if let Some(event) = crate::debug_draw::debug_draw_from_request(player_id, &raw) {
@@ -316,12 +346,47 @@ pub(super) async fn accept_and_bridge(
                 }
 
                 let response_bytes = roundtrip(up_w, up_r, raw).await?;
-                if let Some(response) = try_parse_response(&response_bytes) {
+                let parsed_response = try_parse_response(&response_bytes);
+                let is_game_over = parsed_response.as_ref().is_some_and(|response| {
+                    response.has_observation()
+                        && response
+                            .get_observation()
+                            .player_result
+                            .iter()
+                            .any(|result| result.has_result())
+                });
+                if is_game_over && !replay_saved {
+                    replay_saved = true;
+                    match save_replay(up_w, up_r).await {
+                        Ok(response) => publisher.publish(player_id, response).await,
+                        Err(error) => {
+                            eprintln!("[{player_id}] Could not prepare replay export: {error}");
+                            let mut response = Response::new();
+                            response.mut_save_replay();
+                            publisher.publish(player_id, response).await;
+                        }
+                    }
+                }
+                if let Some(response) = parsed_response {
                     publisher.publish(player_id, response).await;
                 }
-                client_write
+                if let Err(error) = client_write
                     .send(tungstenite::Message::Binary(Bytes::from(response_bytes)))
-                    .await?;
+                    .await
+                {
+                    if is_bot_disconnect(&error) {
+                        eprintln!(
+                            "[{player_id}] Bot client disconnected while receiving a response"
+                        );
+                        break;
+                    }
+                    return Err(error.into());
+                }
+
+                if is_game_over {
+                    println!("[{player_id}] Game ended; replay export has been prepared");
+                    break;
+                }
 
                 if let Some(observer_sender) = observer_sender.as_ref() {
                     poll_observer(
@@ -333,18 +398,6 @@ pub(super) async fn accept_and_bridge(
                         &mut observer_last_game_loop,
                     )
                     .await?;
-                }
-            }
-            BridgeInput::Control(None) => control_rx = None,
-            BridgeInput::Control(Some(ProxyControlCommand::SaveReplay)) => {
-                let mut request = Request::new();
-                request.mut_save_replay();
-                let request_bytes = request
-                    .write_to_bytes()
-                    .map_err(|error| format!("Protobuf encode save_replay: {error}"))?;
-                let response_bytes = roundtrip(up_w, up_r, request_bytes).await?;
-                if let Some(response) = try_parse_response(&response_bytes) {
-                    publisher.publish(player_id, response).await;
                 }
             }
         }

@@ -211,7 +211,7 @@ The Docker container mounts the maps directory into its SC2 installation and the
 
 ### Replays
 
-Choose **Play Replay** on the command deck and select a `.SC2Replay` file. The viewer drives replay observations directly and displays each player's result when the game ends. Use **Save Replay** in the game view to export the current replay.
+Choose **Play Replay** on the command deck and select a `.SC2Replay` file. The viewer drives replay observations directly and displays each player's result when the game ends. The **Save Replay** button appears on the result screen after SC2 has prepared the replay for export.
 
 ---
 

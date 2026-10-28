@@ -76,19 +76,6 @@ impl ProxyStreamPause {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ProxyControlCommand {
-    SaveReplay,
-}
-
-#[derive(Resource, Clone)]
-pub struct ProxyControlSender(pub mpsc::UnboundedSender<ProxyControlCommand>);
-
-#[derive(Resource)]
-pub struct ProxyControlReceiver(
-    pub std::sync::Mutex<Option<mpsc::UnboundedReceiver<ProxyControlCommand>>>,
-);
-
 /// Response tagged with its source player.
 #[derive(Debug, Clone)]
 pub struct TaggedResponse {
@@ -174,7 +161,6 @@ impl ProxyDataChannel {
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
         chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
         pause_state: Option<Arc<AtomicBool>>,
-        control_rx: Option<mpsc::UnboundedReceiver<ProxyControlCommand>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let publisher = self.publisher.clone();
@@ -205,7 +191,6 @@ impl ProxyDataChannel {
                 debug_tx,
                 chat_tx,
                 pause_state,
-                control_rx,
             },
         )
         .await
@@ -254,7 +239,6 @@ impl ProxyDataChannel {
                 debug_tx,
                 chat_tx,
                 pause_state,
-                control_rx: None,
             },
         )
         .await
@@ -274,7 +258,6 @@ impl ProxyDataChannel {
         debug_tx: Option<mpsc::Sender<crate::debug_draw::DebugDrawEvent>>,
         chat_tx: Option<mpsc::Sender<crate::chat_overlay::ChatMessageEvent>>,
         pause_state: Option<Arc<AtomicBool>>,
-        control_rx: Option<mpsc::UnboundedReceiver<ProxyControlCommand>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let pid = self.player_id;
         let publisher = self.publisher.clone();
@@ -303,7 +286,6 @@ impl ProxyDataChannel {
                 debug_tx,
                 chat_tx,
                 pause_state,
-                control_rx,
             },
         )
         .await
@@ -314,7 +296,6 @@ impl ProxyDataChannel {
         self,
         ready_signal: ProxyReadySignal,
         start_replay_request: Request,
-        mut control_rx: mpsc::UnboundedReceiver<ProxyControlCommand>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let player_id = self.player_id;
         let publisher = self.publisher.clone();
@@ -365,71 +346,59 @@ impl ProxyDataChannel {
         }
         publisher.publish(player_id, response).await;
 
-        let mut ended = false;
         loop {
-            if !ended {
-                let mut observation_request = Request::new();
-                observation_request.mut_observation().set_disable_fog(true);
-                let response_bytes = roundtrip(
-                    &mut up_w,
-                    &mut up_r,
-                    observation_request
-                        .write_to_bytes()
-                        .map_err(|error| format!("Protobuf encode observation: {error}"))?,
-                )
-                .await?;
-                let Some(response) = bridge::try_parse_response(&response_bytes) else {
-                    return Err("Failed to parse replay observation response".into());
-                };
-                if !response.has_observation() {
-                    return Err("SC2 returned an unexpected response to replay observation".into());
-                }
-                ended = response
-                    .get_observation()
-                    .player_result
-                    .iter()
-                    .any(|result| result.has_result());
-                publisher.publish(player_id, response).await;
+            let mut observation_request = Request::new();
+            observation_request.mut_observation().set_disable_fog(true);
+            let response_bytes = roundtrip(
+                &mut up_w,
+                &mut up_r,
+                observation_request
+                    .write_to_bytes()
+                    .map_err(|error| format!("Protobuf encode observation: {error}"))?,
+            )
+            .await?;
+            let response = bridge::try_parse_response(&response_bytes)
+                .ok_or("Failed to parse replay observation response")?;
+            if !response.has_observation() {
+                return Err("SC2 returned an unexpected response to replay observation".into());
             }
+            let ended = response
+                .get_observation()
+                .player_result
+                .iter()
+                .any(|result| result.has_result());
+            publisher.publish(player_id, response).await;
 
-            tokio::select! {
-                command = control_rx.recv() => {
-                    let Some(command) = command else {
-                        return Ok(());
-                    };
-                    match command {
-                        ProxyControlCommand::SaveReplay => {
-                            let mut request = Request::new();
-                            request.mut_save_replay();
-                            let response_bytes = roundtrip(
-                                &mut up_w,
-                                &mut up_r,
-                                request.write_to_bytes()
-                                    .map_err(|error| format!("Protobuf encode save_replay: {error}"))?,
-                            ).await?;
-                            let response = bridge::try_parse_response(&response_bytes)
-                                .ok_or("Failed to parse replay step response")?;
-                            if !response.has_step() {
-                                return Err("SC2 returned an unexpected response to replay step".into());
-                            }
-                            publisher.publish(player_id, response).await;
-                        }
-                    }
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(45)), if !ended => {
-                    let mut step_request = Request::new();
-                    step_request.mut_step().set_count(1);
-                    let response_bytes = roundtrip(
-                        &mut up_w,
-                        &mut up_r,
-                        step_request.write_to_bytes()
-                            .map_err(|error| format!("Protobuf encode step: {error}"))?,
-                    ).await?;
-                    if let Some(response) = bridge::try_parse_response(&response_bytes) {
+            if ended {
+                match bridge::save_replay(&mut up_w, &mut up_r).await {
+                    Ok(response) => publisher.publish(player_id, response).await,
+                    Err(error) => {
+                        eprintln!("[{player_id}] Could not prepare replay export: {error}");
+                        let mut response = Response::new();
+                        response.mut_save_replay();
                         publisher.publish(player_id, response).await;
                     }
                 }
+                return Ok(());
             }
+
+            let mut step_request = Request::new();
+            step_request.mut_step().set_count(1);
+            let response_bytes = roundtrip(
+                &mut up_w,
+                &mut up_r,
+                step_request
+                    .write_to_bytes()
+                    .map_err(|error| format!("Protobuf encode step: {error}"))?,
+            )
+            .await?;
+            let response = bridge::try_parse_response(&response_bytes)
+                .ok_or("Failed to parse replay step response")?;
+            if !response.has_step() {
+                return Err("SC2 returned an unexpected response to replay step".into());
+            }
+            publisher.publish(player_id, response).await;
+            tokio::time::sleep(std::time::Duration::from_millis(45)).await;
         }
     }
 }
