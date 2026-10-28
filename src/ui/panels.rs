@@ -1,7 +1,7 @@
 use crate::app_settings::AppSettings;
 use crate::chat_overlay::ChatOverlay;
 use crate::controller::{
-    CurrentFrame, GameResultState, MapResource, PlayerResources, ProtocolActivityState,
+    GameResultState, MapResource, PlayerResources, ProtocolActivityState,
 };
 use crate::debug_draw::render_debug_texts;
 use crate::entity_system::EntitySystem;
@@ -16,7 +16,7 @@ use crate::ui::{
     PendingBotStart, PendingCreateGameRequest, ReplaySaveState, StartScreenPanel, VisionModeChannel,
 };
 use crate::units::{
-    CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitFrameData,
+    CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
     UnitRegistry, UnitTag, UnitType,
 };
 use bevy::ecs::system::SystemParam;
@@ -32,7 +32,6 @@ pub(crate) struct HudParams<'w, 's> {
     chat_overlay: Res<'w, ChatOverlay>,
     map: Option<Res<'w, MapResource>>,
     entity_system: Res<'w, EntitySystem>,
-    current_frame: Res<'w, CurrentFrame>,
     cameras: Query<'w, 's, (&'static Camera, &'static GlobalTransform)>,
     render_view_mode: ResMut<'w, RenderViewMode>,
     terrain_3d_settings: ResMut<'w, Terrain3dSettings>,
@@ -48,7 +47,7 @@ fn render_game_screen(
     ui: &mut egui::Ui,
     selected: &Res<SelectedUnit>,
     registry: &Res<UnitRegistry>,
-    unit_query: &Query<(&UnitFrameData, &UnitTag, &CurrentOrderAbility, &UnitType)>,
+    unit_query: &Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     vision_mode_channel: &mut ResMut<VisionModeChannel>,
     layer_registry: &mut ResMut<LayerRegistry>,
     unit_visibility: &mut ResMut<UnitCompositionVisibility>,
@@ -82,7 +81,7 @@ pub fn ui_system(
     mut pending_request: ResMut<PendingCreateGameRequest>,
     selected: Res<SelectedUnit>,
     registry: Res<UnitRegistry>,
-    unit_query: Query<(&UnitFrameData, &UnitTag, &CurrentOrderAbility, &UnitType)>,
+    unit_query: Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
     app_settings: Res<AppSettings>,
     mut pending_bot_start: ResMut<PendingBotStart>,
     mut vision_mode_channel: ResMut<VisionModeChannel>,
@@ -150,9 +149,7 @@ pub fn ui_system(
         );
         render_debug_texts(
             &ctx,
-            hud.current_frame
-                .frame
-                .as_ref()
+            playback.current_frame()
                 .map(|frame| frame.debug_texts.as_slice())
                 .unwrap_or(&[]),
             &layer_registry,

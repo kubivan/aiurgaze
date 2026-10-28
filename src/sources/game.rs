@@ -1,4 +1,4 @@
-use crate::frame::{Frame, FrameSource, StaticMap};
+use crate::frame::{Frame, FrameSource};
 use crate::proxy_channel::{PlayerId, TaggedResponse};
 use crate::sources::protocol::ResponseFrameAssembler;
 use std::pin::Pin;
@@ -63,7 +63,7 @@ pub(crate) struct FrameAssembler(ResponseFrameAssembler);
 impl FrameAssembler {
     pub(crate) fn push(&mut self, response: TaggedResponse) -> Option<Frame> {
         self.0
-            .push(FrameSource::Game, response.player_id, &response.response)
+            .push(FrameSource::Game, response.player_id, response.response)
     }
 }
 
@@ -75,10 +75,4 @@ pub(crate) fn spawn_frames(
     super::spawn_frame_stream(runtime, responses, move |response| {
         assembler.push(response)
     });
-}
-
-pub(crate) fn static_map_from_info(
-    game_info: &sc2_proto::sc2api::ResponseGameInfo,
-) -> Option<StaticMap> {
-    super::protocol::static_map_from_info(game_info)
 }

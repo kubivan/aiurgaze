@@ -1,5 +1,6 @@
 use crate::units::{
-    CurrentOrderAbility, SelectedUnit, UnitFrameData, UnitRegistry, UnitTag, UnitType,
+    unit_display_fields, CurrentOrderAbility, SelectedUnit, UnitProto, UnitRegistry, UnitTag,
+    UnitType,
 };
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -8,7 +9,7 @@ pub(crate) fn render_selected_unit_info(
     ui: &mut egui::Ui,
     selected: &Res<SelectedUnit>,
     registry: &Res<UnitRegistry>,
-    unit_query: &Query<(&UnitFrameData, &UnitTag, &CurrentOrderAbility, &UnitType)>,
+    unit_query: &Query<(&UnitProto, &UnitTag, &CurrentOrderAbility, &UnitType)>,
 ) {
     egui::CollapsingHeader::new(
         egui::RichText::new("SELECTED UNIT")
@@ -35,7 +36,7 @@ pub(crate) fn render_selected_unit_info(
 
         ui.label(format!("Tag: {}", unit_tag.0));
         ui.separator();
-        for (field, value) in &unit_proto.0.display_fields {
+        for (field, value) in unit_display_fields(&unit_proto.0) {
             ui.label(format!("{}: {}", field, value));
         }
     });

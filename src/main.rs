@@ -37,7 +37,7 @@ use crate::chat_overlay::{update_chat_overlay, ChatMessageEvent, ChatOverlay};
 use crate::controller::{
     current_frame_system, map_init_system, protocol_activity_system, refresh_3d_terrain_mesh,
     refresh_map_colors_on_layer_change, render_current_frame, save_replay_response_system,
-    update_player_resources, CurrentFrame, Fog3dMaterialHandle, FogMaterialHandle,
+    update_player_resources, Fog3dMaterialHandle, FogMaterialHandle,
     FogOfWarData, FogOfWarHandle, GameInfoEvent, GameResultState, LastVisionMode, MapResource,
     PlayerResources, ProtocolActivityEvent, ProtocolActivityState, ReplayStatusEvent,
     SaveReplayResponseEvent,
@@ -308,6 +308,7 @@ fn main() {
         .add_message::<StartBotProcessesEvent>()
         .add_message::<GameInfoEvent>()
         .add_message::<FrameEvent>()
+        .init_resource::<crate::frame::PendingFrames>()
         .add_message::<ProtocolActivityEvent>()
         .add_message::<SaveReplayResponseEvent>()
         .add_message::<ReplayStatusEvent>()
@@ -389,7 +390,6 @@ fn main() {
         .insert_resource(UnitCompositionVisibility::default())
         .insert_resource(ProtocolActivityState::default())
         .insert_resource(PlayerResources::default())
-        .insert_resource(CurrentFrame::default())
         .insert_resource(ProxyStreamPause::new())
         .insert_resource(crate::ui::ReplaySaveState::default())
         .insert_resource(GameResultState::default())
@@ -422,7 +422,7 @@ fn main() {
             render_current_frame.after(current_frame_system),
         )
         .add_systems(Update, protocol_activity_system)
-        .add_systems(Update, update_player_resources)
+        .add_systems(Update, update_player_resources.after(current_frame_system))
         .add_systems(Update, crate::controller::replay_status_system)
         .add_systems(Update, save_replay_response_system)
         .add_systems(Update, crate::controller::replay_export_complete_system)

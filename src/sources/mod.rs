@@ -20,7 +20,7 @@ pub(crate) fn spawn_frame_stream<A>(
             let mut ctx_clone = ctx.clone();
             ctx_clone
                 .run_on_main_thread(move |ctx| {
-                    ctx.world.write_message(crate::frame::FrameEvent { frame });
+                    crate::frame::publish_frame(ctx.world, frame);
                 })
                 .await;
         }

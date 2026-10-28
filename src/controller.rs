@@ -18,12 +18,12 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_ecs_tilemap::prelude::{TileColor, TileStorage};
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_tokio_tasks::TokioTasksRuntime;
-use sc2_proto::sc2api::{Request, Request_oneof_request};
+use sc2_proto::sc2api::{Request, Request_oneof_request, ResponseGameInfo, ResponseObservation};
 use tokio_stream::StreamExt;
 
 use crate::app_settings::AppSettings;
 use crate::entity_system::EntitySystem;
-use crate::frame::{Frame, FrameEvent, FrameHistory, MapSnapshot, PlayerSnapshot, StaticMap};
+use crate::frame::{Frame, FrameEvent, FrameHistory, PendingFrames};
 use crate::map::{
     blend_tile_color, build_terrain_mesh, spawn_tilemap, Terrain3dMeshDirty, Terrain3dSettings,
     TerrainLayer, TerrainLayers,
@@ -37,7 +37,7 @@ use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, Vi
 use crate::render_view::RenderViewMode;
 use crate::ui::VisionModeChannel;
 use crate::units::{
-    apply_unit_snapshots, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
+    apply_observation_units, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -111,7 +111,7 @@ pub fn replay_export_complete_system(
 #[derive(Message, Clone)]
 pub struct GameInfoEvent {
     pub player_id: PlayerId,
-    pub static_map: StaticMap,
+    pub game_info: ResponseGameInfo,
 }
 
 /// Event emitted for each proxied SC2 response to track protocol activity.
@@ -135,16 +135,8 @@ impl Default for LoopPlaybackMode {
     }
 }
 
-/// The currently selected/rendered frame. This is the view-facing state:
-/// the renderer consumes only this single frame, regardless of whether it came
-/// from the live proxy stream or from the replay history.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct CurrentFrame {
-    pub frame: Option<Frame>,
-}
-
 /// Stateful loop playback and replay history.
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Debug)]
 pub struct LoopPlaybackState {
     pub mode: LoopPlaybackMode,
     pub selected_loop: u32,
@@ -243,10 +235,14 @@ impl LoopPlaybackState {
         if frame.game_loop == 0 {
             return;
         }
-        self.history.push_frame(frame.clone());
         self.live_loop = frame.game_loop;
         if self.mode == LoopPlaybackMode::Live {
             self.selected_loop = frame.game_loop;
+        }
+        self.history.push_frame(frame);
+        // A paused selection must stay within the bounded history it borrows.
+        if let Some(oldest_loop) = self.history.oldest_loop() {
+            self.selected_loop = self.selected_loop.max(oldest_loop);
         }
     }
 
@@ -258,21 +254,118 @@ impl LoopPlaybackState {
             .last()
     }
 
-    pub fn apply_live_frame(&self, frame: Frame, current: &mut CurrentFrame) {
-        current.frame = Some(frame.clone());
-    }
-
-    pub fn apply_rewind_frame(&self, current: &mut CurrentFrame) {
-        let Some(frame) = self.frame_for_loop(self.selected_loop).cloned() else {
-            return;
-        };
-        current.frame = Some(frame);
+    /// Borrow the selected frame for the duration of a system call.
+    /// Keeping selection and storage together avoids storing a self-reference.
+    pub fn current_frame(&self) -> Option<&Frame> {
+        if self.mode == LoopPlaybackMode::Live {
+            self.history.latest_frame()
+        } else {
+            self.frame_for_loop(self.selected_loop)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_system_reads_notifications_without_consuming_other_readers_messages() {
+        use bevy::prelude::{App, IntoScheduleConfigs, Update};
+
+        #[derive(Resource, Default)]
+        struct NotificationCount(usize);
+
+        fn count_notifications(
+            mut events: MessageReader<FrameEvent>,
+            mut count: ResMut<NotificationCount>,
+        ) {
+            for _event in events.read() {
+                count.0 += 1;
+            }
+        }
+
+        let mut app = App::new();
+        app.add_message::<FrameEvent>()
+            .init_resource::<PendingFrames>()
+            .init_resource::<LoopPlaybackState>()
+            .init_resource::<VisionModeChannel>()
+            .init_resource::<NotificationCount>()
+            .init_resource::<PlayerResources>()
+            .init_resource::<GameResultState>()
+            .init_resource::<crate::ui::ReplaySaveState>()
+            .add_systems(
+                Update,
+                (current_frame_system, update_player_resources, count_notifications).chain(),
+            );
+
+        // Startup without observations must leave both systems runnable.
+        app.update();
+        assert!(app.world().resource::<LoopPlaybackState>().current_frame().is_none());
+
+        for game_loop in [10, 20] {
+            let mut frame = Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, game_loop);
+            frame.observation.mut_observation().mut_player_common().set_minerals(game_loop);
+            crate::frame::publish_frame(app.world_mut(), frame);
+        }
+        app.update();
+        assert_eq!(app.world().resource::<NotificationCount>().0, 2);
+        let playback = app.world().resource::<LoopPlaybackState>();
+        assert_eq!(playback.history.len(), 2);
+        assert_eq!(playback.current_frame().unwrap().game_loop, 20);
+        assert!(app.world().resource::<PendingFrames>().0.is_empty());
+        assert_eq!(app.world().resource::<PlayerResources>().minerals, 20);
+        app.world_mut().resource_mut::<PlayerResources>().minerals = 99;
+
+        app.update();
+        // No new notification means the resource system does no work.
+        assert_eq!(app.world().resource::<PlayerResources>().minerals, 99);
+        assert_eq!(app.world().resource::<NotificationCount>().0, 2);
+        assert_eq!(app.world().resource::<LoopPlaybackState>().history.len(), 2);
+    }
+
+    #[test]
+    fn consumers_borrow_live_and_paused_frames_from_history() {
+        let mut state = LoopPlaybackState::default();
+        for game_loop in [10, 20] {
+            state.push_frame(Frame::new(
+                crate::frame::FrameSource::Game,
+                PlayerId::Player1,
+                game_loop,
+            ));
+        }
+        assert!(std::ptr::eq(
+            state.current_frame().unwrap(),
+            state.history.latest_frame().unwrap(),
+        ));
+        state.pause();
+        state.selected_loop = 10;
+        state.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            30,
+        ));
+        assert!(std::ptr::eq(
+            state.current_frame().unwrap(),
+            state.history.frames().next().unwrap(),
+        ));
+        assert_eq!(state.current_frame().unwrap().game_loop, 10);
+        state.resume();
+        assert_eq!(state.current_frame().unwrap().game_loop, 30);
+    }
+
+    #[test]
+    fn paused_selection_advances_when_its_frame_is_evicted() {
+        let mut state = LoopPlaybackState {
+            history: FrameHistory::new(1),
+            ..Default::default()
+        };
+        state.push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 10));
+        state.pause();
+        state.push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 20));
+        assert_eq!(state.selected_loop, 20);
+        assert_eq!(state.current_frame().unwrap().game_loop, 20);
+    }
 
     #[test]
     fn loop_playback_selects_latest_known_frame() {
@@ -317,15 +410,14 @@ mod tests {
         state.mode = LoopPlaybackMode::Paused;
         state.selected_loop = 20;
 
-        let mut current = CurrentFrame::default();
-        state.apply_rewind_frame(&mut current);
+        let current = state.current_frame().unwrap();
 
         assert_eq!(
-            current.frame.as_ref().unwrap().debug_texts[0].text,
+            current.debug_texts[0].text,
             "frame text"
         );
         assert!(matches!(
-            &current.frame.as_ref().unwrap().debug_draws[0],
+            &current.debug_draws[0],
             crate::debug_draw::DebugDrawPrimitive::Line { start, end, .. }
                 if *start == bevy::prelude::Vec3::ZERO && *end == bevy::prelude::Vec3::X
         ));
@@ -488,15 +580,10 @@ fn forward_game_info(
     runtime.spawn_background_task(move |mut ctx| async move {
         let mut game_info_stream = Box::pin(create_game_info_stream(p1_stream, p2_stream));
         while let Some(tagged_info) = game_info_stream.next().await {
-            let Some(static_map) =
-                crate::sources::game::static_map_from_info(&tagged_info.game_info)
-            else {
-                continue;
-            };
             ctx.run_on_main_thread(move |ctx| {
                 ctx.world.write_message(GameInfoEvent {
                     player_id: tagged_info.player_id,
-                    static_map,
+                    game_info: tagged_info.game_info,
                 });
             })
             .await;
@@ -804,55 +891,55 @@ pub fn protocol_activity_system(
     }
 }
 
-/// Copies normalized source data into the HUD resources.
+/// Borrow the selected frame to update HUD resources.
 pub fn update_player_resources(
     mut events: MessageReader<FrameEvent>,
+    playback: Res<LoopPlaybackState>,
     mut res: ResMut<PlayerResources>,
     mut game_result: ResMut<GameResultState>,
     mut replay_save_state: ResMut<crate::ui::ReplaySaveState>,
-    mut playback: ResMut<LoopPlaybackState>,
-    vision_mode: Res<VisionModeChannel>,
 ) {
-    for event in events.read() {
-        if vision_mode.current != VisionMode::All
-            && !matches!(
-                (vision_mode.current, event.frame.player_id),
-                (VisionMode::Player1, PlayerId::Player1)
-                    | (VisionMode::Player2, PlayerId::Player2)
-            )
-        {
-            continue;
-        }
-        if game_result.player_results.is_empty() && !event.frame.player_results.is_empty() {
-            replay_save_state.status = Some("Preparing replay export...".to_string());
-            game_result
-                .player_results
-                .clone_from(&event.frame.player_results);
-        }
-
-        let Some(player) = event.frame.player.as_ref() else {
+    for _event in events.read() {
+        let Some(latest) = playback.history.latest_frame() else {
             continue;
         };
-        let loop_id = event.frame.game_loop;
-        if playback.mode == LoopPlaybackMode::Live {
-            res.game_loop = loop_id;
-            playback.selected_loop = loop_id;
-        } else {
-            res.game_loop = playback.selected_loop;
+        let observation = &latest.observation;
+        if game_result.player_results.is_empty() && !observation.player_result.is_empty() {
+            replay_save_state.status = Some("Preparing replay export...".to_string());
+            game_result.player_results = observation
+                .player_result
+                .iter()
+                .map(|result| {
+                    let outcome = result
+                        .result
+                        .map(|result| format!("{result:?}"))
+                        .unwrap_or_else(|| "Unknown".to_owned());
+                    format!("Player {}: {outcome}", result.get_player_id())
+                })
+                .collect();
         }
 
-        apply_player_snapshot(player, &mut res);
-    }
-}
+        let Some(frame) = playback.current_frame() else {
+            continue;
+        };
+        let Some(player) = frame
+            .observation
+            .observation
+            .as_ref()
+            .and_then(|observation| observation.player_common.as_ref())
+        else {
+            continue;
+        };
+        res.game_loop = frame.game_loop;
 
-fn apply_player_snapshot(player: &PlayerSnapshot, resources: &mut PlayerResources) {
-    resources.minerals = player.minerals;
-    resources.vespene = player.vespene;
-    resources.food_used = player.food_used;
-    resources.food_cap = player.food_cap;
-    resources.army_count = player.army_count;
-    resources.worker_count = player.worker_count;
-    resources.idle_workers = player.idle_workers;
+        res.minerals = player.get_minerals();
+        res.vespene = player.get_vespene();
+        res.food_used = player.get_food_used();
+        res.food_cap = player.get_food_cap();
+        res.army_count = player.get_army_count();
+        res.worker_count = player.get_food_workers();
+        res.idle_workers = player.get_idle_worker_count();
+    }
 }
 
 pub fn replay_status_system(
@@ -864,33 +951,28 @@ pub fn replay_status_system(
     }
 }
 
-/// Selects the single frame consumed by rendering.
+/// Move incoming frames into history; consumers borrow the selected frame.
 pub fn current_frame_system(
-    mut frame_events: MessageReader<FrameEvent>,
+    mut events: MessageReader<FrameEvent>,
+    mut pending: ResMut<PendingFrames>,
     mut playback: ResMut<LoopPlaybackState>,
-    mut current_frame: ResMut<CurrentFrame>,
     vision_mode: Res<VisionModeChannel>,
 ) {
-    for event in frame_events.read() {
+    for _event in events.read() {
+        let Some(mut frame) = pending.0.pop_front() else {
+            continue;
+        };
         if vision_mode.current != VisionMode::All
             && !matches!(
-                (vision_mode.current, event.frame.player_id),
+                (vision_mode.current, frame.player_id),
                 (VisionMode::Player1, PlayerId::Player1)
                     | (VisionMode::Player2, PlayerId::Player2)
             )
         {
             continue;
         }
-        let mut frame = event.frame.clone();
         carry_forward_debug_draws(&mut frame, playback.history.latest_frame());
-        playback.push_frame(frame.clone());
-        if playback.mode == LoopPlaybackMode::Live {
-            playback.apply_live_frame(frame, &mut current_frame);
-        }
-    }
-
-    if playback.mode != LoopPlaybackMode::Live {
-        playback.apply_rewind_frame(&mut current_frame);
+        playback.push_frame(frame);
     }
 }
 
@@ -990,8 +1072,8 @@ fn handle_vision_mode_change(
     last_vision_mode.0 = Some(current_mode);
 }
 
-fn update_map_from_frame(
-    map_snapshot: &MapSnapshot,
+fn update_map_from_observation(
+    observation: &ResponseObservation,
     map_res: &mut Option<ResMut<MapResource>>,
     tile_color_query: &mut Query<&mut TileColor>,
     entity_system: &Res<EntitySystem>,
@@ -1000,15 +1082,19 @@ fn update_map_from_frame(
     terrain_mesh_dirty: &mut ResMut<Terrain3dMeshDirty>,
 ) -> Option<()> {
     let map_res = map_res.as_mut()?;
-    let creep_layer = map_snapshot.creep.as_ref().map(TerrainLayer::from_frame_layer);
-    let energy_layer = map_snapshot
-        .energy
-        .as_ref()
-        .map(TerrainLayer::from_frame_layer);
-    let visibility_layer = map_snapshot
+    let map_state = observation
+        .observation
+        .as_ref()?
+        .raw_data
+        .as_ref()?
+        .map_state
+        .as_ref()?;
+    let creep_layer = map_state.creep.as_ref().map(TerrainLayer::from_image_data);
+    let visibility_layer = map_state
         .visibility
         .as_ref()
-        .map(TerrainLayer::from_frame_layer);
+        .map(TerrainLayer::from_image_data);
+    let energy_layer = None;
 
     let new_creep_hash = calculate_layer_hash(&creep_layer);
     let new_visibility_hash = calculate_layer_hash(&visibility_layer);
@@ -1172,7 +1258,7 @@ fn handle_units_for_frame(
     asset_server: &Res<AssetServer>,
     registry: &mut ResMut<UnitRegistry>,
     entity_system: &Res<EntitySystem>,
-    units: &[crate::frame::UnitSnapshot],
+    units: &[sc2_proto::raw::Unit],
     unit_query: Query<&UnitBuildProgress>,
     seen_tags: &mut ResMut<ObservationUnitTags>,
     map_res: &Option<ResMut<MapResource>>,
@@ -1183,7 +1269,7 @@ fn handle_units_for_frame(
         (width as f32, height as f32)
     });
 
-    apply_unit_snapshots(
+    apply_observation_units(
         commands,
         asset_server,
         registry,
@@ -1214,16 +1300,31 @@ pub fn map_init_system(
 ) {
     // Drain all events in this batch; only process the first valid one.
     let events: Vec<_> = gi_events.read().collect();
-    let Some(event) = events
-        .iter()
-        .find(|event| !event.static_map.pathing.data.is_empty())
+    let Some(event) = events.iter().find(|event| {
+        event
+            .game_info
+            .start_raw
+            .as_ref()
+            .and_then(|raw| raw.pathing_grid.as_ref())
+            .is_some()
+    })
     else {
         return;
     };
 
-    let path_layer = TerrainLayer::from_frame_layer(&event.static_map.pathing);
-    let placement_layer = TerrainLayer::from_frame_layer(&event.static_map.placement);
-    let height_layer = TerrainLayer::from_frame_layer(&event.static_map.height);
+    let Some(start_raw) = event.game_info.start_raw.as_ref() else {
+        return;
+    };
+    let (Some(pathing), Some(placement), Some(height)) = (
+        start_raw.pathing_grid.as_ref(),
+        start_raw.placement_grid.as_ref(),
+        start_raw.terrain_height.as_ref(),
+    ) else {
+        return;
+    };
+    let path_layer = TerrainLayer::from_image_data(pathing);
+    let placement_layer = TerrainLayer::from_image_data(placement);
+    let height_layer = TerrainLayer::from_image_data(height);
 
     println!(
         "[{}] Got game info: map size {} x {}",
@@ -1315,13 +1416,13 @@ pub fn render_current_frame(
     mut fog_data: Option<ResMut<FogOfWarData>>,
     mut terrain_mesh_dirty: ResMut<Terrain3dMeshDirty>,
     mut logged_first_obs: Local<bool>,
-    current_frame: Res<CurrentFrame>,
+    playback: Res<LoopPlaybackState>,
     vision_mode: Res<VisionModeChannel>,
     mut visual_assets: Unit3dRenderAssets,
 ) {
     seen_tags.seen_tags.clear();
 
-    let Some(frame) = current_frame.frame.as_ref() else {
+    let Some(frame) = playback.current_frame() else {
         return;
     };
     handle_vision_mode_change(
@@ -1332,16 +1433,28 @@ pub fn render_current_frame(
         &mut seen_tags,
     );
 
-    if let Some(map_snapshot) = frame.map.as_ref() {
+    let observation = &frame.observation;
+    if observation
+        .observation
+        .as_ref()
+        .and_then(|data| data.raw_data.as_ref())
+        .and_then(|raw| raw.map_state.as_ref())
+        .is_some()
+    {
         if !*logged_first_obs {
             eprintln!(
                 "[fog] first frame received. visibility layer present: {}.",
-                map_snapshot.visibility.is_some()
+                observation
+                    .observation
+                    .as_ref()
+                    .and_then(|data| data.raw_data.as_ref())
+                    .and_then(|raw| raw.map_state.as_ref())
+                    .is_some_and(|map| map.visibility.is_some())
             );
             *logged_first_obs = true;
         }
-        let _ = update_map_from_frame(
-            map_snapshot,
+        let _ = update_map_from_observation(
+            observation,
             &mut map_res,
             &mut tile_color_query,
             &entity_system,
@@ -1356,7 +1469,12 @@ pub fn render_current_frame(
         &asset_server,
         &mut registry,
         &entity_system,
-        &frame.units,
+        &observation
+            .observation
+            .as_ref()
+            .and_then(|data| data.raw_data.as_ref())
+            .map(|raw| raw.units.as_slice())
+            .unwrap_or_default(),
         unit_query,
         &mut seen_tags,
         &map_res,

@@ -18,7 +18,7 @@ pub(crate) struct FrameAssembler(ResponseFrameAssembler);
 impl FrameAssembler {
     pub(crate) fn push(&mut self, response: TaggedResponse) -> Option<Frame> {
         self.0
-            .push(FrameSource::Replay, response.player_id, &response.response)
+            .push(FrameSource::Replay, response.player_id, response.response)
     }
 }
 

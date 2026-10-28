@@ -6,11 +6,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::controller::MapResource;
 use crate::entity_system::EntitySystem;
-use crate::frame::{Alliance, OrderTarget, UnitSnapshot};
 use crate::map::{map_position_2d, map_position_3d};
 use crate::render_layers::ViewModeVisibility;
 use crate::render_view::RenderViewMode;
 use bevy_health_bar3d::prelude::*;
+use protobuf::reflect::ReflectFieldRef;
+use protobuf::Message;
+use sc2_proto::raw::{Alliance, Unit, UnitOrder_oneof_target};
 
 /// === Resources ===
 
@@ -119,7 +121,7 @@ impl Percentage for UnitBuildProgress {
 pub struct UnitAlliance(pub i32); // 1=Self, 2=Ally, 3=Neutral, 4=Enemy
 
 #[derive(Component, Clone)]
-pub struct UnitFrameData(pub UnitSnapshot);
+pub struct UnitProto(pub Unit);
 
 #[derive(Component, Default)]
 pub struct CurrentOrderAbility(pub Option<u32>);
@@ -165,13 +167,13 @@ pub fn cleanup_dead_units(
     }
 }
 
-/// Update visible units from a normalized frame.
-pub fn apply_unit_snapshots(
+/// Update visible units from a raw SC2 observation.
+pub fn apply_observation_units(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
     registry: &mut ResMut<UnitRegistry>,
     entity_system: &Res<EntitySystem>,
-    units: &[UnitSnapshot],
+    units: &[Unit],
     unit_query: Query<&UnitBuildProgress>,
     seen_tags: &mut ResMut<ObservationUnitTags>,
     map_size: Option<(f32, f32)>,
@@ -191,25 +193,28 @@ pub fn apply_unit_snapshots(
     };
 
     for unit in units {
-        let tag = unit.tag;
+        let tag = unit.tag.unwrap_or_default();
         seen_tags.seen_tags.insert(tag);
-        let (x, y) = (unit.position.x, unit.position.y);
-        let health = unit.health;
-        let max_health = unit.health_max;
-        let shield = unit.shield;
-        let max_shield = unit.shield_max;
-        let build_progress = unit.build_progress;
-        let unit_type = unit.unit_type;
+        let (x, y) = unit
+            .pos
+            .as_ref()
+            .map_or((0.0, 0.0), |position| (position.get_x(), position.get_y()));
+        let health = unit.health.unwrap_or(1.0);
+        let max_health = unit.health_max.unwrap_or(1.0);
+        let shield = unit.shield.unwrap_or_default();
+        let max_shield = unit.shield_max.unwrap_or_default();
+        let build_progress = unit.build_progress.unwrap_or_default();
+        let unit_type = unit.unit_type.unwrap_or_default();
         let tile_size = entity_system.map_config.tile_size;
         let world_position = map_position_2d(x, y, map_size, tile_size);
 
-        let unit_radius = unit.radius;
+        let unit_radius = unit.radius.unwrap_or(1.0);
 
         let first_order_ability = unit.orders.first().and_then(|order| order.ability_id);
 
         //Apply reddish tint for enemy units
         let sprite_color = match unit.alliance {
-            Alliance::Enemy => Color::srgb(1.0, 0.5, 0.5),
+            Some(Alliance::Enemy) => Color::srgb(1.0, 0.5, 0.5),
             _ => Color::WHITE,
         };
 
@@ -233,7 +238,7 @@ pub fn apply_unit_snapshots(
                     current: shield,
                     max: max_shield,
                 },
-                UnitFrameData(unit.clone()),
+                UnitProto(unit.clone()),
                 CurrentOrderAbility(first_order_ability),
             ));
 
@@ -289,7 +294,7 @@ pub fn apply_unit_snapshots(
                         width: size.x,
                         ..default()
                     },
-                    UnitFrameData(unit.clone()),
+                    UnitProto(unit.clone()),
                     CurrentOrderAbility(first_order_ability),
                 ))
                 .id();
@@ -328,7 +333,7 @@ pub fn apply_unit_snapshots(
                 visual_assets,
                 entity,
                 unit_type,
-                matches!(unit.alliance, Alliance::Enemy),
+                matches!(unit.alliance, Some(Alliance::Enemy)),
                 sprite_color,
                 image_handle,
                 size,
@@ -483,7 +488,7 @@ pub fn update_unit_3d_billboards(
     unit_query: Query<
         (
             &Transform,
-            &UnitFrameData,
+            &UnitProto,
             &UnitHealth,
             Option<&UnitShield>,
             Option<&UnitBuildProgress>,
@@ -505,7 +510,7 @@ pub fn update_unit_3d_billboards(
         else {
             continue;
         };
-        let elevation = proto.0.position.z * tile_size;
+        let elevation = proto.0.get_pos().get_z() * tile_size;
         let bar_y = elevation + billboard.height / 2.0;
         let (height_offset, fill_ratio, enabled) = match billboard.part {
             Unit3dPart::Card => (0.0, 1.0, true),
@@ -596,7 +601,7 @@ pub fn unit_selection_2d(
 pub fn unit_selection_3d(
     windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    unit_query: Query<(&UnitTag, &UnitFrameData)>,
+    unit_query: Query<(&UnitTag, &UnitProto)>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut selected: ResMut<SelectedUnit>,
     entity_system: Res<EntitySystem>,
@@ -622,18 +627,18 @@ pub fn unit_selection_3d(
     let tile_size = entity_system.map_config.tile_size;
 
     for (tag, proto) in &unit_query {
-        let position = proto.0.position;
+        let position = proto.0.get_pos();
         let world_position = map_position_3d(
-            position.x,
-            position.y,
-            position.z,
+            position.get_x(),
+            position.get_y(),
+            position.get_z(),
             map_size,
             tile_size,
         );
         let Ok(screen_position) = camera.world_to_viewport(camera_transform, world_position) else {
             continue;
         };
-        let radius = proto.0.radius * tile_size;
+        let radius = proto.0.radius.unwrap_or(1.0) * tile_size;
         let projected_radius = camera
             .world_to_viewport(camera_transform, world_position + Vec3::X * radius)
             .map_or(14.0, |edge| edge.distance(screen_position));
@@ -646,7 +651,7 @@ pub fn unit_selection_3d(
 
 pub fn draw_unit_orders_2d(
     mut gizmos: Gizmos,
-    unit_query: Query<(&Transform, &UnitFrameData)>,
+    unit_query: Query<(&Transform, &UnitProto)>,
     registry: Res<UnitRegistry>,
     entity_system: Res<EntitySystem>,
     unit_visibility: Res<UnitCompositionVisibility>,
@@ -670,11 +675,11 @@ pub fn draw_unit_orders_2d(
         let start_pos = Vec2::new(transform.translation.x, transform.translation.y);
 
         match order.target.as_ref() {
-            Some(OrderTarget::Position(point)) => {
+            Some(UnitOrder_oneof_target::target_world_space_pos(point)) => {
                 // Target is a position
                 let end_pos = map_position_2d(
-                    point.x,
-                    point.y,
+                    point.get_x(),
+                    point.get_y(),
                     (map_size.0 as f32, map_size.1 as f32),
                     tile_size,
                 );
@@ -690,7 +695,7 @@ pub fn draw_unit_orders_2d(
                 // Draw small circle at target position
                 gizmos.circle_2d(end_pos, 4.0, Color::srgba(1.0, 1.0, 0.3, 0.7));
             }
-            Some(OrderTarget::Unit(target_tag)) => {
+            Some(UnitOrder_oneof_target::target_unit_tag(target_tag)) => {
                 // Target is another unit
                 let Some(&target_entity) = registry.map.get(&target_tag) else {
                     continue;
@@ -723,7 +728,7 @@ pub fn draw_unit_orders_2d(
 
 pub fn draw_unit_orders_3d(
     mut gizmos: Gizmos,
-    unit_query: Query<&UnitFrameData>,
+    unit_query: Query<&UnitProto>,
     registry: Res<UnitRegistry>,
     entity_system: Res<EntitySystem>,
     unit_visibility: Res<UnitCompositionVisibility>,
@@ -738,21 +743,21 @@ pub fn draw_unit_orders_3d(
     let map_size = map_resource.static_layers.get_dimensions();
     let tile_size = entity_system.map_config.tile_size;
     for unit in unit_query.iter().filter(|unit| !unit.0.orders.is_empty()) {
-        let position = unit.0.position;
+        let position = unit.0.get_pos();
         let start = map_position_3d(
-            position.x,
-            position.y,
-            position.z,
+            position.get_x(),
+            position.get_y(),
+            position.get_z(),
             map_size,
             tile_size,
         );
         let order = &unit.0.orders[0];
         match order.target.as_ref() {
-            Some(OrderTarget::Position(point)) => {
+            Some(UnitOrder_oneof_target::target_world_space_pos(point)) => {
                 let end = map_position_3d(
-                    point.x,
-                    point.y,
-                    point.z,
+                    point.get_x(),
+                    point.get_y(),
+                    point.get_z(),
                     map_size,
                     tile_size,
                 );
@@ -763,18 +768,18 @@ pub fn draw_unit_orders_3d(
                     Color::srgba(1.0, 1.0, 0.3, 0.9),
                 );
             }
-            Some(OrderTarget::Unit(target_tag)) => {
+            Some(UnitOrder_oneof_target::target_unit_tag(target_tag)) => {
                 let Some(&target_entity) = registry.map.get(target_tag) else {
                     continue;
                 };
                 let Ok(target_unit) = unit_query.get(target_entity) else {
                     continue;
                 };
-                let target_position = target_unit.0.position;
+                let target_position = target_unit.0.get_pos();
                 let end = map_position_3d(
-                    target_position.x,
-                    target_position.y,
-                    target_position.z,
+                    target_position.get_x(),
+                    target_position.get_y(),
+                    target_position.get_z(),
                     map_size,
                     tile_size,
                 );
@@ -822,4 +827,27 @@ fn draw_arrow_head(gizmos: &mut Gizmos, start: Vec2, end: Vec2, color: Color) {
 
     gizmos.line_2d(end, left_point, color);
     gizmos.line_2d(end, right_point, color);
+}
+
+/// Format protobuf fields only when the selected-unit inspector is visible.
+pub(crate) fn unit_display_fields(unit: &Unit) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    for field in unit.descriptor().fields() {
+        match field.get_reflect(unit) {
+            ReflectFieldRef::Optional(value) if field.has_field(unit) => {
+                if let Some(value) = value {
+                    result.push((field.name().to_owned(), format!("{value:?}")));
+                }
+            }
+            ReflectFieldRef::Repeated(values) if values.len() > 0 => {
+                let values = (0..values.len())
+                    .map(|index| format!("{:?}", values.get(index).as_ref()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                result.push((field.name().to_owned(), format!("[{values}]")));
+            }
+            _ => {}
+        }
+    }
+    result
 }

@@ -1,5 +1,6 @@
 use crate::debug_draw::{DebugDrawPrimitive, DebugTextPrimitive};
-use bevy::prelude::Message;
+use bevy::prelude::{Message, Resource, World};
+use sc2_proto::sc2api::ResponseObservation;
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,108 +24,31 @@ impl std::fmt::Display for PlayerId {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Position {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Alliance {
-    Self_,
-    Ally,
-    Neutral,
-    Enemy,
-    Unknown(i32),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum OrderTarget {
-    Position(Position),
-    Unit(u64),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct UnitOrder {
-    pub ability_id: Option<u32>,
-    pub target: Option<OrderTarget>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct UnitSnapshot {
-    pub tag: u64,
-    pub unit_type: u32,
-    pub alliance: Alliance,
-    pub position: Position,
-    pub health: f32,
-    pub health_max: f32,
-    pub shield: f32,
-    pub shield_max: f32,
-    pub build_progress: f32,
-    pub radius: f32,
-    pub orders: Vec<UnitOrder>,
-    pub display_fields: Vec<(String, String)>,
-}
-
-impl Default for Alliance {
-    fn default() -> Self {
-        Self::Unknown(0)
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RasterLayer {
-    pub width: u32,
-    pub height: u32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MapSnapshot {
-    pub visibility: Option<RasterLayer>,
-    pub creep: Option<RasterLayer>,
-    pub energy: Option<RasterLayer>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct StaticMap {
-    pub pathing: RasterLayer,
-    pub placement: RasterLayer,
-    pub height: RasterLayer,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PlayerSnapshot {
-    pub minerals: u32,
-    pub vespene: u32,
-    pub food_used: u32,
-    pub food_cap: u32,
-    pub army_count: u32,
-    pub worker_count: u32,
-    pub idle_workers: u32,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Frame {
     pub source: FrameSource,
     pub player_id: PlayerId,
     pub game_loop: u32,
-    pub units: Vec<UnitSnapshot>,
-    pub map: Option<MapSnapshot>,
-    // pub static_map: Option<StaticMap>,
-    pub player: Option<PlayerSnapshot>,
-    pub player_results: Vec<String>,
+    // Own the protocol payload directly; consumers borrow it from frame history.
+    pub observation: ResponseObservation,
     pub debug_draws: Vec<DebugDrawPrimitive>,
     pub debug_texts: Vec<DebugTextPrimitive>,
 }
 
-#[derive(Message, Clone)]
-pub struct FrameEvent {
-    pub frame: Frame,
+#[derive(Message)]
+pub struct FrameEvent;
+
+/// Own incoming frames until the frame system moves them into playback history.
+/// Notifications stay independently readable through Bevy's message readers.
+#[derive(Resource, Default)]
+pub(crate) struct PendingFrames(pub VecDeque<Frame>);
+
+pub(crate) fn publish_frame(world: &mut World, frame: Frame) {
+    world.resource_mut::<PendingFrames>().0.push_back(frame);
+    world.write_message(FrameEvent);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FrameHistory {
     capacity: usize,
     frames: VecDeque<Frame>,
@@ -193,11 +117,7 @@ impl Frame {
             source,
             player_id,
             game_loop,
-            units: Vec::new(),
-            map: None,
-            // static_map: None,
-            player: None,
-            player_results: Vec::new(),
+            observation: ResponseObservation::new(),
             debug_draws: Vec::new(),
             debug_texts: Vec::new(),
         }
