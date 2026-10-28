@@ -80,15 +80,54 @@ impl ResponseFrameAssembler {
                         format!("Player {}: {outcome}", result.get_player_id())
                     })
                     .collect();
-                None
+                if observation
+                    .player_result
+                    .iter()
+                    .any(|result| result.has_result())
+                {
+                    let mut frame = self.current.take()?;
+                    // frame.static_map = self.static_map.clone();
+                    Some(frame)
+                } else {
+                    None
+                }
             }
             sc2_proto::sc2api::Response_oneof_response::step(_) => {
                 let mut frame = self.current.take()?;
-                frame.static_map = self.static_map.clone();
+                // frame.static_map = self.static_map.clone();
                 Some(frame)
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sc2_proto::sc2api::{PlayerResult, ResponseObservation, Result as GameResult};
+
+    #[test]
+    fn terminal_observation_completes_frame_without_step_response() {
+        let mut assembler = ResponseFrameAssembler::default();
+        let mut observation = ResponseObservation::new();
+        observation.mut_observation().set_game_loop(42);
+
+        let mut player_result = PlayerResult::new();
+        player_result.set_player_id(1);
+        player_result.set_result(GameResult::Victory);
+        observation.player_result.push(player_result);
+
+        let mut response = Response::new();
+        response.set_observation(observation);
+
+        let frame = assembler
+            .push(FrameSource::Game, PlayerId::Player1, &response)
+            .expect("terminal observation should complete its frame");
+
+        assert_eq!(frame.game_loop, 42);
+        assert_eq!(frame.player_results, ["Player 1: Victory"]);
+        assert!(assembler.current.is_none());
     }
 }
 
