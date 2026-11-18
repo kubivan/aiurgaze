@@ -135,15 +135,12 @@ dependencies = [
  "config",
  "directories",
  "futures-util",
- "ldtk_rust",
  "log",
  "protobuf",
  "rfd",
  "sc2-proto",
  "serde",
- "serde_json",
  "thiserror 2.0.19",
- "tiled",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
@@ -578,12 +575,6 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -1242,7 +1233,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "704ec362cc84b5e55e894cbf7500926728ae78aa465da576586185b2f1dce76e"
 dependencies = [
  "async-lock",
- "base64 0.23.1",
+ "base64",
  "bevy_animation",
  "bevy_app",
  "bevy_asset",
@@ -1275,6 +1266,7 @@ dependencies = [
 [[package]]
 name = "bevy_health_bar3d"
 version = "3.10.0"
+source = "git+https://github.com/kubivan/bevy_health_bar.git?branch=main#3e55900cebb0e581795a091abdcd131bfa014724"
 dependencies = [
  "bevy",
  "ordered-float 4.6.0",
@@ -4102,16 +4094,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
-name = "ldtk_rust"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e6ec9d145e9e4265fc8d473114353c07ab84a21ea1e1ad7c86ba7fc6337aebe"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "lewton"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6195,17 +6177,6 @@ dependencies = [
  "quick-error",
  "weezl",
  "zune-jpeg",
-]
-
-[[package]]
-name = "tiled"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "686d8bd018fa242dff6fa734e73bec17be3cf44d9da1a6236ed15f5a09ef18f2"
-dependencies = [
- "base64 0.22.1",
- "flate2",
- "xml-rs",
 ]
 
 [[package]]

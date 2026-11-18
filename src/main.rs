@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-#![allow(deprecated)]
 #![allow(clippy::too_many_arguments)]
 
 // src/main.rs
@@ -12,7 +10,6 @@ mod debug_draw;
 mod entity_system;
 mod frame;
 mod fog_material;
-mod helpers;
 mod map;
 mod net_helpers;
 mod proxy_channel;
