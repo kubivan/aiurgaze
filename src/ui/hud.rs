@@ -3,8 +3,8 @@ use crate::controller::{
     GameResultState, PlayerResources, ProtocolActivityState, ReplayExportCompleteEvent,
 };
 use crate::proxy_channel::PlayerId;
-use crate::ui::state::ReplaySaveState;
 use crate::ui::start_screen::beveled_button;
+use crate::ui::state::ReplaySaveState;
 use crate::units::{UnitBuildProgress, UnitType};
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -59,10 +59,7 @@ pub fn render_status_bar(
                                 ui.colored_label(egui::Color32::RED, "Not found");
                             }
                             DockerStatus::Error(error) => {
-                                ui.colored_label(
-                                    egui::Color32::RED,
-                                    format!("Error: {error}"),
-                                );
+                                ui.colored_label(egui::Color32::RED, format!("Error: {error}"));
                             }
                         }
 
@@ -293,9 +290,9 @@ pub fn render_game_result(
                                     {
                                         Ok(Ok(())) => Some(Ok(display_path)),
                                         Ok(Err(error)) => Some(Err(error.to_string())),
-                                        Err(error) => Some(Err(format!(
-                                            "Replay file writer failed: {error}"
-                                        ))),
+                                        Err(error) => {
+                                            Some(Err(format!("Replay file writer failed: {error}")))
+                                        }
                                     }
                                 }
                                 None => None,

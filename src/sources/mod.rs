@@ -8,9 +8,7 @@ pub(crate) fn spawn_frame_stream<A>(
     mut responses: tokio::sync::mpsc::Receiver<crate::proxy_channel::TaggedResponse>,
     mut assemble: A,
 ) where
-    A: FnMut(crate::proxy_channel::TaggedResponse) -> Option<crate::frame::Frame>
-        + Send
-        + 'static,
+    A: FnMut(crate::proxy_channel::TaggedResponse) -> Option<crate::frame::Frame> + Send + 'static,
 {
     runtime.spawn_background_task(move |ctx| async move {
         while let Some(response) = responses.recv().await {

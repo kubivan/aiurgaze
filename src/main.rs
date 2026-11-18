@@ -8,8 +8,8 @@ mod chat_overlay;
 mod controller;
 mod debug_draw;
 mod entity_system;
-mod frame;
 mod fog_material;
+mod frame;
 mod map;
 mod net_helpers;
 mod proxy_channel;
@@ -31,20 +31,19 @@ use crate::app_settings::{
 };
 use crate::bot_runner::{bot_process_system, BotProcessStatus, StartBotProcessesEvent};
 use crate::chat_overlay::{update_chat_overlay, ChatMessageEvent, ChatOverlay};
+use crate::controller::setup_proxies;
 use crate::controller::{
     current_frame_system, map_init_system, protocol_activity_system, refresh_3d_terrain_mesh,
     refresh_map_colors_on_layer_change, render_current_frame, save_replay_response_system,
-    update_player_resources, Fog3dMaterialHandle, FogMaterialHandle,
-    FogOfWarData, FogOfWarHandle, GameInfoEvent, GameResultState, LastVisionMode, MapResource,
-    PlayerResources, ProtocolActivityEvent, ProtocolActivityState, ReplayStatusEvent,
-    SaveReplayResponseEvent,
+    update_player_resources, Fog3dMaterialHandle, FogMaterialHandle, FogOfWarData, FogOfWarHandle,
+    GameInfoEvent, GameResultState, LastVisionMode, MapResource, PlayerResources,
+    ProtocolActivityEvent, ProtocolActivityState, ReplayStatusEvent, SaveReplayResponseEvent,
 };
-use crate::controller::setup_proxies;
-use crate::frame::FrameEvent;
 use crate::debug_draw::{
     debug_draw_message_system, render_debug_draws_2d, render_debug_draws_3d, DebugDrawEvent,
 };
 use crate::entity_system::{setup_entity_system, EntitySystem};
+use crate::frame::FrameEvent;
 use crate::map::{terrain_height_to_world_y, Terrain3dMeshDirty, Terrain3dSettings};
 use crate::proxy_channel::{ProxyReadySignal, ProxyStreamPause};
 use crate::render_layers::{
@@ -56,9 +55,8 @@ use crate::ui::game_config_panel::list_maps_folder;
 use crate::ui::GameType;
 use crate::ui::{
     camera_controls_2d, camera_controls_3d, setup_camera, switch_render_camera, ui_system,
-    AppState, CameraPanState, DockerStatus, GameConfigPanel, GameCreated, PendingBotStart,
-    GameControlsVisibility, PendingCreateGameRequest, StartScreenPanel,
-    VisionModeChannel,
+    AppState, CameraPanState, DockerStatus, GameConfigPanel, GameControlsVisibility, GameCreated,
+    PendingBotStart, PendingCreateGameRequest, StartScreenPanel, VisionModeChannel,
 };
 use crate::units::{
     cleanup_dead_units, unit_selection_2d, unit_selection_3d, update_unit_3d_billboards,
@@ -418,10 +416,7 @@ fn main() {
             map_init_system.run_if(not(resource_exists::<MapResource>)),
         )
         .add_systems(Update, current_frame_system)
-        .add_systems(
-            Update,
-            render_current_frame.after(current_frame_system),
-        )
+        .add_systems(Update, render_current_frame.after(current_frame_system))
         .add_systems(Update, protocol_activity_system)
         .add_systems(Update, update_player_resources.after(current_frame_system))
         .add_systems(Update, crate::controller::replay_status_system)

@@ -28,16 +28,17 @@ use crate::map::{
     blend_tile_color, build_terrain_mesh, spawn_tilemap, Terrain3dMeshDirty, Terrain3dSettings,
     TerrainLayer, TerrainLayers,
 };
-use crate::sources::game::{create_game_info_stream, GameResponseStream, VisionMode};
 use crate::proxy_channel::{
     create_observer_channel, observer_response_stream, CreateGameSignal, JoinResponseBarrier,
     MultiplayerPorts, PlayerId, ProxyDataChannel, ProxyReadySignal, TaggedResponse,
 };
 use crate::render_layers::{LayerRegistry, RenderLayerKind, RenderLayerMarker, ViewModeVisibility};
 use crate::render_view::RenderViewMode;
+use crate::sources::game::{create_game_info_stream, GameResponseStream, VisionMode};
 use crate::ui::VisionModeChannel;
 use crate::units::{
-    apply_observation_units, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress, UnitRegistry,
+    apply_observation_units, ObservationUnitTags, Unit3dRenderAssets, UnitBuildProgress,
+    UnitRegistry,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -77,12 +78,7 @@ pub fn save_replay_response_system(
     mut save_state: ResMut<crate::ui::ReplaySaveState>,
 ) {
     for event in events.read() {
-        let Some(data) = event
-            .data
-            .as_ref()
-            .filter(|data| !data.is_empty())
-            .cloned()
-        else {
+        let Some(data) = event.data.as_ref().filter(|data| !data.is_empty()).cloned() else {
             save_state.status = Some("SC2 could not prepare replay data.".to_string());
             continue;
         };
@@ -296,16 +292,33 @@ mod tests {
             .init_resource::<crate::ui::ReplaySaveState>()
             .add_systems(
                 Update,
-                (current_frame_system, update_player_resources, count_notifications).chain(),
+                (
+                    current_frame_system,
+                    update_player_resources,
+                    count_notifications,
+                )
+                    .chain(),
             );
 
         // Startup without observations must leave both systems runnable.
         app.update();
-        assert!(app.world().resource::<LoopPlaybackState>().current_frame().is_none());
+        assert!(app
+            .world()
+            .resource::<LoopPlaybackState>()
+            .current_frame()
+            .is_none());
 
         for game_loop in [10, 20] {
-            let mut frame = Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, game_loop);
-            frame.observation.mut_observation().mut_player_common().set_minerals(game_loop);
+            let mut frame = Frame::new(
+                crate::frame::FrameSource::Game,
+                PlayerId::Player1,
+                game_loop,
+            );
+            frame
+                .observation
+                .mut_observation()
+                .mut_player_common()
+                .set_minerals(game_loop);
             crate::frame::publish_frame(app.world_mut(), frame);
         }
         app.update();
@@ -360,9 +373,17 @@ mod tests {
             history: FrameHistory::new(1),
             ..Default::default()
         };
-        state.push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 10));
+        state.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            10,
+        ));
         state.pause();
-        state.push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 20));
+        state.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            20,
+        ));
         assert_eq!(state.selected_loop, 20);
         assert_eq!(state.current_frame().unwrap().game_loop, 20);
     }
@@ -370,15 +391,21 @@ mod tests {
     #[test]
     fn loop_playback_selects_latest_known_frame() {
         let mut state = LoopPlaybackState::default();
-        state
-            .history
-            .push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 10));
-        state
-            .history
-            .push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 20));
-        state
-            .history
-            .push_frame(Frame::new(crate::frame::FrameSource::Game, PlayerId::Player1, 30));
+        state.history.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            10,
+        ));
+        state.history.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            20,
+        ));
+        state.history.push_frame(Frame::new(
+            crate::frame::FrameSource::Game,
+            PlayerId::Player1,
+            30,
+        ));
 
         state.selected_loop = 25;
         let frame = state.frame_for_loop(state.selected_loop).unwrap();
@@ -412,10 +439,7 @@ mod tests {
 
         let current = state.current_frame().unwrap();
 
-        assert_eq!(
-            current.debug_texts[0].text,
-            "frame text"
-        );
+        assert_eq!(current.debug_texts[0].text, "frame text");
         assert!(matches!(
             &current.debug_draws[0],
             crate::debug_draw::DebugDrawPrimitive::Line { start, end, .. }
@@ -437,9 +461,9 @@ mod tests {
             .debug_texts
             .push(crate::debug_draw::DebugTextPrimitive {
                 text: "persistent".to_owned(),
-                position: crate::debug_draw::DebugTextPosition::Virtual(
-                    bevy::prelude::Vec2::new(0.5, 0.5),
-                ),
+                position: crate::debug_draw::DebugTextPosition::Virtual(bevy::prelude::Vec2::new(
+                    0.5, 0.5,
+                )),
                 color: bevy::prelude::Color::WHITE,
                 size: 8.0,
             });
@@ -556,10 +580,8 @@ pub struct Fog3dMaterialHandle {
 ///
 /// Creates one or two proxy channels depending on game mode,
 /// Returns a ProxyReadySignal that will be signaled when all proxies are ready.
-fn forward_messages<M>(
-    runtime: &TokioTasksRuntime,
-    mut messages: tokio::sync::mpsc::Receiver<M>,
-) where
+fn forward_messages<M>(runtime: &TokioTasksRuntime, mut messages: tokio::sync::mpsc::Receiver<M>)
+where
     M: Message + Send + Sync + 'static,
 {
     runtime.spawn_background_task(move |mut ctx| async move {
@@ -602,9 +624,11 @@ fn forward_protocol_activity(
                 player_id: tagged.player_id,
                 response_kind: response_kind_name(&tagged.response),
             };
-            let save_replay = (include_replay_events && tagged.response.has_save_replay())
-                .then(|| SaveReplayResponseEvent {
-                    data: tagged.response.get_save_replay().data.as_ref().cloned(),
+            let save_replay =
+                (include_replay_events && tagged.response.has_save_replay()).then(|| {
+                    SaveReplayResponseEvent {
+                        data: tagged.response.get_save_replay().data.as_ref().cloned(),
+                    }
                 });
             let replay_status = (include_replay_events && tagged.response.has_start_replay())
                 .then(|| tagged.response.get_start_replay())
@@ -965,8 +989,7 @@ pub fn current_frame_system(
         if vision_mode.current != VisionMode::All
             && !matches!(
                 (vision_mode.current, frame.player_id),
-                (VisionMode::Player1, PlayerId::Player1)
-                    | (VisionMode::Player2, PlayerId::Player2)
+                (VisionMode::Player1, PlayerId::Player1) | (VisionMode::Player2, PlayerId::Player2)
             )
         {
             continue;
@@ -1307,8 +1330,7 @@ pub fn map_init_system(
             .as_ref()
             .and_then(|raw| raw.pathing_grid.as_ref())
             .is_some()
-    })
-    else {
+    }) else {
         return;
     };
 

@@ -27,9 +27,7 @@ pub(crate) fn spawn_frames(
     responses: tokio::sync::mpsc::Receiver<TaggedResponse>,
 ) {
     let mut assembler = FrameAssembler::default();
-    super::spawn_frame_stream(runtime, responses, move |response| {
-        assembler.push(response)
-    });
+    super::spawn_frame_stream(runtime, responses, move |response| assembler.push(response));
 }
 
 pub(crate) async fn run(
