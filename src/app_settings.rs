@@ -54,33 +54,7 @@ pub fn get_config_path() -> PathBuf {
 pub struct AppSettings {
     pub window: WindowConfig,
     pub starcraft: StarcraftConfig,
-    #[serde(skip)]
-    pub config_path: PathBuf,
-    #[serde(skip)]
-    pub entity_display: EntityDisplayConfig,
-    #[serde(skip)]
-    pub unit_by_id: std::collections::HashMap<u32, DisplayInfo>,
     pub game_config_panel: GameConfigPanelDefaults,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct AbilityData {
-    pub id: u32,
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct UnitData {
-    pub id: u32,
-    pub name: String,
-    pub radius: Option<f32>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct EntityDisplayConfig {
-    #[serde(default)]
-    pub map: Option<MapConfig>,
-    pub unit: std::collections::HashMap<String, DisplayInfo>, // id-keyed as strings from TOML [unit.<id>]
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -135,25 +109,11 @@ impl MapConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct DisplayInfo {
-    pub name: Option<String>,
-    pub icon: Option<String>,
-    pub fields: Option<Vec<String>>,
-    pub label: Option<String>,
-    pub color: Option<String>,
-    pub size: Option<f32>,
-    pub radius: Option<f32>,
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             window: WindowConfig::default(),
             starcraft: StarcraftConfig::default(),
-            config_path: PathBuf::from("config/entities.toml"),
-            entity_display: EntityDisplayConfig::default(),
-            unit_by_id: std::collections::HashMap::new(),
             game_config_panel: GameConfigPanelDefaults::default(),
         }
     }
@@ -166,7 +126,7 @@ pub fn load_settings() -> AppSettings {
     let config_path_str = config_file.to_str().unwrap_or("config.toml");
 
     // Load main config from config.toml
-    let mut settings: AppSettings = config::Config::builder()
+    let settings: AppSettings = config::Config::builder()
         .add_source(config::File::with_name(config_path_str).required(false))
         .build()
         .and_then(|c| c.try_deserialize())
@@ -178,34 +138,9 @@ pub fn load_settings() -> AppSettings {
             AppSettings::default()
         });
 
-    // Set config path for entities
-    settings.config_path = PathBuf::from("config/entities.toml");
-
-    // Read entities.toml for both entity display and map/style configuration
-    let entities_config = config::Config::builder()
-        .add_source(config::File::with_name(settings.config_path.to_str().unwrap()).required(false))
-        .build()
-        .unwrap_or_default();
-
-    // Extract entity_display config (which now includes map config)
-    let entity_display: EntityDisplayConfig = entities_config
-        .clone()
-        .try_deserialize()
-        .unwrap_or_default();
-
-    settings.entity_display = entity_display.clone();
-
-    // Load data.json
-
-    // Build unit_by_id (empty for now, entities are loaded in EntitySystem)
-    let unit_by_id = std::collections::HashMap::new();
-
     AppSettings {
-        entity_display: settings.entity_display,
-        unit_by_id,
         window: settings.window,
         starcraft: settings.starcraft,
-        config_path: settings.config_path,
         game_config_panel: settings.game_config_panel,
     }
 }

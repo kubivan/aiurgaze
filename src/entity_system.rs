@@ -1,49 +1,17 @@
 use crate::app_settings::{get_data_dir, MapConfig};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::from_reader;
 use std::collections::HashMap;
-use std::fs::File;
 
 /// Resource that holds all entity data and pre-loaded assets
 #[derive(Resource)]
 pub struct EntitySystem {
     /// Map configuration (style, colors, etc.) from entities.toml [map] section
     pub map_config: MapConfig,
-    /// Unit data by ID (from data.json)
-    pub unit_traits: HashMap<u32, UnitData>,
-    /// Ability data by ID (from data.json)
-    pub abilities: HashMap<u32, AbilityData>,
     /// Pre-loaded icon handles by unit type
     pub icon_handles: HashMap<u32, Handle<Image>>,
     /// Display configuration by unit ID (from entities.toml)
     pub display_config: HashMap<u32, EntityDisplayInfo>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct UnitData {
-    pub id: u32,
-    pub name: String,
-    #[serde(default)]
-    pub radius: Option<f32>,
-    #[serde(default)]
-    pub food_required: Option<f32>,
-    #[serde(default)]
-    pub mineral_cost: Option<u32>,
-    #[serde(default)]
-    pub vespene_cost: Option<u32>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AbilityData {
-    pub id: u32,
-    pub name: String,
-    #[serde(default)]
-    pub cast_range: Option<f32>,
-    #[serde(default)]
-    pub energy_cost: Option<u32>,
-    #[serde(default)]
-    pub cooldown: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -52,14 +20,6 @@ pub struct EntityDisplayInfo {
     pub icon: Option<String>,
     #[serde(default)]
     pub tile_size: Option<[f32; 2]>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct DataJson {
-    #[serde(rename = "Unit", default)]
-    pub unit: Vec<UnitData>,
-    #[serde(rename = "Ability", default)]
-    pub ability: Vec<AbilityData>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -81,30 +41,11 @@ struct EntitiesConfig {
 }
 
 impl EntitySystem {
-    /// Load entity system from data.json and entities.toml
+    /// Load entity display settings and icons from entities.toml.
     pub fn load(asset_server: &AssetServer) -> Self {
         info!("Loading EntitySystem...");
 
         let data_dir = get_data_dir();
-
-        // Load data.json
-        let data_json_path = data_dir.join("data.json");
-        let data_json_file = File::open(&data_json_path)
-            .unwrap_or_else(|_| panic!("Failed to open {:?}", data_json_path));
-
-        let data: DataJson = from_reader(data_json_file).expect("Failed to parse data.json");
-
-        // Build unit and ability maps
-        let units = data
-            .unit
-            .into_iter()
-            .map(|u| (u.id, u))
-            .collect::<HashMap<u32, UnitData>>();
-
-        let mut abilities = HashMap::new();
-        for ability in data.ability {
-            abilities.insert(ability.id, ability);
-        }
 
         // Display configuration by unit ID (from entities.toml)
         let mut map_config = MapConfig::default();
@@ -149,26 +90,9 @@ impl EntitySystem {
 
         Self {
             map_config,
-            unit_traits: units,
-            abilities,
             icon_handles,
             display_config,
         }
-    }
-
-    /// Get unit data by ID
-    pub fn get_unit(&self, unit_id: u32) -> Option<&UnitData> {
-        self.unit_traits.get(&unit_id)
-    }
-
-    /// Get ability data by ID
-    pub fn get_ability(&self, ability_id: u32) -> Option<&AbilityData> {
-        self.abilities.get(&ability_id)
-    }
-
-    /// Get ability name by ID
-    pub fn ability_name(&self, ability_id: u32) -> Option<&str> {
-        self.abilities.get(&ability_id).map(|a| a.name.as_str())
     }
 
     /// Get pre-loaded icon handle for a unit type
@@ -186,9 +110,6 @@ impl EntitySystem {
         self.display_config
             .get(&unit_id)
             .and_then(|info| info.tile_size)
-    }
-    pub fn unit_name(&self, unit_id: u32) -> Option<&str> {
-        self.unit_traits.get(&unit_id).map(|u| u.name.as_str())
     }
 }
 
