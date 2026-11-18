@@ -72,7 +72,7 @@ use crate::units::{draw_unit_orders_2d, draw_unit_orders_3d};
 use bevy::asset::AssetPlugin;
 use bevy::color::palettes::basic::{GREEN, RED};
 use bevy_ecs_tilemap::TilemapPlugin;
-use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use sc2_proto::sc2api::Request_oneof_request;
 use std::process::Command;
@@ -342,6 +342,10 @@ fn main() {
         )
         .add_plugins(TilemapPlugin)
         .add_plugins(EguiPlugin::default())
+        .insert_resource(EguiGlobalSettings {
+            auto_create_primary_context: false,
+            ..default()
+        })
         .add_plugins(TokioTasksPlugin::default())
         .add_plugins(Material2dPlugin::<FogOfWarMaterial>::default())
         .add_plugins(MaterialPlugin::<FogOfWarMaterial3d>::default())

@@ -11,6 +11,7 @@ include = [
     "config/**",
     "data/**",
     "build.rs",
+    "vendor/bevy_health_bar3d/**",
     "Cargo.toml",
     "README.md",
 ]
@@ -22,14 +23,14 @@ bytes = "1"
 log = "0.4"
 
 # --- Rendering / UI ---
-bevy = { version = "0.19.0", features = ["default", "webp"]}
-bevy_egui = "0.42"
-bevy_ecs_tilemap = "0.19.0"
-bevy-tokio-tasks = "0.19.0"
+bevy = { version = "0.20.0", features = ["default", "webp"]}
+bevy_egui = "0.43"
+bevy_ecs_tilemap = "0.20.0"
+bevy-tokio-tasks = "0.20.0"
 
 #bevy_health_bar3d = "*"
 # bevy_health_bar3d = { version = "3.10.0", default-features = false, features = ["2d"] }
-bevy_health_bar3d = { git = "https://github.com/kubivan/bevy_health_bar.git", branch = "main", default-features = false, features = ["2d"] }
+bevy_health_bar3d = { path = "vendor/bevy_health_bar3d", default-features = false, features = ["2d"] }
 
 # tiled = { version = "0.15.0", default-features = false }
 

@@ -2,10 +2,12 @@ use crate::render_view::RenderViewMode;
 use bevy::ecs::message::MessageReader;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
+use bevy_egui::PrimaryEguiContext;
 
 pub fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
+        PrimaryEguiContext,
         RenderCameraFor(RenderViewMode::TwoD),
         Transform::from_xyz(0.0, 0.0, 1000.0),
     ));
