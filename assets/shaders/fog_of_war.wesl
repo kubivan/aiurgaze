@@ -1,3 +1,5 @@
+import bevy_sprite_render::mesh2d::vertex_output::VertexOutput;
+
 // ═══════════════════════════════════════════════════════════════════════
 // Fog-of-war overlay — RTS-quality atmospheric fog shader
 // ═══════════════════════════════════════════════════════════════════════
@@ -17,8 +19,6 @@
 //   • Gaussian blurred visibility edges (soft penumbra)
 //   • Premultiplied-safe straight-alpha output
 
-#import bevy_sprite::mesh2d_vertex_output::VertexOutput
-
 // ─── Bindings ────────────────────────────────────────────────────────
 
 struct FogUniforms {
@@ -30,9 +30,9 @@ struct FogUniforms {
     world_origin: vec2<f32>,    // fog quad center in world space
 };
 
-@group(2) @binding(0) var<uniform> fog: FogUniforms;
-@group(2) @binding(1) var fog_tex: texture_2d<f32>;
-@group(2) @binding(2) var fog_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> fog: FogUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var fog_tex: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var fog_sampler: sampler;
 
 // ─── Hash helpers ────────────────────────────────────────────────────
 

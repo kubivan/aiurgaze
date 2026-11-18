@@ -13,7 +13,7 @@ SC2 Protobuf Observation
                  └─ update_fog_texture()  [main.rs]
                       writes to Assets<Image> + invalidates FogOfWarMaterial
                       └─ Bevy re-prepares bind group → GpuImage re-uploaded
-                           └─ fog_of_war.wgsl samples the updated texture
+                           └─ fog_of_war.wesl samples the updated texture
 ```
 
 ## Visibility Encoding
@@ -47,9 +47,9 @@ The texture starts as all-255 (fully visible) so the map appears clear before th
 
 **Why `materials.get_mut()` is required after texture upload:** Bevy re-creates the `GpuImage` when an `Image` asset is modified, but the `Material2d` bind group — which holds the GPU texture handle the shader actually samples — is only rebuilt when the *material* asset is also marked modified. Without touching the material, the shader keeps sampling the original texture forever.
 
-## Shader (`fog_of_war.wgsl`)
+## Shader (`fog_of_war.wesl`)
 
-The fragment shader is responsible for all visual rendering. It receives the R8Unorm texture and a uniform block (`FogUniforms`) containing camera position, elapsed time, light direction, and the quad's world-space size and origin.
+The fragment shader is responsible for all visual rendering. It receives the R8Unorm texture and a uniform block (`FogUniforms`) containing camera position, elapsed time, light direction, and the quad's world-space size and origin. Both fog shaders use Bevy 0.20's WESL syntax and material bind-group constant.
 
 ### UV Mapping
 
