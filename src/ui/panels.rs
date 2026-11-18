@@ -1,8 +1,6 @@
 use crate::app_settings::AppSettings;
 use crate::chat_overlay::ChatOverlay;
-use crate::controller::{
-    GameResultState, MapResource, PlayerResources, ProtocolActivityState,
-};
+use crate::controller::{GameResultState, MapResource, PlayerResources, ProtocolActivityState};
 use crate::debug_draw::render_debug_texts;
 use crate::entity_system::EntitySystem;
 use crate::map::Terrain3dSettings;
@@ -13,7 +11,8 @@ use crate::ui::hud::{render_game_result, render_hud, render_status_bar};
 use crate::ui::DockerStatus;
 use crate::ui::{
     render_start_screen, AppState, GameConfigPanel, GameControlsVisibility, GameCreated,
-    PendingBotStart, PendingCreateGameRequest, ReplaySaveState, StartScreenPanel, VisionModeChannel,
+    PendingBotStart, PendingCreateGameRequest, ReplaySaveState, StartScreenPanel,
+    VisionModeChannel,
 };
 use crate::units::{
     CurrentOrderAbility, SelectedUnit, UnitBuildProgress, UnitCompositionVisibility, UnitProto,
@@ -149,7 +148,8 @@ pub fn ui_system(
         );
         render_debug_texts(
             &ctx,
-            playback.current_frame()
+            playback
+                .current_frame()
                 .map(|frame| frame.debug_texts.as_slice())
                 .unwrap_or(&[]),
             &layer_registry,

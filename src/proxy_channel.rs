@@ -12,9 +12,9 @@
 pub(crate) mod bridge;
 mod coordination;
 
+pub use crate::frame::PlayerId;
 use bridge::{accept_proxy_client, connect_upstream, create_game, BridgeOptions};
 pub use coordination::{CreateGameSignal, JoinResponseBarrier, MultiplayerPorts, ProxyReadySignal};
-pub use crate::frame::PlayerId;
 
 use bevy::prelude::Resource;
 use futures_util::StreamExt;
@@ -304,7 +304,6 @@ impl ProxyDataChannel {
         )
         .await
     }
-
 }
 
 // ─── Observer broadcast channel helper ──────────────────────────────────────

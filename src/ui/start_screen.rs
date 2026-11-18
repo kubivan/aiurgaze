@@ -113,8 +113,7 @@ fn apply_terminal_theme(ui: &mut egui::Ui) {
     style.visuals.text_edit_bg_color = Some(egui::Color32::from_rgb(5, 12, 25));
     style.visuals.selection.bg_fill = egui::Color32::from_rgb(30, 75, 120);
     style.visuals.selection.stroke = egui::Stroke::new(1.0, BLUE);
-    style.visuals.widgets.noninteractive.fg_stroke.color =
-        egui::Color32::from_rgb(205, 219, 231);
+    style.visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_rgb(205, 219, 231);
     style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(10, 20, 37);
     style.visuals.widgets.inactive.bg_stroke =
         egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 75, 111));
@@ -197,10 +196,8 @@ fn render_masthead(ui: &mut egui::Ui) {
         );
     });
     ui.add_space(10.0);
-    let (line, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), 1.0),
-        egui::Sense::hover(),
-    );
+    let (line, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
     ui.painter().line_segment(
         [line.left_top(), line.right_top()],
         egui::Stroke::new(1.0, BLUE),
@@ -237,20 +234,13 @@ fn render_start_screen_layout(
                 let available_height = ui.available_height();
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(10, 16, 29))
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        egui::Color32::from_rgb(47, 72, 111),
-                    ))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(47, 72, 111)))
                     .corner_radius(egui::CornerRadius::same(4))
                     .inner_margin(egui::Margin::same(20))
                     .show(ui, |ui| {
                         ui.set_min_width(right_width - 40.0);
                         match start_screen.page {
-                            StartScreenPage::Home => render_home_panel(
-                                ui,
-                                start_screen,
-                                runtime,
-                            ),
+                            StartScreenPage::Home => render_home_panel(ui, start_screen, runtime),
                             StartScreenPage::CreateMatch => {
                                 render_card_heading(ui, "01", "MISSION CONFIGURATION");
                                 ui.label(
@@ -264,9 +254,9 @@ fn render_start_screen_layout(
                                 ui.separator();
 
                                 let scroll_height = (available_height - 174.0).max(140.0);
-                                egui::ScrollArea::vertical()
-                                    .max_height(scroll_height)
-                                    .show(ui, |ui| {
+                                egui::ScrollArea::vertical().max_height(scroll_height).show(
+                                    ui,
+                                    |ui| {
                                         if show_game_config_panel(ui, game_config_panel) {
                                             match build_create_game_request(game_config_panel) {
                                                 Ok(request) => {
@@ -276,13 +266,10 @@ fn render_start_screen_layout(
                                                     pending_request.0 = Some(request);
                                                     game_created.0 = true;
                                                     **app_state = AppState::GameScreen;
-                                                    pending_bot_start.0 =
-                                                        build_pending_bot_start(
-                                                            game_config_panel,
-                                                            app_settings
-                                                                .starcraft
-                                                                .listen_port,
-                                                        );
+                                                    pending_bot_start.0 = build_pending_bot_start(
+                                                        game_config_panel,
+                                                        app_settings.starcraft.listen_port,
+                                                    );
                                                 }
                                                 Err(error) => {
                                                     eprintln!("Create game failed: {error}");
@@ -290,7 +277,8 @@ fn render_start_screen_layout(
                                                 }
                                             }
                                         }
-                                    });
+                                    },
+                                );
                                 ui.add_space(8.0);
                                 if beveled_button(
                                     ui,
@@ -333,15 +321,27 @@ fn render_welcome_panel(ui: &mut egui::Ui) {
             .size(16.0),
     );
     ui.label(
-        egui::RichText::new("Launch a match, watch your bots, and inspect the battle in real time.")
-            .color(MUTED)
-            .size(12.0),
+        egui::RichText::new(
+            "Launch a match, watch your bots, and inspect the battle in real time.",
+        )
+        .color(MUTED)
+        .size(12.0),
     );
 
     ui.add_space(30.0);
-    render_feature_line(ui, "01", "LIVE BATTLEFIELD", "Stream game state as it unfolds.");
+    render_feature_line(
+        ui,
+        "01",
+        "LIVE BATTLEFIELD",
+        "Stream game state as it unfolds.",
+    );
     ui.add_space(14.0);
-    render_feature_line(ui, "02", "TACTICAL OVERLAYS", "Inspect terrain, vision, and units.");
+    render_feature_line(
+        ui,
+        "02",
+        "TACTICAL OVERLAYS",
+        "Inspect terrain, vision, and units.",
+    );
     ui.add_space(14.0);
     render_feature_line(ui, "03", "BOT ARENA", "Run one or two local bot processes.");
 }
@@ -422,8 +422,7 @@ fn render_home_panel(
     )
     .clicked()
     {
-        ui.ctx()
-            .send_viewport_cmd(egui::ViewportCommand::Close);
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
     }
 }
 
@@ -499,12 +498,7 @@ pub(crate) fn beveled_button(
 
 fn render_feature_line(ui: &mut egui::Ui, number: &str, title: &str, detail: &str) {
     ui.horizontal_top(|ui| {
-        ui.label(
-            egui::RichText::new(number)
-                .color(BLUE)
-                .size(10.0)
-                .strong(),
-        );
+        ui.label(egui::RichText::new(number).color(BLUE).size(10.0).strong());
         ui.vertical(|ui| {
             ui.label(
                 egui::RichText::new(title)
@@ -512,11 +506,7 @@ fn render_feature_line(ui: &mut egui::Ui, number: &str, title: &str, detail: &st
                     .size(11.0)
                     .strong(),
             );
-            ui.label(
-                egui::RichText::new(detail)
-                    .color(MUTED)
-                    .size(10.0),
-            );
+            ui.label(egui::RichText::new(detail).color(MUTED).size(10.0));
         });
     });
 }

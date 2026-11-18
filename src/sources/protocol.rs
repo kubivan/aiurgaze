@@ -78,11 +78,21 @@ mod tests {
             .push(FrameSource::Replay, PlayerId::Player2, step)
             .unwrap();
         assert_eq!(
-            frame.observation.get_observation().get_raw_data().get_units().as_ptr(),
+            frame
+                .observation
+                .get_observation()
+                .get_raw_data()
+                .get_units()
+                .as_ptr(),
             units_ptr
         );
         assert_eq!(
-            frame.observation.get_observation().get_raw_data().get_units()[0].get_tag(),
+            frame
+                .observation
+                .get_observation()
+                .get_raw_data()
+                .get_units()[0]
+                .get_tag(),
             123
         );
     }

@@ -4,9 +4,9 @@ use futures_util::{SinkExt, StreamExt};
 use protobuf::Message;
 use protobuf::RepeatedField;
 use sc2_proto::debug::{DebugCommand, DebugGameState};
-use sc2_proto::sc2api::Response;
 use sc2_proto::sc2api::Request;
 use sc2_proto::sc2api::Request_oneof_request;
+use sc2_proto::sc2api::Response;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, connect_async};
 
@@ -124,7 +124,8 @@ pub(crate) async fn save_replay(
             .map_err(|error| format!("Protobuf encode save_replay: {error}"))?,
     )
     .await?;
-    let response = try_parse_response(&response_bytes).ok_or("Failed to parse save_replay response")?;
+    let response =
+        try_parse_response(&response_bytes).ok_or("Failed to parse save_replay response")?;
     if !response.has_save_replay() {
         return Err("SC2 returned an unexpected response to save_replay".into());
     }
@@ -335,7 +336,8 @@ pub(super) async fn accept_and_bridge(
                 let raw = message.into_data().to_vec();
 
                 if let Some(sender) = &debug_tx {
-                    if let Some(event) = crate::debug_draw::debug_draw_from_request(player_id, &raw) {
+                    if let Some(event) = crate::debug_draw::debug_draw_from_request(player_id, &raw)
+                    {
                         let _ = sender.try_send(event);
                     }
                 }

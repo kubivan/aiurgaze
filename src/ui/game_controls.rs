@@ -1,11 +1,11 @@
 use crate::controller::{LoopPlaybackMode, LoopPlaybackState};
 use crate::map::Terrain3dSettings;
-use crate::sources::game::VisionMode;
 use crate::proxy_channel::ProxyStreamPause;
 use crate::render_layers::{LayerRegistry, RenderLayerKind};
 use crate::render_view::RenderViewMode;
-use crate::ui::start_screen::beveled_button;
+use crate::sources::game::VisionMode;
 use crate::ui::selected_unit_info::render_selected_unit_info;
+use crate::ui::start_screen::beveled_button;
 use crate::units::{
     CurrentOrderAbility, SelectedUnit, UnitCompositionVisibility, UnitProto, UnitRegistry, UnitTag,
     UnitType,
@@ -227,10 +227,5 @@ fn render_layer_controls(ui: &mut egui::Ui, layer_registry: &mut ResMut<LayerReg
 }
 
 fn section_label(ui: &mut egui::Ui, label: &str) {
-    ui.label(
-        egui::RichText::new(label)
-            .color(BLUE)
-            .size(9.0)
-            .strong(),
-    );
+    ui.label(egui::RichText::new(label).color(BLUE).size(9.0).strong());
 }

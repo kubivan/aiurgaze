@@ -126,12 +126,7 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
                     panel.map_name = panel.available_maps.first().cloned();
                 }
                 egui::ComboBox::from_id_salt("map_name_combo")
-                    .selected_text(
-                        panel
-                            .map_name
-                            .as_deref()
-                            .unwrap_or("Select map"),
-                    )
+                    .selected_text(panel.map_name.as_deref().unwrap_or("Select map"))
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
                         for map in &panel.available_maps {
@@ -217,9 +212,15 @@ pub fn show_game_config_panel(ui: &mut egui::Ui, panel: &mut GameConfigPanel) ->
         ui.checkbox(&mut panel.disable_fog, "Disable fog");
         ui.checkbox(&mut panel.realtime, "Realtime");
         ui.label("Seed");
-        let mut seed = panel.random_seed.map(|value| value.to_string()).unwrap_or_default();
+        let mut seed = panel
+            .random_seed
+            .map(|value| value.to_string())
+            .unwrap_or_default();
         if ui
-            .add_sized(egui::vec2(90.0, 24.0), egui::TextEdit::singleline(&mut seed))
+            .add_sized(
+                egui::vec2(90.0, 24.0),
+                egui::TextEdit::singleline(&mut seed),
+            )
             .changed()
         {
             panel.random_seed = seed.parse().ok();
