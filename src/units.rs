@@ -211,6 +211,7 @@ pub fn apply_observation_units(
         let unit_radius = unit.radius.unwrap_or(1.0);
 
         let first_order_ability = unit.orders.first().and_then(|order| order.ability_id);
+        let render_z = render_z_for_alliance(unit.alliance);
 
         //Apply reddish tint for enemy units
         let sprite_color = match unit.alliance {
@@ -229,7 +230,7 @@ pub fn apply_observation_units(
 
         if let Some(&entity) = registry.map.get(&tag) {
             commands.entity(entity).insert((
-                Transform::from_xyz(world_position.x, world_position.y, 1.0),
+                Transform::from_xyz(world_position.x, world_position.y, render_z),
                 UnitHealth {
                     current: health,
                     max: max_health,
@@ -281,7 +282,7 @@ pub fn apply_observation_units(
                         color: sprite_color,
                         ..default()
                     },
-                    Transform::from_xyz(world_position.x, world_position.y, 1.0),
+                    Transform::from_xyz(world_position.x, world_position.y, render_z),
                     UnitTag(tag),
                     UnitType(unit_type),
                     UnitHealth {
@@ -340,6 +341,14 @@ pub fn apply_observation_units(
             );
             registry.map.insert(tag, entity);
         }
+    }
+}
+
+fn render_z_for_alliance(alliance: Option<Alliance>) -> f32 {
+    if matches!(alliance, Some(Alliance::Neutral)) {
+        0.5
+    } else {
+        1.0
     }
 }
 
@@ -446,6 +455,20 @@ fn spawn_unit_3d_visuals(
             fill_part,
             size,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_z_for_alliance;
+    use sc2_proto::raw::Alliance;
+
+    #[test]
+    fn neutral_map_objects_render_between_tiles_and_units() {
+        assert!(render_z_for_alliance(Some(Alliance::Neutral)) > 0.0);
+        assert!(render_z_for_alliance(Some(Alliance::Neutral)) < 1.0);
+        assert_eq!(render_z_for_alliance(Some(Alliance::Enemy)), 1.0);
+        assert_eq!(render_z_for_alliance(None), 1.0);
     }
 }
 
