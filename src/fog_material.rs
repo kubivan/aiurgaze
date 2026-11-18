@@ -43,7 +43,7 @@ pub struct FogOfWarMaterial {
 
 impl Material2d for FogOfWarMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/fog_of_war.wgsl".into()
+        "shaders/fog_of_war.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {
@@ -68,7 +68,7 @@ pub struct FogOfWarMaterial3d {
 
 impl Material for FogOfWarMaterial3d {
     fn fragment_shader() -> ShaderRef {
-        "shaders/fog_of_war_3d.wgsl".into()
+        "shaders/fog_of_war_3d.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {

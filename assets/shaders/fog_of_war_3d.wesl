@@ -1,4 +1,4 @@
-#import bevy_pbr::forward_io::VertexOutput
+import bevy_pbr::render::forward_io::VertexOutput;
 
 struct FogUniforms {
     camera_pos: vec3<f32>,
@@ -9,9 +9,9 @@ struct FogUniforms {
     world_origin: vec2<f32>,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> fog: FogUniforms;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var fog_tex: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var fog_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> fog: FogUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var fog_tex: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var fog_sampler: sampler;
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
